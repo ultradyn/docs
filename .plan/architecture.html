@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultradyn Docs — Agentic Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,600..800&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F7F8F5; --ink:#182420; --muted:#5A675F;
+  --pine:#155E4E; --amber:#B9770E; --leaf:#2E7D46; --brick:#AD3E2C;
+  --line:#DCE1DA; --card:#FFFFFF;
+  --mono:"IBM Plex Mono",monospace; --body:"Source Sans 3",sans-serif; --disp:"Archivo",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.6}
+a{color:var(--pine)}
+.wrap{display:grid;grid-template-columns:230px 1fr;max-width:1180px;margin:0 auto}
+nav{position:sticky;top:0;height:100vh;padding:2.2rem 1.2rem;border-right:1px solid var(--line);font-family:var(--mono);font-size:.78rem}
+nav .repo{color:var(--muted);margin-bottom:1.2rem}
+nav a{display:block;color:var(--ink);text-decoration:none;padding:.28rem 0 .28rem .9rem;border-left:2px solid transparent}
+nav a:hover,nav a:focus-visible{border-left-color:var(--amber);outline:none}
+main{padding:0 3rem 5rem}
+header.hero{padding:3.2rem 0 2rem;border-bottom:1px solid var(--line)}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;color:var(--muted);margin-bottom:.5rem}
+.eyebrow b{color:var(--amber);font-weight:500}
+h1{font-family:var(--disp);font-variation-settings:'wdth' 125;font-weight:800;font-size:clamp(2.2rem,5vw,3.4rem);line-height:1.02;letter-spacing:-.01em}
+h1 .thin{color:var(--pine)}
+.sub{max-width:56ch;color:var(--muted);margin-top:.9rem}
+.legend{display:flex;gap:1.4rem;flex-wrap:wrap;margin-top:1.2rem;font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+.legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:50%;margin-right:.4rem;vertical-align:-1px}
+section{padding:2.6rem 0;border-bottom:1px solid var(--line)}
+h2{font-family:var(--disp);font-variation-settings:'wdth' 125;font-weight:700;font-size:1.5rem;margin:.2rem 0 1rem}
+p{max-width:68ch;margin-bottom:.8rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1.2rem;margin:1.2rem 0;overflow-x:auto}
+.mermaid{display:flex;justify-content:center}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin:1rem 0}
+th,td{text-align:left;padding:.5rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:.72rem;font-weight:500;color:var(--muted);letter-spacing:.05em}
+td b{font-weight:600}
+code,.mono{font-family:var(--mono);font-size:.83em;background:#EEF1EC;border-radius:3px;padding:.05em .35em}
+.tiers{font-family:var(--mono);font-size:.82rem}
+.tiers span{display:inline-block;min-width:2.4rem;font-weight:500}
+.p1{color:var(--brick)} .p2{color:var(--amber)} .rest{color:var(--muted)}
+.fresh{font-family:var(--mono);font-size:.7rem;color:var(--pine);white-space:nowrap}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-family:var(--mono);font-size:.72rem;color:var(--muted);margin-top:.6rem}
+@media (max-width:860px){
+  .wrap{grid-template-columns:1fr}
+  nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:.2rem 1rem}
+  nav .repo{width:100%}
+  main{padding:0 1.2rem 4rem}
+}
+@media (prefers-reduced-motion:no-preference){
+  .pulse{animation:pulse 2.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav aria-label="Sections">
+  <div class="repo">ultradyn-docs.git ⌥ main</div>
+  <a href="#lifecycle">lifecycle</a>
+  <a href="#roster">agents/</a>
+  <a href="#loop-a">loop-a-ask</a>
+  <a href="#loop-b">loop-b-answer</a>
+  <a href="#loop-c">loop-c-integrate</a>
+  <a href="#loop-d">loop-d-agent-smith</a>
+  <a href="#priority">priority-rules</a>
+  <a href="#repo">repo-layout</a>
+</nav>
+<main>
+<header class="hero">
+  <div class="eyebrow">ultradyn-docs / architecture · provenance <b>q-01JZK3…</b></div>
+  <h1>Every question is a <span class="thin">branch.</span><br>Every answer is a merge.</h1>
+  <p class="sub">Ultradyn Docs turns unanswered questions into git branches of work: dictated answers are structured, criticised against the asker's declared goals, integrated across the docs, and merged back — leaving the documentation consistent and one commit richer.</p>
+
+  <figure aria-label="Question lifecycle drawn as a git branch graph">
+  <svg viewBox="0 0 980 190" role="img">
+    <!-- main line -->
+    <line x1="20" y1="60" x2="960" y2="60" stroke="var(--ink)" stroke-width="2.5"/>
+    <!-- branch out -->
+    <path d="M170,60 C210,60 210,130 250,130" fill="none" stroke="var(--amber)" stroke-width="2.5"/>
+    <line x1="250" y1="130" x2="640" y2="130" stroke="var(--amber)" stroke-width="2.5"/>
+    <!-- merge back -->
+    <path d="M640,130 C680,130 680,60 720,60" fill="none" stroke="var(--leaf)" stroke-width="2.5"/>
+    <!-- rejected re-branch (dashed) -->
+    <path d="M790,60 C815,60 815,130 840,130 L905,130" fill="none" stroke="var(--brick)" stroke-width="2" stroke-dasharray="5 5"/>
+    <!-- main commits -->
+    <circle cx="80" cy="60" r="7" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.5"/>
+    <circle cx="170" cy="60" r="7" fill="var(--ink)"/>
+    <circle cx="720" cy="60" r="8" fill="var(--leaf)"/>
+    <circle cx="790" cy="60" r="7" fill="var(--ink)"/>
+    <!-- branch commits -->
+    <circle cx="290" cy="130" r="7" fill="var(--amber)"/>
+    <circle cx="400" cy="130" r="7" fill="var(--amber)"/>
+    <circle cx="510" cy="130" r="7" fill="var(--amber)"/>
+    <circle cx="640" cy="130" r="7" fill="var(--amber)"/>
+    <circle cx="905" cy="130" r="7" fill="var(--paper)" stroke="var(--brick)" stroke-width="2.5" class="pulse"/>
+    <!-- labels -->
+    <g font-family="IBM Plex Mono,monospace" font-size="11.5" fill="var(--muted)">
+      <text x="80" y="40" text-anchor="middle">docs @ main</text>
+      <text x="170" y="40" text-anchor="middle">question asked</text>
+      <text x="290" y="158" text-anchor="middle">dictate</text>
+      <text x="400" y="158" text-anchor="middle">structure</text>
+      <text x="510" y="158" text-anchor="middle">criticise</text>
+      <text x="640" y="158" text-anchor="middle">integrate</text>
+      <text x="720" y="40" text-anchor="middle" fill="var(--leaf)">merged ✔</text>
+      <text x="790" y="40" text-anchor="middle">asker review</text>
+      <text x="905" y="158" text-anchor="middle" fill="var(--brick)">reopened ✘</text>
+    </g>
+  </svg>
+  <figcaption>the signature loop — deferred child questions branch again, later, on demand</figcaption>
+  </figure>
+
+  <div class="legend">
+    <span><i style="background:var(--amber)"></i>question / in-work</span>
+    <span><i style="background:var(--leaf)"></i>merged / goal ✔</span>
+    <span><i style="background:var(--brick)"></i>contradiction / rejected ✘</span>
+    <span><i style="background:var(--pine)"></i>fresh-context evaluator</span>
+  </div>
+</header>
+
+<section id="lifecycle">
+  <div class="eyebrow">state machine · single source of truth</div>
+  <h2>Question lifecycle</h2>
+  <div class="card"><pre class="mermaid">
+stateDiagram-v2
+    [*] --> Asked
+    Asked --> AnsweredInline: Librarian satisfies all goals
+    Asked --> Logged: any goal unsatisfied
+    Logged --> Active: queued P1–P5
+    Logged --> Deferred: generated, not yet demanded
+    Deferred --> Active: demand match / manual promote
+    Active --> InAnswer: answerer claims
+    InAnswer --> Integrating: critic DONE
+    Integrating --> Merged: checks pass + approval
+    Merged --> Accepted: asker accepts
+    Merged --> Reopened: asker rejects with reason
+    Reopened --> Active
+    Accepted --> [*]
+  </pre></div>
+  <p><b>DONE is decisive:</b> every declared goal is ✔ or explicitly deferred, and zero contradictions remain unresolved. Good enough for the declared goals — never "perfect."</p>
+</section>
+
+<section id="roster">
+  <div class="eyebrow">agents/ · one file each · structured output schemas</div>
+  <h2>Agent roster</h2>
+  <table>
+    <tr><th>agent</th><th>pattern</th><th>in → out</th><th>context</th></tr>
+    <tr><td><b>Librarian</b></td><td>retrieval + chat</td><td>question → cited answer | insufficient</td><td class="fresh">per conversation</td></tr>
+    <tr><td><b>Goal Clerk</b></td><td>routing helper</td><td>question → goal tags</td><td class="fresh">fresh</td></tr>
+    <tr><td><b>Registrar</b></td><td>intake</td><td>q + goals + log → record (ULID)</td><td class="fresh">fresh</td></tr>
+    <tr><td><b>Matcher</b></td><td>routing / dedup</td><td>new q → deferred/answered matches</td><td class="fresh">fresh</td></tr>
+    <tr><td><b>Prioritizer</b></td><td>rule application</td><td>record → P1–P5 + rationale</td><td class="fresh">fresh</td></tr>
+    <tr><td><b>Structurer</b></td><td>chain step</td><td>transcripts → structured draft</td><td>answer session</td></tr>
+    <tr><td><b>Critic</b></td><td>evaluator</td><td>draft + goals → ✔/✘/? findings, spawn-list</td><td class="fresh">fresh / round</td></tr>
+    <tr><td><b>Integrator</b></td><td>orchestrator–workers</td><td>answer → doc edits → branch + PR</td><td class="fresh">fresh</td></tr>
+    <tr><td><b>Reviewer</b></td><td>independent evaluator</td><td>diff only → approve | findings</td><td class="fresh">isolated ∎</td></tr>
+    <tr><td><b>Diff Summarizer</b></td><td>independent reporter</td><td>diff only → summary for answerer</td><td class="fresh">isolated ∎</td></tr>
+    <tr><td><b>Simulated Asker</b></td><td>independent evaluator</td><td>raw q + chat log + goals + answer → satisfied?</td><td class="fresh">isolated ∎</td></tr>
+    <tr><td><b>Agent-Smith</b></td><td>meta-orchestrator</td><td>request → agent file + fixtures, via PR</td><td class="fresh">fresh</td></tr>
+  </table>
+  <p><span class="mono">isolated ∎</span> = must never share context with the producer of what it evaluates. A summarizer that saw the integrator's plan summarizes <em>intent</em>, not the diff.</p>
+</section>
+
+<section id="loop-a">
+  <div class="eyebrow">routing + agentic retrieval</div>
+  <h2>Loop A — Ask</h2>
+  <div class="card"><pre class="mermaid">
+flowchart TD
+    U([Asker]) -->|question + goal tags| L[Librarian]
+    L <-->|maps, grep, read| R[(repo: docs + maps)]
+    L -->|cited answer| U
+    L -->|insufficient| M[Matcher]
+    M -->|matches active| P0[attach asker to in-flight q]
+    M -->|matches deferred| P[promote → active, attach asker]
+    M -->|matches answered| E[return answer, reject reopens]
+    M -->|novel| REG[Registrar: verbatim q, chat log, ULID]
+    REG --> PRI[Prioritizer P1–P5]
+    PRI --> Q[(unanswered queue)]
+  </pre></div>
+</section>
+
+<section id="loop-b">
+  <div class="eyebrow">evaluator–optimizer · breadth-first by construction</div>
+  <h2>Loop B — Answer</h2>
+  <div class="card"><pre class="mermaid">
+sequenceDiagram
+    participant A as Answerer
+    participant S as Structurer
+    participant C as Critic (fresh per round)
+    A->>S: dictation → transcript (verbatim, immutable)
+    S->>C: structured draft
+    C->>C: per-goal IGC eval + contradiction scan
+    C-->>A: findings + spawn-list (deferred children)
+    A->>S: follow-up dictation
+    Note over A,C: repeat until DONE
+  </pre></div>
+  <p>Depth gaps never block: the critic spawns tagged child questions (<span class="mono">generated</span>, provenance = parent + finding + goal) and the answer ships. Demand promotes them later.</p>
+</section>
+
+<section id="loop-c">
+  <div class="eyebrow">orchestrator–workers + three isolated checks</div>
+  <h2>Loop C — Integrate</h2>
+  <div class="card"><pre class="mermaid">
+flowchart TD
+    D[accepted answer] --> O[Integrator: plan touched docs]
+    O --> W1[edit doc A] & W2[edit doc B] & W3[update maps]
+    W1 & W2 & W3 --> BR[branch + PR]
+    BR --> RV[Reviewer · diff only]
+    BR --> DS[Diff Summarizer · diff only]
+    BR --> SA[Simulated Asker · raw q + chat log + goals]
+    RV & SA -->|findings| O
+    DS -->|summary| ANS([Answerer])
+    ANS --> MG{merge}
+    MG -->|merged| OK[q → answered, notify asker]
+    OK --> AR([asker accept / reject])
+    AR -->|reject + verbatim reason| RE[reopen · reason joins provenance]
+  </pre></div>
+</section>
+
+<section id="loop-d">
+  <div class="eyebrow">self-modification · fixtures are the contract</div>
+  <h2>Loop D — Agent-Smith</h2>
+  <div class="card"><pre class="mermaid">
+flowchart LR
+    REQ[change request] --> AS[Agent-Smith]
+    AS --> GEN[agent.md + schema + fixtures]
+    GEN --> CI[CI runs fixtures of all touched agents]
+    CI -->|pass| PR[PR — same flow as docs]
+    CI -->|fail| AS
+    PR --> HUM([maintainer merge])
+  </pre></div>
+  <p>Every agent ships with golden fixtures — known inputs → expected structured outputs — run in CI on any change to that agent. Generated agents don't merge without passing fixtures of their own. Fixtures also catch upstream model drift.</p>
+</section>
+
+<section id="priority">
+  <div class="eyebrow">tiers with rules — never weighted arithmetic</div>
+  <h2>Priority rules</h2>
+  <p class="tiers">
+    <span class="p1">P1</span> contradiction-spawned · asker-rejected reopened<br>
+    <span class="p2">P2</span> unsatisfied goal on active question · demand-promoted deferred<br>
+    <span class="rest">P3</span> raw questions, default<br>
+    <span class="rest">P4</span> generated depth-1 children<br>
+    <span class="rest">P5</span> depth-2+ · tagged extra-detail
+  </p>
+  <p>Every assignment carries a one-line rationale and is overridable at a glance. A contradiction isn't "weightier" — it's qualitatively different: the doc base contains at least one wrong claim, so everything touching both sides is suspect until resolved.</p>
+</section>
+
+<section id="repo" style="border-bottom:0">
+  <div class="eyebrow">one clone = whole system state</div>
+  <h2>Repository layout</h2>
+  <div class="card"><pre class="mermaid">
+flowchart LR
+    subgraph repo[ultradyn-docs.git]
+      docs[docs/ markdown + _map.md]
+      q[questions/ record.md + raw/ + index.jsonl]
+      a[answers/ transcripts + structured]
+      g[goals/ vocabulary + priority-rules]
+      ag[agents/ agent.md + schema + fixtures]
+      app[app/ shell code + libs]
+    end
+    repo --> D1[derived, gitignored: BM25 index, caches]
+    LOCAL[local only, gitignored: raw audio keyed by qID] -.-> a
+  </pre></div>
+  <p>Committed files are line-diff-friendly text only. Anything regenerable is a build artifact. Raw audio never enters git; transcripts do.</p>
+</section>
+</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>
+mermaid.initialize({
+  startOnLoad:true, securityLevel:'loose', theme:'base',
+  themeVariables:{
+    fontFamily:'IBM Plex Mono, monospace', fontSize:'13px',
+    primaryColor:'#FFFFFF', primaryBorderColor:'#155E4E', primaryTextColor:'#182420',
+    lineColor:'#5A675F', secondaryColor:'#F7F8F5', tertiaryColor:'#EEF1EC',
+    noteBkgColor:'#FDF6E9', noteBorderColor:'#B9770E'
+  }
+});
+</script>
+</body>
+</html>
