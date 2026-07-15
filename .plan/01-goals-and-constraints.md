@@ -1,6 +1,6 @@
 # Ultradyn Docs — Goals & Constraints
 
-*Working title: **Ultradyn Docs**. Rename freely.*
+*Working title: **Ultradyn Docs**.*
 
 Document 1 of 6 · Status: draft for review
 
