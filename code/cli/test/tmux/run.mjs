@@ -342,7 +342,10 @@ async function startSession(session, width, rows, directory) {
 }
 
 async function recordStty(session, label) {
-  sendLiteral(session, `printf '__${label}__'; stty -g`);
+  sendLiteral(
+    session,
+    `printf '__${label}__'; stty -g | cksum | cut -d ' ' -f1`,
+  );
   sendKey(session, "Enter");
   const pattern = new RegExp(`^__${label}__([^\\r\\n]+)`, "m");
   const { match } = await pollPaneMatch(session, pattern);
