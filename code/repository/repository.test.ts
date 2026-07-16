@@ -1,5 +1,6 @@
 import { readdirSync } from "node:fs";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -136,10 +137,15 @@ describe("knowledge repository public seam", () => {
       repo.deleteRawArtifact(created.id, artifact.path),
     ).rejects.toThrow(/immutable/i);
 
-    await writeFile(
-      join(root, "questions", "active", created.id, artifact.path),
-      "silently changed",
+    const artifactPath = join(
+      root,
+      "questions",
+      "active",
+      created.id,
+      artifact.path,
     );
+    await chmod(artifactPath, 0o600);
+    await writeFile(artifactPath, "silently changed");
     await expect(repo.verifyRawArtifacts()).rejects.toBeInstanceOf(
       RawArtifactIntegrityError,
     );
