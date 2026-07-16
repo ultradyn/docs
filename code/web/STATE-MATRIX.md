@@ -1,17 +1,18 @@
 # Settings server-connection state matrix
 
-| State              | Observable behavior                                                                         | Evidence                                 |
-| ------------------ | ------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Default            | Current API origin appears in the labelled URL field; Connect opens the explicit handshake. | Web route test and connected screenshots |
-| Focus/keyboard     | Native URL input and link follow document order and use the global focus ring.              | Semantic review                          |
-| Loading            | Connection control remains available while server settings load.                            | Component structure                      |
-| Error              | API error remains an alert; URL and Connect stay usable above it.                           | Exact `session_required` route test      |
-| Invalid URL        | Field is `aria-invalid`; Connect is disabled and no unsafe scheme is linked.                | URL construction branch                  |
-| Success            | Server redirects to clean `/#/settings`; settings load without `session_required`.          | Built-server Chromium flow               |
-| Mobile             | Surface stacks copy, input, and action; error icon/message/action use a two-column grid.    | 390 x 844 capture                        |
-| Long content       | Copy wraps inside `minmax(0, 1fr)` regions without covering actions.                        | Desktop/mobile error captures            |
-| Offline/permission | Recovery does not depend on the failed API and does not write portable settings.            | Component and security review            |
-| Theme              | Uses semantic light-theme tokens; current app has no implemented dark theme.                | `src/styles.css`                         |
+| State              | Observable behavior                                                                        | Evidence                                 |
+| ------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Default            | Same-origin bootstrap runs before runtime; current origin appears in the Server URL field. | API contract and built-browser receipt   |
+| Recovery           | Connect opens the explicit handshake for a corrected or different server origin.           | Web route test and connected screenshots |
+| Focus/keyboard     | Native URL input and link follow document order and use the global focus ring.             | Semantic review                          |
+| Loading            | Connection control remains available while server settings load.                           | Component structure                      |
+| Error              | API error remains an alert; URL and Connect stay usable above it.                          | Exact `session_required` route test      |
+| Invalid URL        | Field is `aria-invalid`; Connect is disabled and no unsafe scheme is linked.               | URL construction branch                  |
+| Success            | Direct `/#/ask` and recovery navigation load protected APIs without `session_required`.    | Built-server Chromium flows              |
+| Mobile             | Surface stacks copy, input, and action; error icon/message/action use a two-column grid.   | 390 x 844 capture                        |
+| Long content       | Copy wraps inside `minmax(0, 1fr)` regions without covering actions.                       | Desktop/mobile error captures            |
+| Offline/permission | Recovery does not depend on the failed API and does not write portable settings.           | Component and security review            |
+| Theme              | Uses semantic light-theme tokens; current app has no implemented dark theme.               | `src/styles.css`                         |
 
 ## Shared combobox states
 

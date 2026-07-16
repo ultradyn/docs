@@ -14,7 +14,15 @@ flowchart TD
   Core --> Local["Local audio, settings, indexes, locks"]
 ```
 
-The server binds to loopback by default. It validates the HTTP `Host` and browser `Origin`, and a top-level navigation establishes an unguessable HttpOnly, `SameSite=Strict` session required by non-health API routes. Wildcard binds fail closed without an explicit hostname allowlist. This is request hardening for a trusted local application, not user identity or multi-tenant authorization; place any remote deployment behind a trusted authenticating TLS proxy.
+The server binds to loopback by default. It validates the HTTP `Host` and
+browser `Origin`; a marked same-origin POST establishes an unguessable HttpOnly,
+`SameSite=Strict` session before protected web requests, while explicit
+navigation remains the server-change recovery path. This POST works on
+plain-HTTP hostnames where browsers omit Fetch Metadata without allowing an
+ordinary cross-site navigation or form to mint the cookie. Wildcard binds fail
+closed without an explicit hostname allowlist. This is request hardening for a
+trusted local application, not user identity or multi-tenant authorization;
+place any remote deployment behind a trusted authenticating TLS proxy.
 
 ## Portable repository
 

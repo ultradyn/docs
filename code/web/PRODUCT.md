@@ -42,8 +42,11 @@ that origin directly so its HttpOnly local session is established.
 
 - The web client uses the origin that loaded the UI as its default API server;
   explicit development configuration and the desktop launcher may override it.
+- A same-origin browser load establishes its private session before the first
+  protected API request, including on plain-HTTP hostnames where Fetch Metadata
+  is unavailable.
 - The exact `session_required` failure still shows an editable Server URL.
-- Connect performs an explicit cross-origin handshake, then lands on
+- Connect remains an explicit recovery handshake, then lands on
   `/#/settings` with authenticated settings requests.
 - Ordinary cross-site navigation still does not mint a session.
 - Desktop and 390 px mobile layouts keep the control and failure recovery
@@ -53,5 +56,6 @@ that origin directly so its HttpOnly local session is established.
 
 - **Server URL**: the HTTP(S) origin hosting Ultradyn Docs.
 - **Server connection**: the browser-to-server relationship.
-- **Browser session**: the private HttpOnly cookie created by an intentional
-  navigation; it is not human authentication.
+- **Browser session**: the private HttpOnly cookie created by a marked
+  same-origin bootstrap or an explicit recovery navigation; it is not human
+  authentication.

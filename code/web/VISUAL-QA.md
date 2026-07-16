@@ -31,6 +31,25 @@ machine-readable receipt was:
 }
 ```
 
+A fresh cookie-free Chromium context also loaded `http://xsm:5885/#/ask`
+directly on plain HTTP. Chromium omitted Fetch Metadata, the marked same-origin
+bootstrap established the session, and the machine-readable result was:
+
+```json
+{
+  "pageUrl": "http://xsm:5885/#/ask",
+  "cookieCount": 1,
+  "apiStatuses": {
+    "/api/browser-session": 200,
+    "/api/runtime": 200,
+    "/api/goals": 200,
+    "/api/settings": 200,
+    "/api/events": 200
+  },
+  "sessionErrorVisible": false
+}
+```
+
 Recreate captures with the repository's running route and the fixed-size helper
 documented in the local `headless-browser-screenshots` skill; use 1440 x 1000
 and 390 x 844 viewports and inspect both the connected and `session_required`
@@ -62,6 +81,7 @@ states.
 - Keyboard/state path: semantic route tests plus a focused shared-combobox test
   cover opening, arrow-key movement, selection, Escape, and focus restoration
 - Production route verified: yes, including a real cross-site handshake against
-  the built server and portal-listbox captures from the built queue route
+  the built server, a cookie-free direct `/#/ask` load at the remote HTTP
+  hostname, and portal-listbox captures from the built queue route
 - Combobox geometry verified: trigger height 38.39 px at both viewports; the
   open listbox had no left, right, top, or bottom viewport overflow

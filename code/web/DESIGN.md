@@ -69,13 +69,19 @@ scheme, and port follow the page that served the UI. An explicit
 `VITE_ULTRADYN_API_BASE` or constructor `baseUrl` remains available for
 development, while Tauri keeps its launcher-owned loopback endpoint.
 
-The explicit `ultradyn_connect=1` query is a transient server handshake. The
-server requires document-navigation headers, sets its HttpOnly cookie, and
-immediately redirects to the clean `/#/settings` route. It recognizes either
-Fetch Metadata or the HTML `Upgrade-Insecure-Requests` fallback because some
-supported remote browsers and WebViews omit the optional `Sec-Fetch-*` headers.
-When Fetch Metadata is present it is authoritative, so an iframe cannot use the
-compatibility fallback.
+Before loading runtime state, a same-origin client sends a marked POST to
+`/api/browser-session`. The server requires the POST's `Origin` to exactly
+match its allowed Host and requires a non-form custom header before setting the
+HttpOnly `SameSite=Strict` cookie. This works on plain-HTTP remote hostnames,
+where Chromium omits Fetch Metadata, without letting ordinary cross-site
+navigation mint a session.
+
+The explicit `ultradyn_connect=1` query remains a transient recovery handshake
+for changing server origins. The server requires document-navigation headers,
+sets the same cookie, and redirects to the clean `/#/settings` route. It
+recognizes either Fetch Metadata or the HTML `Upgrade-Insecure-Requests`
+fallback. When Fetch Metadata is present it is authoritative, so an iframe
+cannot use the compatibility fallback.
 
 ## States and accessibility
 

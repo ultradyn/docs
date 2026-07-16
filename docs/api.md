@@ -6,7 +6,26 @@ The default base URL is `http://127.0.0.1:4173`. Success bodies are JSON unless 
 { "error": { "code": "stable_code", "message": "Human-readable summary" } }
 ```
 
-The production server validates `Host` and browser `Origin` before routing. Opening the printed top-level URL establishes an HttpOnly, `SameSite=Strict` local session; non-preflight API requests other than health/runtime and the nonce-gated desktop readiness probe require that session. `OPTIONS` requests are handled without a session for preflight only. Static and API responses include a restrictive CSP plus framing, MIME-sniffing, referrer, resource, and microphone permission headers. These controls protect the trusted local surface and are not human identity or remote access control. `--allow-origin` admits an Origin check; it does not enable cookie-authenticated cross-origin use because session cookies remain `SameSite=Strict` and CORS credentials are disabled.
+The production server validates `Host` and browser `Origin` before routing. A same-origin web client establishes an HttpOnly, `SameSite=Strict` local session through the marked bootstrap below; an explicit top-level connection navigation remains available for recovery. Non-preflight API requests other than the browser-session bootstrap, health/runtime, and the nonce-gated desktop readiness probe require that session. `OPTIONS` requests are handled without a session for preflight only. Static and API responses include a restrictive CSP plus framing, MIME-sniffing, referrer, resource, and microphone permission headers. These controls protect the trusted local surface and are not human identity or remote access control. `--allow-origin` admits an Origin check; it does not enable cookie-authenticated cross-origin use because session cookies remain `SameSite=Strict` and CORS credentials are disabled.
+
+## Browser session bootstrap
+
+| Method | Path                   | Purpose                                                                  |
+| ------ | ---------------------- | ------------------------------------------------------------------------ |
+| POST   | `/api/browser-session` | Establish the private cookie before the first protected browser request. |
+
+This is the only ordinary session-exempt POST. The request must carry an
+HTTP(S) `Origin` whose hostname and port exactly match the validated `Host`,
+plus `X-Ultradyn-Browser-Session: 1`. The custom header prevents a plain HTML
+form from invoking the endpoint, and foreign browser requests fail the Origin
+check even when their Origin is admitted for non-cookie development CORS. A
+valid request returns `{"status":"ok"}`, `Cache-Control: no-store`, and, when
+session authorization is enabled, the HttpOnly `SameSite=Strict` cookie.
+Invalid requests return `403` without a cookie. A foreign Origin rejected by
+the global Origin check uses `origin_not_allowed`; requests that reach this
+endpoint but fail its method, exact-origin, or marker checks use
+`browser_session_rejected`. Repeating a valid bootstrap is idempotent for the
+running server session.
 
 ## Runtime and events
 

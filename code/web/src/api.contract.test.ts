@@ -27,9 +27,7 @@ describe("live HTTP contract adapter", () => {
       "http://xsm:5885/api/settings",
     );
     expect(
-      new ApiClient({ baseUrl: "http://127.0.0.1:49321" }).url(
-        "/api/settings",
-      ),
+      new ApiClient({ baseUrl: "http://127.0.0.1:49321" }).url("/api/settings"),
     ).toBe("http://127.0.0.1:49321/api/settings");
   });
 
@@ -50,6 +48,86 @@ describe("live HTTP contract adapter", () => {
 
     vi.stubGlobal("window", undefined);
     expect(new ApiClient().url("/api/settings")).toBe("/api/settings");
+  });
+
+  it("bootstraps a same-origin browser session before loading runtime state", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const browserSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const browserClearTimeout = globalThis.clearTimeout.bind(globalThis);
+    vi.stubGlobal("window", {
+      location: { origin: "http://xsm:5885" },
+      setTimeout: browserSetTimeout,
+      clearTimeout: browserClearTimeout,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(input), ...(init ? { init } : {}) });
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === "/api/browser-session") return json({ status: "ok" });
+        if (pathname === "/api/runtime")
+          return json({
+            maintenanceEnabled: false,
+            demoMode: false,
+            repoRoot: "/srv/docs",
+            version: "contract-test",
+          });
+        throw new Error(`Unexpected route ${pathname}`);
+      }),
+    );
+
+    const { runtime } = await ApiClient.connect();
+
+    expect(runtime.version).toBe("contract-test");
+    expect(calls.map(({ url }) => new URL(url).pathname)).toEqual([
+      "/api/browser-session",
+      "/api/runtime",
+    ]);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(
+      new Headers(calls[0]?.init?.headers).get("x-ultradyn-browser-session"),
+    ).toBe("1");
+  });
+
+  it("does not bootstrap a cross-origin development override", async () => {
+    const calls: string[] = [];
+    const browserSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const browserClearTimeout = globalThis.clearTimeout.bind(globalThis);
+    vi.stubGlobal("window", {
+      location: { origin: "http://xsm:5885" },
+      setTimeout: browserSetTimeout,
+      clearTimeout: browserClearTimeout,
+    });
+    vi.stubEnv("VITE_ULTRADYN_API_BASE", "http://dev-server.test:7443");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        calls.push(String(input));
+        return json({
+          maintenanceEnabled: false,
+          demoMode: false,
+          repoRoot: "/srv/docs",
+          version: "dev-contract-test",
+        });
+      }),
+    );
+
+    const { runtime } = await ApiClient.connect();
+
+    expect(runtime.version).toBe("dev-contract-test");
+    expect(calls).toEqual(["http://dev-server.test:7443/api/runtime"]);
+  });
+
+  it("does not bootstrap the deterministic client-demo connection", async () => {
+    const fetch = vi.fn();
+    vi.stubEnv("VITE_ULTRADYN_DEMO", "true");
+    vi.stubGlobal("fetch", fetch);
+
+    const { api, runtime } = await ApiClient.connect();
+
+    expect(api.clientDemo).toBe(true);
+    expect(runtime.demoMode).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("interoperates with the real Fastify public seam", async () => {

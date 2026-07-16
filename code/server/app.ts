@@ -182,6 +182,30 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       return reply.redirect("/");
     }
 
+    if (requestUrl.pathname === "/api/browser-session") {
+      if (
+        request.method !== "POST" ||
+        request.headers["x-ultradyn-browser-session"] !== "1" ||
+        !origin ||
+        !sameOriginRequest(origin, hostHeader, allowedHostnames)
+      ) {
+        return reply.status(403).send({
+          error: {
+            code: "browser_session_rejected",
+            message: "The browser session bootstrap was rejected.",
+          },
+        });
+      }
+      if (options.sessionAuth) {
+        reply.header(
+          "Set-Cookie",
+          `ultradyn_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict`,
+        );
+      }
+      reply.header("Cache-Control", "no-store");
+      return reply.send({ status: "ok" });
+    }
+
     if (!options.sessionAuth) return;
     const hasFetchMetadata =
       request.headers["sec-fetch-mode"] !== undefined ||

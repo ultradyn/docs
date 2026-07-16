@@ -356,10 +356,20 @@ export class ApiClient {
       return { api, runtime: await api.runtime() };
     }
     const live = new ApiClient();
+    const sameOriginBrowser =
+      typeof window !== "undefined" &&
+      new URL(live.baseUrl, window.location.origin).origin ===
+        window.location.origin;
     const attempts =
       typeof window !== "undefined" && window.__TAURI_INTERNALS__ ? 24 : 1;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
+        if (sameOriginBrowser) {
+          await live.request("/api/browser-session", {
+            method: "POST",
+            headers: { "x-ultradyn-browser-session": "1" },
+          });
+        }
         return { api: live, runtime: await live.runtime() };
       } catch {
         if (attempt < attempts - 1)
