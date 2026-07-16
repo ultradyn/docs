@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     io::{self, Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
     path::{Path, PathBuf},
@@ -26,6 +26,7 @@ const NPM_CONFIG_FILE: &str = "npmrc-ultradyn";
 const NPM_GLOBAL_CONFIG_FILE: &str = "npmrc-ultradyn-global";
 const NPM_REGISTRY: &str = "https://registry.npmjs.org/";
 const NPM_PACKAGE_SPEC: &str = concat!("@ultradyn/docs@", env!("CARGO_PKG_VERSION"));
+const LOCAL_PACKAGE_SPEC_ENV: &str = "ULTRADYN_DOCS_LOCAL_PACKAGE";
 const LAUNCH_NONCE_ENV: &str = "ULTRADYN_DOCS_LAUNCH_NONCE";
 const LAUNCH_NONCE_HEADER: &str = "X-Ultradyn-Launch-Nonce";
 
@@ -300,17 +301,29 @@ fn controlled_npm_config(config_directory: &Path) -> io::Result<PathBuf> {
     Ok(path)
 }
 
+fn resolve_package_spec(local_package: Option<OsString>, debug_build: bool) -> OsString {
+    if debug_build {
+        if let Some(local_package) = local_package.filter(|value| !value.is_empty()) {
+            return local_package;
+        }
+    }
+    OsString::from(NPM_PACKAGE_SPEC)
+}
+
 fn server_command(
     repository: &Path,
     launcher_directory: &Path,
     npm_config: &Path,
+    package_spec: &OsStr,
     launcher_nonce: &str,
 ) -> Command {
     let mut command = Command::new(npx_program());
     command
         .args(["--yes", "--ignore-scripts"])
         .arg(format!("--registry={NPM_REGISTRY}"))
-        .args(["--package", NPM_PACKAGE_SPEC, "ultradyn-docs", "serve"])
+        .arg("--package")
+        .arg(package_spec)
+        .args(["ultradyn-docs", "serve"])
         .arg(repository)
         .args(["--no-open", "--host", "127.0.0.1", "--port", "49321"])
         .current_dir(launcher_directory)
@@ -348,10 +361,15 @@ fn start_server(repository: &Path, launcher_directory: &Path) -> io::Result<Star
 
     let npm_config = controlled_npm_config(launcher_directory)?;
     let launcher_nonce = create_launcher_nonce()?;
+    let package_spec = resolve_package_spec(
+        env::var_os(LOCAL_PACKAGE_SPEC_ENV),
+        cfg!(debug_assertions),
+    );
     let mut command = server_command(
         repository,
         launcher_directory,
         &npm_config,
+        &package_spec,
         &launcher_nonce,
     );
 
@@ -363,7 +381,10 @@ fn start_server(repository: &Path, launcher_directory: &Path) -> io::Result<Star
     let mut child = command.spawn().map_err(|error| {
         io::Error::new(
             error.kind(),
-            format!("could not start npx {NPM_PACKAGE_SPEC}: {error}"),
+            format!(
+                "could not start npx {}: {error}",
+                package_spec.to_string_lossy()
+            ),
         )
     })?;
     let deadline = Instant::now() + SERVER_START_TIMEOUT;
@@ -492,7 +513,7 @@ pub fn run() {
                         terminate_server(child);
                     }
                     *guard = None;
-                }
+                };
             }
         })
         .run(tauri::generate_context!())
@@ -621,6 +642,20 @@ mod tests {
     }
 
     #[test]
+    fn debug_launcher_can_run_an_unpublished_local_package() {
+        let local_package = OsString::from("/tmp/ultradyn-docs-local");
+
+        assert_eq!(
+            resolve_package_spec(Some(local_package.clone()), true),
+            local_package
+        );
+        assert_eq!(
+            resolve_package_spec(Some(OsString::from("/tmp/untrusted-package")), false),
+            OsString::from(NPM_PACKAGE_SPEC)
+        );
+    }
+
+    #[test]
     fn launcher_ignores_repository_npm_configuration() {
         let repository = initialized_repository("repository-malicious-npmrc");
         fs::write(
@@ -635,6 +670,7 @@ mod tests {
             &repository,
             &config,
             &npm_config,
+            OsStr::new(NPM_PACKAGE_SPEC),
             &launcher_nonce,
         );
         let arguments: Vec<String> = command

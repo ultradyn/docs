@@ -19,13 +19,13 @@ Only one Ultradyn desktop/browser server may own port `49321`. A second desktop 
 
 ## Backend startup and readiness
 
-For desktop version `0.1.0`, the current source launches this equivalent fixed argument vector rather than constructing a shell command string:
+For desktop version `0.1.0`, release builds launch this equivalent fixed argument vector rather than constructing a shell command string:
 
 ```sh
 npx --yes --ignore-scripts --registry=https://registry.npmjs.org/ --package @ultradyn/docs@0.1.0 ultradyn-docs serve /absolute/path/to/network-docs --no-open --host 127.0.0.1 --port 49321
 ```
 
-The package version is compiled from the desktop crate version rather than using npm `latest`, and the repository is passed as one argument. The child runs from Tauri's trusted app-config directory with dedicated user/global npm configuration that pins the official registry and disables lifecycle scripts; a repository-controlled `.npmrc` is therefore not consulted. The package executable itself is still trusted release code.
+The package version is compiled from the desktop crate version rather than using npm `latest`, and the repository is passed as one argument. The child runs from Tauri's trusted app-config directory with dedicated user/global npm configuration that pins the official registry and disables lifecycle scripts; a repository-controlled `.npmrc` is therefore not consulted. The package executable itself is still trusted release code. Debug builds may use `ULTRADYN_DOCS_LOCAL_PACKAGE=/absolute/path/to/checkout` to replace only the package spec, which permits testing unpublished source without weakening release behavior.
 
 The readiness probe requires:
 
@@ -42,10 +42,15 @@ This is a source-level desktop wrapper, not yet a self-contained distribution: t
 Install the [Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/) and stable Rust. From the repository root:
 
 ```sh
-ULTRADYN_DOCS_REPOSITORY=/absolute/path/to/network-docs pnpm tauri:dev
+pnpm build
+ULTRADYN_DOCS_REPOSITORY=/absolute/path/to/network-docs \
+ULTRADYN_DOCS_LOCAL_PACKAGE="$PWD" \
+pnpm tauri:dev
 cd tauri-app/src-tauri && cargo test
 cd ../../ && pnpm tauri:build
 ```
+
+The local-package override is accepted only by debug builds. Omit it when verifying the pinned published-package path or any release build.
 
 Release builds must be exercised on Linux, macOS, and native Windows. WSL is supported for the browser/server workflow but cannot validate a native Windows WebView microphone flow. Verify repository selection/persistence, health/runtime mismatch rejection, child cleanup, microphone behavior, loopback CSP/CORS, filesystem/codec behavior, and clean-machine install/update/uninstall.
 

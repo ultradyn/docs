@@ -38,6 +38,43 @@ pnpm dev
 
 TUI snapshots additionally require tmux. The Tauri wrapper requires the [Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
+## Try it locally before an npm release
+
+Build this checkout and use its CLI to create a separate sandbox repository:
+
+```sh
+pnpm install
+pnpm build
+node dist/bin.js init --dir ../ultradyn-docs-sandbox --yes --plain
+# don't cd to ../ultradyn-docs-sandbox
+```
+
+The sandbox is its own Git repository, so trying the product will not modify this source checkout. The generic fake providers work without credentials.
+
+### In a browser
+
+Run the local server against the sandbox. It prints and normally opens the browser URL:
+
+```sh
+node dist/bin.js serve ../ultradyn-docs-sandbox --dev
+```
+
+Stop it with Ctrl-C. Re-run `pnpm build` and restart the server after changing the application source.
+
+### In the desktop app
+
+Install the [Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/) and stable Rust, stop any browser test server using the sandbox, then run:
+
+```sh
+ULTRADYN_DOCS_REPOSITORY="$PWD/../ultradyn-docs-sandbox" \
+ULTRADYN_DOCS_LOCAL_PACKAGE="$PWD" \
+pnpm tauri:dev
+```
+
+`ULTRADYN_DOCS_LOCAL_PACKAGE` is honored only by debug builds such as `pnpm tauri:dev`; release builds still launch their pinned npm package. Re-run `pnpm build` before restarting the desktop app after source changes.
+
+For automated test commands and their exact coverage, see the [testing strategy](./docs/testing.md).
+
 ## Core guarantees
 
 - Portable non-secret state is readable text in Git.

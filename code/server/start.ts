@@ -9,6 +9,9 @@ import { createLocalServices } from "./local-services.js";
 import { MaintenanceScheduler } from "./maintenance.js";
 import type { UltradynServices } from "./services.js";
 
+const DEFAULT_PORT = 5885;
+const DEFAULT_HOST = "127.0.0.1";
+
 export interface StartServerOptions {
   repoRoot: string;
   packageRoot: string;
@@ -45,8 +48,8 @@ export async function startUltradynServer(
   options: StartServerOptions,
 ): Promise<RunningServer> {
   const repoRoot = resolve(options.repoRoot);
-  const host = options.host ?? "127.0.0.1";
-  const port = options.port ?? 4173;
+  const host = options.host ?? DEFAULT_HOST;
+  const port = options.port ?? DEFAULT_PORT;
   const loopback = ["127.0.0.1", "localhost", "::1"];
   const wildcard = host === "0.0.0.0" || host === "::";
   if (wildcard && !options.allowedHostnames?.length) {
