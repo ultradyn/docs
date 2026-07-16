@@ -23,7 +23,7 @@ pnpm check          # typecheck + lint + Vitest + root integrity scripts + build
 - Agent tests cover dynamic definition loading, input projection, fresh invocation IDs, schema validation, and bounded retry. Fixture validation checks each input shape and expected-output schema; it does not execute every golden pair through a real/current model.
 - Provider tests cover consent-gated discovery, generic fakes, Codex delegation, OpenAI/xAI request shaping, Grok auth-file parsing, and GitHub head/ETag mapping.
 - Browser-hook tests cover active-recorder cleanup on unmount, device-track termination, and MediaRecorder error cleanup.
-- Playwright currently builds the package, starts a demo server, and completes one Chromium Ask flow. It does not exercise Answer, settings, maintenance, microphone/media, failure recovery, Firefox, or WebKit.
+- Playwright currently builds the package, starts a demo server, persists and reloads the personal actor setting, submits one Chromium Ask flow, verifies the stored question through the server, and checks the final UI state. It does not exercise Answer, the wider settings surface, maintenance, microphone/media, failure recovery, Firefox, or WebKit.
 - The package smoke test creates a tarball, invokes that tarball through `npx`, checks required generated files, installs the generated target, runs typecheck/Vitest/build, starts its built server, waits for `/api/health`, and terminates it.
 - Tauri repository-selection and HTTP-identity tests are written in Rust. They require `cargo test` on a machine with the Tauri prerequisites; no native build runs in current CI.
 

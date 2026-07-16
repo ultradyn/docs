@@ -142,24 +142,24 @@ Activation checklist:
 - [ ] Configure Apple signing/notarization and Windows code-signing certificates.
 - [ ] Run signed clean-machine install, update, and uninstall tests.
 
-### Canonical tmux snapshot execution
+### Canonical tmux snapshot execution (activated in CI)
 
-Status: the harness and committed captures are in the repository. This execution image does not include `tmux`, so canonical capture cannot be rerun here.
+Status: GitHub Actions [run 7](https://github.com/ultradyn/docs/actions/runs/29464696553) installed tmux 3.4 and passed the canonical harness at 40×18, 80×24, and 120×36 after multiple artifact review-and-fix loops. This local execution image still does not include `tmux`, so it records an explicit local skip; that is no longer a release-verification blocker.
 
-Activation checklist:
+Verified checklist:
 
-- [ ] Install tmux 3.3 or newer on Ubuntu 24.04.
-- [ ] Run `pnpm test:tui` at 40×18, 80×24, and 120×36.
-- [ ] Inspect plain, ANSI, full-history, cursor, resize, cancellation, and terminal-cleanup artifacts.
-- [ ] Accept snapshot changes only after the three review passes recorded in `code/cli/test/VISUAL_REVIEW.md`.
+- [x] Install tmux 3.3 or newer on Ubuntu 24.04 CI.
+- [x] Run `pnpm test:tui` at 40×18, 80×24, and 120×36.
+- [x] Inspect plain, ANSI, full-history, cursor, resize, cancellation, and terminal-cleanup artifacts.
+- [x] Accept snapshot changes only after the three review passes recorded in `code/cli/test/VISUAL_REVIEW.md`.
 
 ### Browser and OS hardware matrix
 
-Status: server audio durability and limited browser-hook failure cases are automated. The checked-in Chromium Ask test is discoverable and starts the built server here, but this runner has no browser binary; its 2026-07-16 download attempts returned a zero-byte/truncated CDN archive. CI installs Chromium before the test. Real microphone/device behavior and clean-OS verification require hardware runners; there is not yet a complete deterministic browser-media suite.
+Status: server audio durability and limited browser-hook failure cases are automated. GitHub Actions [run 7](https://github.com/ultradyn/docs/actions/runs/29464696553) installed Chromium and passed the checked-in server-backed flow, including personal actor persistence, live demo-server verification, Ask submission, durable question retrieval, and final UI state. This local execution image has no browser binary, and its 2026-07-16 download attempts returned a zero-byte/truncated CDN archive. Real microphone/device behavior and clean-OS verification still require hardware runners; there is not yet a complete deterministic browser-media suite.
 
 Activation checklist after the missing browser tests are implemented:
 
-- [ ] Run `pnpm exec playwright install --with-deps chromium`, then `pnpm test:e2e`; confirm the download cache contains Playwright Chromium v1228 or the version pinned by the current lockfile.
+- [x] Run `pnpm exec playwright install --with-deps chromium`, then `pnpm test:e2e` in CI with the browser version pinned by the current lockfile.
 - [ ] Run Chromium, Firefox, and WebKit capture tests with grant, denial, revocation, sleep, network loss, and device removal.
 - [ ] Exercise native Linux and macOS browsers plus the packaged webviews.
 - [ ] Exercise native Windows desktop and WSL-hosted server/browser interoperability.
