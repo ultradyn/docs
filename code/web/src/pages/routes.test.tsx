@@ -17,6 +17,9 @@ import { MaintenancePage } from "./MaintenancePage.js";
 import { QueuePage } from "./QueuePage.js";
 import { SettingsPage } from "./SettingsPage.js";
 
+const ASK_QUESTION_PLACEHOLDER =
+  "Fill in your goals then ask a specific question…";
+
 afterEach(cleanup);
 
 function renderRoute(
@@ -80,7 +83,7 @@ describe("primary web routes", () => {
     ).toBe("true");
 
     await user.type(
-      screen.getByPlaceholderText("Ask a specific question…"),
+      screen.getByPlaceholderText(ASK_QUESTION_PLACEHOLDER),
       "Is this ready to launch?",
     );
     await user.click(
@@ -120,7 +123,7 @@ describe("primary web routes", () => {
     await user.type(identity, "alex");
     await user.type(context, "Release train 42 is blocked.");
     await user.type(
-      screen.getByPlaceholderText("Ask a specific question…"),
+      screen.getByPlaceholderText(ASK_QUESTION_PLACEHOLDER),
       "Can we release safely?",
     );
     await user.click(
@@ -145,7 +148,7 @@ describe("primary web routes", () => {
     renderRoute(<AskPage />);
 
     const composer = await screen.findByPlaceholderText(
-      "Ask a specific question…",
+      ASK_QUESTION_PLACEHOLDER,
     );
     await user.type(composer, "Which release process handles a solar flare?");
     await user.click(
@@ -182,7 +185,7 @@ describe("primary web routes", () => {
     renderRoute(<AskPage />, "/", "*", api);
 
     await user.type(
-      await screen.findByPlaceholderText("Ask a specific question…"),
+      await screen.findByPlaceholderText(ASK_QUESTION_PLACEHOLDER),
       "How does the remaining recovery edge case work?",
     );
     await user.click(
@@ -220,6 +223,29 @@ describe("primary web routes", () => {
       "Manual override after reviewing the question context.",
       "alex.review-1",
     );
+  });
+
+  it("filters the queue through the shared styled tier combobox", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ clientDemo: true });
+    const questions = vi.spyOn(api, "questions");
+    renderRoute(<QueuePage />, "/queue", "/queue", api);
+
+    const tier = await screen.findByRole("combobox", {
+      name: "Priority tier",
+    });
+    expect(tier.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(tier);
+    expect(tier.getAttribute("aria-expanded")).toBe("true");
+    await user.click(screen.getByRole("option", { name: "P1 only" }));
+
+    await waitFor(() =>
+      expect(questions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ tier: "P1" }),
+      ),
+    );
+    expect(tier.textContent).toContain("P1 only");
   });
 
   it("claims an active question before opening its answer room", async () => {
@@ -515,6 +541,65 @@ describe("primary web routes", () => {
     expect(screen.getByRole("status").textContent).toContain(
       "The saved server setting will take effect after a restart.",
     );
+  });
+
+  it("can change the server URL when settings cannot establish a browser session", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ baseUrl: "http://127.0.0.1:49321" });
+    vi.spyOn(api, "settings").mockRejectedValue(
+      new Error(
+        "Open the server URL directly to establish a local browser session.",
+      ),
+    );
+    vi.spyOn(api, "settingSchema").mockResolvedValue([]);
+    vi.spyOn(api, "providers").mockResolvedValue([]);
+    renderRoute(<SettingsPage />, "/", "*", api);
+
+    expect(await screen.findByText("We couldn’t load this")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Open the server URL directly to establish a local browser session.",
+      ),
+    ).toBeTruthy();
+
+    const serverUrl = screen.getByRole("textbox", { name: "Server URL" });
+    expect((serverUrl as HTMLInputElement).value).toBe(
+      "http://127.0.0.1:49321",
+    );
+    await user.clear(serverUrl);
+    await user.type(serverUrl, "http://127.0.0.1:5885");
+
+    expect(
+      screen
+        .getByRole("link", { name: "Connect to server" })
+        .getAttribute("href"),
+    ).toBe("http://127.0.0.1:5885/?ultradyn_connect=1#/settings");
+  });
+
+  it("does not put credentials into a server connection link", async () => {
+    const user = userEvent.setup();
+    renderRoute(<SettingsPage />);
+
+    const serverUrl = await screen.findByRole("textbox", {
+      name: "Server URL",
+    });
+    await user.clear(serverUrl);
+    await user.type(serverUrl, "http://operator:secret@127.0.0.1:5885");
+
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Connect to server",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      screen.queryByRole("link", { name: "Connect to server" }),
+    ).toBeNull();
+    expect(
+      screen.getByText("Enter an HTTP(S) server URL without credentials."),
+    ).toBeTruthy();
+    expect(serverUrl.getAttribute("aria-describedby")).toBe("server-url-error");
   });
 
   it("reports an unavailable provider test as a failure", async () => {

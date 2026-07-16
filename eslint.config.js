@@ -21,6 +21,14 @@ export default tseslint.config(
     plugins: { "react-hooks": hooks, "react-refresh": refresh },
     rules: {
       ...hooks.configs.recommended.rules,
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXOpeningElement[name.name='select']",
+          message:
+            "Use the shared ComboBox from code/web/src/components/ui.tsx instead of a native select.",
+        },
+      ],
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },

@@ -24,8 +24,10 @@ function defaultApiBase(): string {
   const configured = import.meta.env.VITE_ULTRADYN_API_BASE as
     string | undefined;
   if (configured) return configured.replace(/\/$/, "");
-  if (typeof window !== "undefined" && window.__TAURI_INTERNALS__)
-    return DEFAULT_DESKTOP_API;
+  if (typeof window !== "undefined") {
+    if (window.__TAURI_INTERNALS__) return DEFAULT_DESKTOP_API;
+    return window.location.origin;
+  }
   return "";
 }
 

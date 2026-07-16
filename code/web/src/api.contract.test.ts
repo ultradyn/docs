@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildServer, createDemoServices } from "../../server/index.js";
 import { ApiClient } from "./api.js";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -15,6 +18,40 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("live HTTP contract adapter", () => {
+  it("uses the web UI origin by default and preserves explicit overrides", () => {
+    vi.stubGlobal("window", {
+      location: { origin: "http://xsm:5885" },
+    });
+
+    expect(new ApiClient().url("/api/settings")).toBe(
+      "http://xsm:5885/api/settings",
+    );
+    expect(
+      new ApiClient({ baseUrl: "http://127.0.0.1:49321" }).url(
+        "/api/settings",
+      ),
+    ).toBe("http://127.0.0.1:49321/api/settings");
+  });
+
+  it("preserves environment, desktop, and non-browser API defaults", () => {
+    vi.stubGlobal("window", {
+      __TAURI_INTERNALS__: {},
+      location: { origin: "http://xsm:5885" },
+    });
+    vi.stubEnv("VITE_ULTRADYN_API_BASE", "http://dev-server.test:7443/");
+    expect(new ApiClient().url("/api/settings")).toBe(
+      "http://dev-server.test:7443/api/settings",
+    );
+
+    vi.unstubAllEnvs();
+    expect(new ApiClient().url("/api/settings")).toBe(
+      "http://127.0.0.1:49321/api/settings",
+    );
+
+    vi.stubGlobal("window", undefined);
+    expect(new ApiClient().url("/api/settings")).toBe("/api/settings");
+  });
+
   it("interoperates with the real Fastify public seam", async () => {
     const server = buildServer({
       services: createDemoServices(),

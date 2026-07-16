@@ -35,6 +35,7 @@ import type {
 import {
   Button,
   Card,
+  ComboBox,
   EmptyState,
   ErrorState,
   InlineNotice,
@@ -69,6 +70,24 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string>();
   const [restartPending, setRestartPending] = useState(false);
+  const [serverUrl, setServerUrl] = useState(
+    () => api.url("") || window.location.origin,
+  );
+  const serverSettingsUrl = useMemo(() => {
+    try {
+      const target = new URL(serverUrl);
+      if (target.protocol !== "http:" && target.protocol !== "https:")
+        return undefined;
+      if (target.username || target.password) return undefined;
+      target.pathname = "/";
+      target.search = "";
+      target.searchParams.set("ultradyn_connect", "1");
+      target.hash = "/settings";
+      return target.toString();
+    } catch {
+      return undefined;
+    }
+  }, [serverUrl]);
   const resource = useAsyncResource(async () => {
     const [settings, schema, providers] = await Promise.all([
       api.settings(),
@@ -169,6 +188,46 @@ export function SettingsPage() {
           )
         }
       />
+      <section
+        className="server-connection"
+        aria-labelledby="server-connection-title"
+      >
+        <div>
+          <h2 id="server-connection-title">Server connection</h2>
+          <p>
+            Open the server directly to establish its private browser session.
+            This control remains available if the current API cannot load.
+          </p>
+        </div>
+        <label htmlFor="server-url">
+          <span>Server URL</span>
+          <input
+            id="server-url"
+            type="url"
+            value={serverUrl}
+            aria-invalid={!serverSettingsUrl}
+            aria-describedby={
+              serverSettingsUrl ? undefined : "server-url-error"
+            }
+            onChange={(event) => setServerUrl(event.target.value)}
+            placeholder="http://127.0.0.1:5885"
+          />
+        </label>
+        {serverSettingsUrl ? (
+          <a className="button button-secondary" href={serverSettingsUrl}>
+            Connect to server
+          </a>
+        ) : (
+          <button className="button button-secondary" disabled>
+            Connect to server
+          </button>
+        )}
+        {!serverSettingsUrl ? (
+          <p className="server-url-error" id="server-url-error">
+            Enter an HTTP(S) server URL without credentials.
+          </p>
+        ) : null}
+      </section>
       <div
         className="settings-tabs"
         role="tablist"
@@ -251,31 +310,29 @@ export function SettingsPage() {
                 placeholder="Search labels and descriptions"
               />
             </label>
-            <label className="select-field">
-              <span className="visually-hidden">Setting scope</span>
-              <select
+            <div className="select-field">
+              <ComboBox
+                label="Setting scope"
                 value={scope}
-                onChange={(event) =>
-                  setScope(event.target.value as SettingScope | "all")
-                }
-              >
-                <option value="all">Both scopes</option>
-                <option value="repo">Repository</option>
-                <option value="personal">Personal</option>
-              </select>
-            </label>
-            <label className="select-field">
-              <span className="visually-hidden">Setting category</span>
-              <select
+                options={[
+                  { value: "all", label: "Both scopes" },
+                  { value: "repo", label: "Repository" },
+                  { value: "personal", label: "Personal" },
+                ]}
+                onChange={setScope}
+              />
+            </div>
+            <div className="select-field">
+              <ComboBox
+                label="Setting category"
                 value={category}
-                onChange={(event) => setCategory(event.target.value)}
-              >
-                <option value="all">Every category</option>
-                {categories.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
+                options={[
+                  { value: "all", label: "Every category" },
+                  ...categories.map((item) => ({ value: item, label: item })),
+                ]}
+                onChange={setCategory}
+              />
+            </div>
           </div>
           {!visibleSettings.length ? (
             <EmptyState
@@ -427,18 +484,14 @@ function SettingControl({
           </button>
         ) : null}
         {definition.type === "select" ? (
-          <select
+          <ComboBox
             id={id}
+            label={definition.label}
             value={String(value)}
-            aria-describedby={describedBy}
-            onChange={(event) => onChange(event.target.value)}
-          >
-            {definition.options?.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            describedBy={describedBy}
+            options={definition.options ?? []}
+            onChange={onChange}
+          />
         ) : null}
         {definition.type === "string" ? (
           <input

@@ -22,6 +22,7 @@ import type { PriorityTier, Question } from "../types.js";
 import {
   Button,
   Card,
+  ComboBox,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -113,23 +114,18 @@ export function QueuePage() {
             placeholder="Search questions and goals"
           />
         </label>
-        <label className="select-field">
+        <div className="select-field">
           <Filter aria-hidden="true" size={16} />
-          <span className="visually-hidden">Priority tier</span>
-          <select
+          <ComboBox
+            label="Priority tier"
             value={tier}
-            onChange={(event) =>
-              setTier(event.target.value as PriorityTier | "all")
-            }
-          >
-            <option value="all">Every tier</option>
-            {tiers.slice(1).map((item) => (
-              <option key={item} value={item}>
-                {item} only
-              </option>
-            ))}
-          </select>
-        </label>
+            options={tiers.map((item) => ({
+              value: item,
+              label: item === "all" ? "Every tier" : `${item} only`,
+            }))}
+            onChange={setTier}
+          />
+        </div>
       </div>
 
       <div className={`queue-layout${questionId ? " has-selection" : ""}`}>

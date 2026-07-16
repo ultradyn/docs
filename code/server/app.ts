@@ -183,6 +183,27 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     if (!options.sessionAuth) return;
+    const hasFetchMetadata =
+      request.headers["sec-fetch-mode"] !== undefined ||
+      request.headers["sec-fetch-dest"] !== undefined;
+    const hasDocumentNavigationHeaders = hasFetchMetadata
+      ? request.headers["sec-fetch-mode"] === "navigate" &&
+        request.headers["sec-fetch-dest"] === "document"
+      : request.headers["upgrade-insecure-requests"] === "1" &&
+        request.headers.accept?.includes("text/html");
+    const isExplicitBrowserConnection =
+      requestUrl.searchParams.get("ultradyn_connect") === "1" &&
+      request.method === "GET" &&
+      !requestUrl.pathname.startsWith("/api/") &&
+      hasDocumentNavigationHeaders;
+    if (isExplicitBrowserConnection) {
+      reply.header(
+        "Set-Cookie",
+        `ultradyn_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict`,
+      );
+      reply.header("Cache-Control", "no-store");
+      return reply.redirect("/#/settings");
+    }
     const isNavigation =
       request.method === "GET" &&
       !requestUrl.pathname.startsWith("/api/") &&

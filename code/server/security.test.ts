@@ -134,4 +134,77 @@ describe("HTTP browser security boundary", () => {
     expect(reused.statusCode).toBe(403);
     expect(reused.headers["set-cookie"]).toBeUndefined();
   });
+
+  it("requires an explicit handshake for a cross-site browser connection", async () => {
+    const app = buildServer({
+      services: createDemoServices(),
+      runtime: {
+        maintenanceEnabled: false,
+        demoMode: true,
+        repoRoot: "/tmp/network-docs",
+        version: "0.1.0-test",
+      },
+      sessionAuth: true,
+    });
+    servers.push(app);
+    const navigationHeaders = {
+      host: "127.0.0.1:4173",
+      accept: "text/html",
+      "sec-fetch-dest": "document",
+      "sec-fetch-mode": "navigate",
+      "sec-fetch-site": "cross-site",
+    };
+
+    const ordinaryNavigation = await app.inject({
+      method: "GET",
+      url: "/",
+      headers: navigationHeaders,
+    });
+    expect(ordinaryNavigation.headers["set-cookie"]).toBeUndefined();
+
+    const compatibilityNavigationHeaders = {
+      host: "127.0.0.1:4173",
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "upgrade-insecure-requests": "1",
+    };
+    const ordinaryCompatibilityNavigation = await app.inject({
+      method: "GET",
+      url: "/",
+      headers: compatibilityNavigationHeaders,
+    });
+    expect(
+      ordinaryCompatibilityNavigation.headers["set-cookie"],
+    ).toBeUndefined();
+
+    const iframeConnection = await app.inject({
+      method: "GET",
+      url: "/?ultradyn_connect=1",
+      headers: {
+        ...compatibilityNavigationHeaders,
+        "sec-fetch-dest": "iframe",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "cross-site",
+      },
+    });
+    expect(iframeConnection.headers["set-cookie"]).toBeUndefined();
+
+    const connection = await app.inject({
+      method: "GET",
+      url: "/?ultradyn_connect=1",
+      headers: compatibilityNavigationHeaders,
+    });
+    expect(connection.statusCode).toBe(302);
+    expect(connection.headers.location).toBe("/#/settings");
+    expect(connection.headers["set-cookie"]).toMatch(/^ultradyn_session=/);
+
+    const settings = await app.inject({
+      method: "GET",
+      url: "/api/settings",
+      headers: {
+        host: "127.0.0.1:4173",
+        cookie: connection.headers["set-cookie"],
+      },
+    });
+    expect(settings.statusCode).toBe(200);
+  });
 });
