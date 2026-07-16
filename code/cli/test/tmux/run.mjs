@@ -522,15 +522,18 @@ function canonicalizeAsciiFrame(frame, index) {
     .filter((line) => {
       if (!line.startsWith("| ") || !line.endsWith(" |")) return true;
       const content = line.slice(2, -2).trim();
+      const normalizedPath = /^<(?:HOME|REPO|TMP)>(?:\/|$)/u.test(content);
       if (index === 0) {
         return (
-          !/^(Suggested )?Destination$/u.test(content) &&
+          !/^(?:Suggested )?destination$/iu.test(content) &&
           !content.startsWith("/") &&
-          !content.startsWith("./")
+          !content.startsWith("./") &&
+          !normalizedPath
         );
       }
       return !(
         content.startsWith("/") ||
+        normalizedPath ||
         /^\d+ files installed/u.test(content) ||
         content === "preserved" ||
         /Git repository/u.test(content) ||
