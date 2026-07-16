@@ -72,6 +72,7 @@ class ClackUi implements CliUi {
       message: "Where should Ultradyn Docs be initialized?",
       placeholder: initialValue,
       defaultValue: initialValue,
+      initialValue,
       validate: (value) => validate(value ?? ""),
     });
     return prompts.isCancel(result) ? PROMPT_CANCELLED : result;
