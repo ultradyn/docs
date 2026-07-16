@@ -46,7 +46,9 @@ test("asks a question through the browser-backed server", async ({
     page.getByRole("heading", { name: "Ask the documentation" }),
   ).toBeVisible();
 
-  await page.getByLabel("Question").fill(question);
+  await page
+    .getByRole("textbox", { name: "Question", exact: true })
+    .fill(question);
   const askButton = page.getByRole("button", {
     name: "Ask the documentation",
   });
