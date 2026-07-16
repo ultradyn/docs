@@ -1,0 +1,8 @@
+{
+  "question": "What threat?",
+  "chat": "Spawned from contradiction.",
+  "goals": ["security-review"],
+  "origin": {
+    "kind": "generated"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "done": true,
+  "goalResults": [
+    {
+      "goal": "documentation",
+      "status": "deferred",
+      "rationale": "The high-level goal is met; optional internals are deferred."
+    }
+  ],
+  "findings": [
+    {
+      "category": "depth",
+      "text": "Internal tuning is omitted.",
+      "blocking": false
+    }
+  ],
+  "deferredQuestions": [
+    {
+      "question": "Which internal tuning options exist?",
+      "goal": "documentation",
+      "extraDetail": true
+    }
+  ],
+  "contradictions": []
+}

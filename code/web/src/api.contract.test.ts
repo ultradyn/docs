@@ -1,0 +1,308 @@
+// @vitest-environment happy-dom
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { buildServer, createDemoServices } from "../../server/index.js";
+import { ApiClient } from "./api.js";
+
+afterEach(() => vi.unstubAllGlobals());
+
+function json(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("live HTTP contract adapter", () => {
+  it("interoperates with the real Fastify public seam", async () => {
+    const server = buildServer({
+      services: createDemoServices(),
+      runtime: {
+        maintenanceEnabled: true,
+        demoMode: true,
+        repoRoot: "/tmp/network-docs",
+        version: "contract-test",
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const response = await server.inject({
+          method: (init?.method ?? "GET") as "GET" | "POST" | "PUT",
+          url: `${url.pathname}${url.search}`,
+          ...(typeof init?.body === "string" ? { payload: init.body } : {}),
+          headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        });
+        return new Response(response.body, {
+          status: response.statusCode,
+          headers: {
+            "content-type":
+              response.headers["content-type"] ?? "application/json",
+          },
+        });
+      }),
+    );
+    const api = new ApiClient({ baseUrl: "http://server.test" });
+
+    try {
+      expect((await api.goals()).length).toBeGreaterThan(3);
+      expect(await api.settingSchema()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: "server.pollIntervalMinutes",
+            restartRequired: true,
+          }),
+        ]),
+      );
+      expect(await api.providers()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "codex", consent: "required" }),
+        ]),
+      );
+      const logged = await api.ask({
+        question: "How does the unknown bridge recover?",
+        goals: ["implementation"],
+        asker: "max",
+      });
+      expect(logged.kind).toBe("logged");
+      expect(await api.questions({ bucket: "active" })).toEqual([
+        expect.objectContaining({ tier: "P3" }),
+      ]);
+      await api.settingsSave(
+        { "server.maintenance": false },
+        { "server.maintenance": "repo" },
+      );
+      expect((await api.runtime()).maintenanceEnabled).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("adapts the server's item envelopes and shared record fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === "/api/goals")
+          return json({
+            items: [
+              {
+                id: "documentation",
+                label: "Documentation",
+                description: "Clear and cited",
+                criteria: "Citations",
+              },
+            ],
+          });
+        if (pathname === "/api/settings/schema")
+          return json({
+            items: [
+              {
+                key: "server.maintenance",
+                category: "Server",
+                label: "Maintenance mode",
+                description: "Show maintenance",
+                type: "boolean",
+                scope: "repo",
+                default: false,
+                restartRequired: true,
+              },
+            ],
+          });
+        if (pathname === "/api/settings")
+          return json({
+            items: [
+              {
+                key: "server.maintenance",
+                value: true,
+                scope: "repo",
+                source: "repo",
+              },
+            ],
+          });
+        if (pathname === "/api/providers")
+          return json({
+            items: [
+              {
+                id: "codex",
+                name: "Codex CLI",
+                kind: "llm",
+                state: "consent_required",
+                detail: "Delegate to Codex",
+                fakeAvailable: true,
+                capabilities: ["model"],
+                consentScopes: [
+                  {
+                    scope: "model",
+                    consent: "required",
+                    availability: "unknown",
+                  },
+                ],
+              },
+            ],
+          });
+        if (pathname === "/api/maintenance")
+          return json({
+            enabled: true,
+            items: [
+              {
+                id: "review-1",
+                kind: "review",
+                title: "Review a diff",
+                detail: "Run locally",
+                status: "open",
+                updated: "2026-07-16T00:00:00.000Z",
+              },
+            ],
+          });
+        if (pathname === "/api/questions/q-LIVE")
+          return json({
+            id: "q-LIVE",
+            title: "Live contract",
+            state: "in-answer",
+            bucket: "active",
+            tier: "P2",
+            goals: ["documentation"],
+            tags: ["raw"],
+            askers: ["max"],
+            created: "2026-07-16T00:00:00.000Z",
+            updated: "2026-07-16T01:00:00.000Z",
+            rationale: "Active goal gap",
+            rawQuestion: "What is the contract?",
+            chat: "Need it now",
+            provenance: [],
+            transcripts: [
+              {
+                id: "tx-1",
+                text: "Verbatim segment",
+                source: "typed",
+                created: "2026-07-16T00:30:00.000Z",
+              },
+            ],
+            structuredAnswer: "Structured",
+            evaluation: {
+              done: true,
+              goalResults: [
+                {
+                  goal: "documentation",
+                  status: "satisfied",
+                  rationale: "Directly answered",
+                },
+              ],
+              contradictions: [],
+              deferredChildren: [],
+            },
+          });
+        throw new Error(`Unexpected route ${pathname}`);
+      }),
+    );
+    const api = new ApiClient({ baseUrl: "http://server.test" });
+
+    expect(await api.goals()).toEqual([
+      expect.objectContaining({ id: "documentation" }),
+    ]);
+    expect(await api.settingSchema()).toEqual([
+      expect.objectContaining({
+        key: "server.maintenance",
+        defaultValue: false,
+        restartRequired: true,
+      }),
+    ]);
+    expect(await api.settings()).toEqual({
+      values: { "server.maintenance": true },
+    });
+    expect(await api.providers()).toEqual([
+      expect.objectContaining({
+        id: "codex",
+        label: "Codex CLI",
+        kind: "model",
+        consent: "required",
+        fake: true,
+        consentScopes: [
+          {
+            scope: "model",
+            consent: "required",
+            availability: "unknown",
+          },
+        ],
+      }),
+    ]);
+    expect(await api.maintenance()).toEqual(
+      expect.objectContaining({
+        tasks: [expect.objectContaining({ id: "review-1", status: "ready" })],
+      }),
+    );
+    expect(await api.question("q-LIVE")).toEqual(
+      expect.objectContaining({
+        question: "What is the contract?",
+        transcript: "Verbatim segment",
+        askers: [{ name: "max" }],
+        findings: [
+          expect.objectContaining({
+            goal: "documentation",
+            status: "satisfied",
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("writes the server's one-setting PUT shape and uses binary audio content type", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(input), ...(init ? { init } : {}) });
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === "/api/settings" && init?.method === "PUT")
+          return json({
+            key: "server.maintenance",
+            value: true,
+            scope: "repo",
+            source: "repo",
+          });
+        if (pathname === "/api/settings")
+          return json({
+            items: [
+              {
+                key: "server.maintenance",
+                value: true,
+                scope: "repo",
+                source: "repo",
+              },
+            ],
+          });
+        if (pathname.includes("/chunks/"))
+          return json({ sequence: 0, durableBytes: 3 }, 202);
+        throw new Error(`Unexpected route ${pathname}`);
+      }),
+    );
+    const api = new ApiClient({ baseUrl: "http://server.test" });
+
+    await api.settingsSave(
+      { "server.maintenance": true },
+      { "server.maintenance": "repo" },
+    );
+    await api.uploadAudioChunk(
+      "aud-1",
+      0,
+      new Blob(["abc"], { type: "audio/webm;codecs=opus" }),
+    );
+
+    const settingCall = calls.find(
+      (call) =>
+        call.init?.method === "PUT" && call.url.endsWith("/api/settings"),
+    );
+    expect(JSON.parse(String(settingCall?.init?.body))).toEqual({
+      key: "server.maintenance",
+      value: true,
+      scope: "repo",
+    });
+    const audioCall = calls.find((call) => call.url.includes("/chunks/0"));
+    expect(new Headers(audioCall?.init?.headers).get("content-type")).toBe(
+      "application/octet-stream",
+    );
+  });
+});

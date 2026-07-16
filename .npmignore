@@ -1,0 +1,10 @@
+node_modules/
+coverage/
+test-results/
+playwright-report/
+tauri-app/src-tauri/target/
+.ultradyn/
+.env
+.env.*
+!.env.example
+project-website/

@@ -1,0 +1,6 @@
+{
+  "title": "Resolve the documented threat contradiction",
+  "structuredQuestion": "Which threat model resolves the contradiction?",
+  "relevantContext": "Generated from a contradiction finding.",
+  "tags": ["generated"]
+}

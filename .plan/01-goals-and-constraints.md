@@ -1,6 +1,6 @@
 # Ultradyn Docs — Goals & Constraints
 
-*Working title: **Ultradyn Docs**.*
+_Working title: **Ultradyn Docs**._
 
 Document 1 of 6 · Status: draft for review
 
@@ -16,32 +16,32 @@ The system's output is the documentation itself: a breadth-first map of a projec
 
 **P1 — Knowledge lives in heads and dies in chat logs.** Expert answers given in Slack/voice/hallways are high-value and unrecorded. Ultradyn Docs makes the low-friction medium (talking) produce the high-value artifact (consistent documentation) as a side effect.
 
-**P2 — Documentation effort is misallocated.** Docs are traditionally written speculatively, depth-first, by guessing what readers need. Ultradyn Docs inverts this: unanswerable questions *are* the demand signal. Effort flows to proven gaps. Depth is added only where a real question requires it.
+**P2 — Documentation effort is misallocated.** Docs are traditionally written speculatively, depth-first, by guessing what readers need. Ultradyn Docs inverts this: unanswerable questions _are_ the demand signal. Effort flows to proven gaps. Depth is added only where a real question requires it.
 
 **P3 — Answering well is expensive; answering roughly is cheap.** Structuring, checking consistency, and cross-linking are exactly what experts skip. Ultradyn Docs lets the expert deliver an unstructured brain dump and pushes the expensive part (structure, criticism, integration) onto agents, with the expert only reviewing.
 
-**P4 — "Answered" is usually undefined.** Ultradyn Docs makes it decisive: every question carries declared goals; an answer is done when it satisfies those goals with no contradiction against existing docs. Not perfect — good enough *for the declared goals*.
+**P4 — "Answered" is usually undefined.** Ultradyn Docs makes it decisive: every question carries declared goals; an answer is done when it satisfies those goals with no contradiction against existing docs. Not perfect — good enough _for the declared goals_.
 
 **P5 — Doc bases rot.** Every integration pass is required to update everything the answer touches, so consistency is maintained transactionally (per PR) rather than by periodic heroics.
 
 ## 3. Goals
 
-| # | Goal | Decisive test |
-|---|------|---------------|
-| G1 | Asking a question costs almost nothing | Type question + pick goal tag(s); < 30s to submit |
-| G2 | Answering costs little more than talking | Answerer speaks; never formats; reviews a diff and a summary at the end |
-| G3 | Every unanswered question is captured with context | Raw verbatim question + chat log + goals + provenance stored under a stable ID |
-| G4 | Documentation stays consistent and complete | Integration updates all touched docs; contradiction findings are P1 and block |
-| G5 | Everything is inspectable and recoverable | Whole system state = one git clone; every change is a reviewable, revertible diff |
-| G6 | Breadth-first by construction | Depth gaps spawn deferred child questions instead of blocking answers |
-| G7 | The system improves itself safely | Agent definitions live in the repo and change through the same PR flow as docs |
+| #   | Goal                                               | Decisive test                                                                     |
+| --- | -------------------------------------------------- | --------------------------------------------------------------------------------- |
+| G1  | Asking a question costs almost nothing             | Type question + pick goal tag(s); < 30s to submit                                 |
+| G2  | Answering costs little more than talking           | Answerer speaks; never formats; reviews a diff and a summary at the end           |
+| G3  | Every unanswered question is captured with context | Raw verbatim question + chat log + goals + provenance stored under a stable ID    |
+| G4  | Documentation stays consistent and complete        | Integration updates all touched docs; contradiction findings are P1 and block     |
+| G5  | Everything is inspectable and recoverable          | Whole system state = one git clone; every change is a reviewable, revertible diff |
+| G6  | Breadth-first by construction                      | Depth gaps spawn deferred child questions instead of blocking answers             |
+| G7  | The system improves itself safely                  | Agent definitions live in the repo and change through the same PR flow as docs    |
 
 ## 4. Non-goals (explicitly out of scope for v1)
 
 - Notification delivery (email/Slack/push). The unanswered queue is the interface; notifications are a later plugin.
 - Access control / multi-tenant security. v1 assumes a trusted team with repo access.
 - Serving docs to external consumers. The repo can be ingested elsewhere later; v1 serves its own chat UI.
-- Perfect answers, perfect priorities, perfect dedup. Standard is *good enough, criticizable, correctable*. Every automated judgment (priority, done-ness, dedup match) is surfaced to a human who can override it cheaply.
+- Perfect answers, perfect priorities, perfect dedup. Standard is _good enough, criticizable, correctable_. Every automated judgment (priority, done-ness, dedup match) is surfaced to a human who can override it cheaply.
 
 ## 5. Constraints
 

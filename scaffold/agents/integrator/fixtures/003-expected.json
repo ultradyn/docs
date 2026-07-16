@@ -1,0 +1,18 @@
+{
+  "edits": [
+    {
+      "path": "docs/security.md",
+      "operation": "update",
+      "summary": "State token scope.",
+      "content": "Tokens are scoped."
+    },
+    {
+      "path": "docs/auth.md",
+      "operation": "update",
+      "summary": "Cross-link scope rule.",
+      "content": "See token scope."
+    }
+  ],
+  "mapUpdates": ["docs/_map.md"],
+  "rationale": "Both security and auth claims are touched."
+}

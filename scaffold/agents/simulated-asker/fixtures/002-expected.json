@@ -1,0 +1,11 @@
+{
+  "satisfied": false,
+  "reason": "No threat model is present.",
+  "goalResults": [
+    {
+      "goal": "security-review",
+      "satisfied": false,
+      "rationale": "Token mention is insufficient."
+    }
+  ]
+}

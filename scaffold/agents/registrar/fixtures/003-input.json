@@ -1,0 +1,8 @@
+{
+  "question": "More details?",
+  "chat": "Optional depth.",
+  "goals": ["documentation"],
+  "origin": {
+    "kind": "generated"
+  }
+}

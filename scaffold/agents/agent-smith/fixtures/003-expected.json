@@ -1,0 +1,33 @@
+{
+  "name": "reporter",
+  "agentMarkdown": "Report only the supplied diff.",
+  "schema": {
+    "type": "object"
+  },
+  "fixtures": [
+    {
+      "input": {
+        "diff": "a"
+      },
+      "expected": {
+        "summary": "a"
+      }
+    },
+    {
+      "input": {
+        "diff": "b"
+      },
+      "expected": {
+        "summary": "b"
+      }
+    },
+    {
+      "input": {
+        "diff": "c"
+      },
+      "expected": {
+        "summary": "c"
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+packages:
+  - tauri-app
+
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - openai@6.47.0
+overrides:
+  esbuild: ^0.28.1

@@ -1,0 +1,11 @@
+{
+  "question": "Codec tuning?",
+  "goals": ["implementation"],
+  "candidates": [
+    {
+      "id": "q-b",
+      "state": "deferred",
+      "question": "Which codec flags?"
+    }
+  ]
+}

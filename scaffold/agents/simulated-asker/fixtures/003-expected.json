@@ -1,0 +1,11 @@
+{
+  "satisfied": true,
+  "reason": "The endpoint and transport are documented.",
+  "goalResults": [
+    {
+      "goal": "api-integration",
+      "satisfied": true,
+      "rationale": "The asker can call POST /ask."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "answer", "citations", "unsatisfiedGoals"],
+  "properties": {
+    "status": {
+      "enum": ["answered", "insufficient"]
+    },
+    "answer": {
+      "type": "string"
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "claim"],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "claim": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "unsatisfiedGoals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "request": "Revise critic.",
+  "constraints": ["Fresh context.", "Contradictions block."],
+  "existingDefinitions": ["critic"]
+}

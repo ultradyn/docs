@@ -1,0 +1,714 @@
+import {
+  chmod,
+  copyFile as nodeCopyFile,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rmdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import path from "node:path";
+
+export type FileKind = "missing" | "file" | "directory" | "symlink" | "other";
+
+export interface DirectoryEntry {
+  readonly name: string;
+  readonly kind: Exclude<FileKind, "missing">;
+}
+
+export interface CopyFileOptions {
+  readonly exclusive?: boolean;
+}
+
+/** Filesystem boundary used by the package installer. */
+export interface InstallerFileSystem {
+  kind(targetPath: string): Promise<FileKind>;
+  list(directory: string): Promise<readonly DirectoryEntry[]>;
+  mode(filePath: string): Promise<number>;
+  readFile(filePath: string): Promise<string>;
+  mkdir(directory: string): Promise<void>;
+  mkdirExclusive(directory: string): Promise<void>;
+  copyFile(
+    source: string,
+    destination: string,
+    options?: CopyFileOptions,
+  ): Promise<void>;
+  writeFile(filePath: string, contents: string): Promise<void>;
+  chmod(filePath: string, mode: number): Promise<void>;
+  rename(source: string, destination: string): Promise<void>;
+  remove(targetPath: string): Promise<void>;
+  removeEmptyDirectory(directory: string): Promise<void>;
+}
+
+export interface GitClient {
+  isRepository(directory: string): Promise<boolean>;
+  init(directory: string): Promise<void>;
+  version(): Promise<string | null>;
+}
+
+export interface PackageFile {
+  readonly source: string;
+  readonly relativePath: string;
+  readonly mode: number;
+}
+
+export interface InitializationPlan {
+  readonly destination: string;
+  readonly mode: "create" | "merge";
+  readonly directories: readonly string[];
+  readonly files: readonly PackageFile[];
+  readonly skipped: readonly string[];
+  readonly gitAction: "initialize" | "preserve";
+}
+
+export interface InitializationResult {
+  readonly destination: string;
+  readonly written: readonly string[];
+  readonly skipped: readonly string[];
+  readonly gitInitialized: boolean;
+}
+
+export interface InitializeDocumentationRepositoryOptions {
+  readonly destination: string;
+  readonly packageRoot: string;
+  readonly packageVersion: string;
+  readonly fileSystem: InstallerFileSystem;
+  readonly git: GitClient;
+  readonly now?: () => Date;
+  readonly transactionId?: () => string;
+  readonly onProgress?: (event: InitializationProgress) => void;
+  readonly signal?: AbortSignal;
+}
+
+export type InitializationProgress =
+  | { readonly phase: "planning" }
+  | {
+      readonly phase: "copying";
+      readonly completed: number;
+      readonly total: number;
+    }
+  | { readonly phase: "git"; readonly action: "initialize" | "preserve" }
+  | { readonly phase: "complete"; readonly destination: string };
+
+const SOURCE_DIRECTORIES = [
+  "code",
+  "tauri-app",
+  ".codex/skills",
+  "docs",
+  ".plan",
+  "schemas",
+  "scripts",
+] as const;
+const REQUIRED_SOURCE_DIRECTORIES = new Set([
+  "code",
+  "tauri-app",
+  ".codex/skills",
+  "docs",
+  ".plan",
+]);
+const REQUIRED_TARGET_DIRECTORIES = [
+  "code",
+  "tauri-app",
+  ".codex/skills",
+] as const;
+const ROOT_SOURCE_FILES = [
+  "AGENTS.md",
+  "BLOCKED_TASKS.md",
+  "CONTEXT.md",
+  "LICENSE",
+  "README.md",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "playwright.config.ts",
+  "tsconfig.json",
+  "vitest.config.ts",
+  "eslint.config.js",
+  ".gitignore",
+  ".gitattributes",
+  ".prettierignore",
+  ".npmignore",
+  ".env.example",
+  "SECURITY.md",
+  "skills-lock.json",
+] as const;
+const MANIFEST_PATH = ".ultradyn/manifest.json";
+const IGNORED_SOURCE_DIRECTORIES = new Set([
+  ".git",
+  ".ultradyn",
+  "coverage",
+  "dist",
+  "node_modules",
+  "playwright-report",
+  "target",
+  "test-results",
+]);
+
+export function createNodeFileSystem(): InstallerFileSystem {
+  return {
+    async kind(targetPath) {
+      try {
+        const info = await lstat(targetPath);
+        if (info.isFile()) return "file";
+        if (info.isDirectory()) return "directory";
+        if (info.isSymbolicLink()) return "symlink";
+        return "other";
+      } catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") return "missing";
+        throw error;
+      }
+    },
+    async list(directory) {
+      const entries = await readdir(directory, { withFileTypes: true });
+      return entries.map((entry) => ({
+        name: entry.name,
+        kind: entry.isFile()
+          ? "file"
+          : entry.isDirectory()
+            ? "directory"
+            : entry.isSymbolicLink()
+              ? "symlink"
+              : "other",
+      }));
+    },
+    async mode(filePath) {
+      return (await lstat(filePath)).mode & 0o777;
+    },
+    async readFile(filePath) {
+      return readFile(filePath, "utf8");
+    },
+    async mkdir(directory) {
+      await mkdir(directory, { recursive: true });
+    },
+    async mkdirExclusive(directory) {
+      await mkdir(directory);
+    },
+    async copyFile(source, destination, options) {
+      await nodeCopyFile(
+        source,
+        destination,
+        options?.exclusive ? fsConstants.COPYFILE_EXCL : 0,
+      );
+    },
+    async writeFile(filePath, contents) {
+      await writeFile(filePath, contents, { flag: "wx" });
+    },
+    chmod,
+    rename,
+    async remove(targetPath) {
+      await rm(targetPath, { recursive: true, force: true });
+    },
+    async removeEmptyDirectory(directory) {
+      await rmdir(directory);
+    },
+  };
+}
+
+/**
+ * Purely combines discovered source files and destination facts into an install
+ * plan. IO discovery is intentionally kept outside this function.
+ */
+export function buildInitializationPlan(input: {
+  readonly destination: string;
+  readonly destinationExists: boolean;
+  readonly directories?: readonly string[];
+  readonly files: readonly PackageFile[];
+  readonly existingPaths: ReadonlySet<string>;
+  readonly isGitRepository: boolean;
+}): InitializationPlan {
+  const skipped = input.files
+    .map((file) => file.relativePath)
+    .filter((relativePath) => input.existingPaths.has(relativePath));
+  if (input.existingPaths.has(MANIFEST_PATH)) skipped.push(MANIFEST_PATH);
+
+  return {
+    destination: input.destination,
+    mode: input.destinationExists ? "merge" : "create",
+    directories: input.directories ?? REQUIRED_TARGET_DIRECTORIES,
+    files: input.files.filter(
+      (file) => !input.existingPaths.has(file.relativePath),
+    ),
+    skipped,
+    gitAction: input.isGitRepository ? "preserve" : "initialize",
+  };
+}
+
+export async function initializeDocumentationRepository(
+  options: InitializeDocumentationRepositoryOptions,
+): Promise<InitializationResult> {
+  const fs = options.fileSystem;
+  const destination = path.resolve(options.destination);
+  const packageRoot = path.resolve(options.packageRoot);
+  const now = options.now ?? (() => new Date());
+  const transactionId = options.transactionId ?? (() => randomTransactionId());
+  throwIfAborted(options.signal);
+  options.onProgress?.({ phase: "planning" });
+
+  const destinationKind = await fs.kind(destination);
+  if (destinationKind !== "missing" && destinationKind !== "directory") {
+    throw new Error(`Destination is not a directory: ${destination}`);
+  }
+
+  const inventory = await collectPackageInventory(fs, packageRoot);
+  throwIfAborted(options.signal);
+  const existingPaths = new Set<string>();
+  if (destinationKind === "directory") {
+    for (const directory of REQUIRED_TARGET_DIRECTORIES) {
+      const kind = await fs.kind(path.join(destination, directory));
+      if (kind !== "missing" && kind !== "directory") {
+        throw new Error(`Cannot install: ${directory} is not a directory`);
+      }
+    }
+    for (const file of inventory) {
+      if (
+        (await fs.kind(path.join(destination, file.relativePath))) !== "missing"
+      ) {
+        existingPaths.add(file.relativePath);
+      }
+      await assertNoBlockingParent(fs, destination, file.relativePath);
+    }
+    if ((await fs.kind(path.join(destination, MANIFEST_PATH))) !== "missing") {
+      existingPaths.add(MANIFEST_PATH);
+    }
+  }
+
+  const isGitRepository =
+    destinationKind === "directory" &&
+    (await options.git.isRepository(destination));
+  const plan = buildInitializationPlan({
+    destination,
+    destinationExists: destinationKind === "directory",
+    directories: REQUIRED_TARGET_DIRECTORIES,
+    files: inventory,
+    existingPaths,
+    isGitRepository,
+  });
+  const manifest = `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      package: { name: "@ultradyn/docs", version: options.packageVersion },
+      installedAt: now().toISOString(),
+      source: {
+        copiedDirectories: [
+          "code",
+          "tauri-app",
+          ".codex/skills",
+          "docs",
+          ".plan",
+          "schemas",
+          "scripts",
+        ],
+        scaffold: "scaffold",
+      },
+    },
+    null,
+    2,
+  )}\n`;
+
+  const result =
+    plan.mode === "create"
+      ? await createNewDestination({
+          fs,
+          git: options.git,
+          plan,
+          manifest,
+          transactionId,
+          onProgress: options.onProgress,
+          signal: options.signal,
+        })
+      : await mergeIntoDestination({
+          fs,
+          git: options.git,
+          plan,
+          manifest,
+          onProgress: options.onProgress,
+          signal: options.signal,
+        });
+
+  options.onProgress?.({ phase: "complete", destination });
+  return result;
+}
+
+async function createNewDestination(input: {
+  fs: InstallerFileSystem;
+  git: GitClient;
+  plan: InitializationPlan;
+  manifest: string;
+  transactionId: () => string;
+  onProgress: ((event: InitializationProgress) => void) | undefined;
+  signal: AbortSignal | undefined;
+}): Promise<InitializationResult> {
+  const parent = path.dirname(input.plan.destination);
+  const stage = path.join(
+    parent,
+    `.${path.basename(input.plan.destination)}.ultradyn-tmp-${safeTransactionId(input.transactionId())}`,
+  );
+  await input.fs.mkdir(parent);
+  let ownsStage = false;
+
+  try {
+    try {
+      await input.fs.mkdirExclusive(stage);
+      ownsStage = true;
+    } catch (error) {
+      if (isAlreadyExistsError(error)) {
+        throw new Error(
+          `Temporary installation directory already exists: ${stage}`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+    for (const directory of input.plan.directories) {
+      await input.fs.mkdir(path.join(stage, directory));
+    }
+    await copyFiles(
+      input.fs,
+      input.plan.files,
+      stage,
+      input.onProgress,
+      input.signal,
+    );
+    await writeManifest(input.fs, stage, input.manifest);
+    throwIfAborted(input.signal);
+    input.onProgress?.({ phase: "git", action: input.plan.gitAction });
+    if (input.plan.gitAction === "initialize") await input.git.init(stage);
+    throwIfAborted(input.signal);
+    await input.fs.rename(stage, input.plan.destination);
+  } catch (error) {
+    if (ownsStage) await input.fs.remove(stage).catch(() => undefined);
+    throw error;
+  }
+
+  return {
+    destination: input.plan.destination,
+    written: [
+      ...input.plan.files.map((file) => file.relativePath),
+      MANIFEST_PATH,
+    ],
+    skipped: input.plan.skipped,
+    gitInitialized: input.plan.gitAction === "initialize",
+  };
+}
+
+async function mergeIntoDestination(input: {
+  fs: InstallerFileSystem;
+  git: GitClient;
+  plan: InitializationPlan;
+  manifest: string;
+  onProgress: ((event: InitializationProgress) => void) | undefined;
+  signal: AbortSignal | undefined;
+}): Promise<InitializationResult> {
+  const createdFiles: string[] = [];
+  const createdDirectories: string[] = [];
+  const written: string[] = [];
+  const skipped = [...input.plan.skipped];
+  const manifestIsSkipped = input.plan.skipped.includes(MANIFEST_PATH);
+  const gitMetadataPath = path.join(input.plan.destination, ".git");
+  const gitMetadataExisted =
+    (await input.fs.kind(gitMetadataPath)) !== "missing";
+  let gitInitializationAttempted = false;
+
+  try {
+    throwIfAborted(input.signal);
+    for (const directory of input.plan.directories) {
+      await ensureDirectoryPath(
+        input.fs,
+        input.plan.destination,
+        directory,
+        createdDirectories,
+      );
+    }
+    for (const [index, file] of input.plan.files.entries()) {
+      await ensureParents(
+        input.fs,
+        input.plan.destination,
+        file.relativePath,
+        createdDirectories,
+      );
+      const target = path.join(input.plan.destination, file.relativePath);
+      try {
+        await input.fs.copyFile(file.source, target, { exclusive: true });
+      } catch (error) {
+        if (!isAlreadyExistsError(error)) throw error;
+        skipped.push(file.relativePath);
+        input.onProgress?.({
+          phase: "copying",
+          completed: index + 1,
+          total: input.plan.files.length,
+        });
+        continue;
+      }
+      createdFiles.push(target);
+      written.push(file.relativePath);
+      await input.fs.chmod(target, file.mode);
+      throwIfAborted(input.signal);
+      input.onProgress?.({
+        phase: "copying",
+        completed: index + 1,
+        total: input.plan.files.length,
+      });
+    }
+    if (!manifestIsSkipped) {
+      await ensureParents(
+        input.fs,
+        input.plan.destination,
+        MANIFEST_PATH,
+        createdDirectories,
+      );
+      const manifestTarget = path.join(input.plan.destination, MANIFEST_PATH);
+      try {
+        await input.fs.writeFile(manifestTarget, input.manifest);
+        createdFiles.push(manifestTarget);
+        written.push(MANIFEST_PATH);
+      } catch (error) {
+        if (!isAlreadyExistsError(error)) throw error;
+        skipped.push(MANIFEST_PATH);
+      }
+    }
+    throwIfAborted(input.signal);
+    input.onProgress?.({ phase: "git", action: input.plan.gitAction });
+    if (input.plan.gitAction === "initialize") {
+      gitInitializationAttempted = true;
+      await input.git.init(input.plan.destination);
+      throwIfAborted(input.signal);
+    }
+  } catch (error) {
+    if (gitInitializationAttempted && !gitMetadataExisted) {
+      await input.fs.remove(gitMetadataPath).catch(() => undefined);
+    }
+    for (const file of createdFiles.reverse())
+      await input.fs.remove(file).catch(() => undefined);
+    for (const directory of createdDirectories.reverse()) {
+      // rmdir is intentionally non-recursive: a path raced in by another
+      // process makes the directory non-empty and therefore survives rollback.
+      await input.fs.removeEmptyDirectory(directory).catch(() => undefined);
+    }
+    throw error;
+  }
+
+  return {
+    destination: input.plan.destination,
+    written,
+    skipped,
+    gitInitialized: input.plan.gitAction === "initialize",
+  };
+}
+
+async function copyFiles(
+  fs: InstallerFileSystem,
+  files: readonly PackageFile[],
+  destination: string,
+  onProgress?: (event: InitializationProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  for (const [index, file] of files.entries()) {
+    throwIfAborted(signal);
+    const target = path.join(destination, file.relativePath);
+    await fs.mkdir(path.dirname(target));
+    await fs.copyFile(file.source, target);
+    await fs.chmod(target, file.mode);
+    throwIfAborted(signal);
+    onProgress?.({
+      phase: "copying",
+      completed: index + 1,
+      total: files.length,
+    });
+  }
+}
+
+async function writeManifest(
+  fs: InstallerFileSystem,
+  root: string,
+  manifest: string,
+): Promise<void> {
+  const target = path.join(root, MANIFEST_PATH);
+  await fs.mkdir(path.dirname(target));
+  await fs.writeFile(target, manifest);
+}
+
+async function ensureParents(
+  fs: InstallerFileSystem,
+  destination: string,
+  relativeFile: string,
+  created: string[],
+): Promise<void> {
+  const relativeParent = path.dirname(relativeFile);
+  if (relativeParent === ".") return;
+  let cursor = destination;
+  for (const segment of relativeParent.split(path.sep)) {
+    cursor = path.join(cursor, segment);
+    if ((await fs.kind(cursor)) === "missing") {
+      await fs.mkdir(cursor);
+      created.push(cursor);
+    }
+  }
+}
+
+async function ensureDirectoryPath(
+  fs: InstallerFileSystem,
+  destination: string,
+  relativeDirectory: string,
+  created: string[],
+): Promise<void> {
+  let cursor = destination;
+  for (const segment of relativeDirectory.split(path.sep)) {
+    cursor = path.join(cursor, segment);
+    const kind = await fs.kind(cursor);
+    if (kind === "missing") {
+      await fs.mkdir(cursor);
+      created.push(cursor);
+    } else if (kind !== "directory") {
+      throw new Error(
+        `Cannot install: ${relativeDirectory} is not a directory`,
+      );
+    }
+  }
+}
+
+async function assertNoBlockingParent(
+  fs: InstallerFileSystem,
+  destination: string,
+  relativeFile: string,
+): Promise<void> {
+  const segments = relativeFile.split(path.sep).slice(0, -1);
+  let cursor = destination;
+  for (const segment of segments) {
+    cursor = path.join(cursor, segment);
+    const kind = await fs.kind(cursor);
+    if (kind !== "missing" && kind !== "directory") {
+      throw new Error(
+        `Cannot install ${relativeFile}: ${path.relative(destination, cursor)} is not a directory`,
+      );
+    }
+  }
+}
+
+async function collectPackageInventory(
+  fs: InstallerFileSystem,
+  packageRoot: string,
+): Promise<readonly PackageFile[]> {
+  const files = new Map<string, PackageFile>();
+
+  for (const relativeDirectory of SOURCE_DIRECTORIES) {
+    const source = path.join(packageRoot, relativeDirectory);
+    const kind = await fs.kind(source);
+    if (
+      kind === "missing" &&
+      REQUIRED_SOURCE_DIRECTORIES.has(relativeDirectory)
+    ) {
+      throw new Error(
+        `Installed package is incomplete: missing ${relativeDirectory}/`,
+      );
+    }
+    if (kind === "missing") continue;
+    if (kind !== "directory")
+      throw new Error(
+        `Installed package path is not a directory: ${relativeDirectory}`,
+      );
+    await collectTree(fs, source, relativeDirectory, files);
+  }
+
+  for (const relativeFile of ROOT_SOURCE_FILES) {
+    const source = path.join(packageRoot, relativeFile);
+    const kind = await fs.kind(source);
+    if (kind === "missing") continue;
+    if (kind !== "file")
+      throw new Error(`Installed package path is not a file: ${relativeFile}`);
+    files.set(relativeFile, {
+      source,
+      relativePath: relativeFile,
+      mode: await fs.mode(source),
+    });
+  }
+
+  const scaffold = path.join(packageRoot, "scaffold");
+  const scaffoldKind = await fs.kind(scaffold);
+  if (scaffoldKind === "directory") await collectTree(fs, scaffold, "", files);
+  else if (scaffoldKind !== "missing")
+    throw new Error("Installed package scaffold is not a directory");
+
+  files.delete(MANIFEST_PATH);
+  return [...files.values()].sort((left, right) =>
+    left.relativePath.localeCompare(right.relativePath),
+  );
+}
+
+async function collectTree(
+  fs: InstallerFileSystem,
+  sourceRoot: string,
+  targetRoot: string,
+  output: Map<string, PackageFile>,
+  sourceRelative = "",
+): Promise<void> {
+  const directory = path.join(sourceRoot, sourceRelative);
+  const entries = [...(await fs.list(directory))].sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
+  for (const entry of entries) {
+    const childSourceRelative = sourceRelative
+      ? path.join(sourceRelative, entry.name)
+      : entry.name;
+    if (entry.kind === "directory") {
+      if (IGNORED_SOURCE_DIRECTORIES.has(entry.name)) continue;
+      await collectTree(
+        fs,
+        sourceRoot,
+        targetRoot,
+        output,
+        childSourceRelative,
+      );
+      continue;
+    }
+    if (entry.kind !== "file") {
+      throw new Error(
+        `Installed package contains unsupported ${entry.kind}: ${childSourceRelative}`,
+      );
+    }
+    const relativePath = targetRoot
+      ? path.join(targetRoot, childSourceRelative)
+      : childSourceRelative;
+    assertSafeRelativePath(relativePath);
+    const source = path.join(sourceRoot, childSourceRelative);
+    output.set(relativePath, {
+      source,
+      relativePath,
+      mode: await fs.mode(source),
+    });
+  }
+}
+
+function assertSafeRelativePath(relativePath: string): void {
+  if (
+    !relativePath ||
+    path.isAbsolute(relativePath) ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`)
+  ) {
+    throw new Error(`Unsafe package path: ${relativePath}`);
+  }
+}
+
+function safeTransactionId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48) || "transaction";
+}
+
+function randomTransactionId(): string {
+  return `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return isNodeError(error) && error.code === "EEXIST";
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  signal?.throwIfAborted();
+}

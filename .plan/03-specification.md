@@ -61,11 +61,11 @@ Local, never committed: `~/.ultradyn-docs/audio/<qid>/NNN.<ext>` — raw recordi
 
 ```yaml
 id: q-01JZK3F0N8…
-state: active            # asked|logged|active|deferred|in-answer|integrating|merged|accepted|reopened
+state: active # asked|logged|active|deferred|in-answer|integrating|merged|accepted|reopened
 tier: P2
 goals: [implementation, security-review]
-tags: [raw]              # raw | generated (+ extra-detail, promoted, reopened…)
-asker: max               # attached askers accumulate on demand-promotion
+tags: [raw] # raw | generated (+ extra-detail, promoted, reopened…)
+asker: max # attached askers accumulate on demand-promotion
 created: 2026-07-16T…
 ```
 
@@ -73,24 +73,24 @@ created: 2026-07-16T…
 
 ```yaml
 origin:
-  kind: raw              # raw | generated
+  kind: raw # raw | generated
   # raw:       points at raw/001-question.md + chat log
   # generated: parent question, critic finding id, the goal cell (✘/?) that spawned it
-  parent: q-01JZJ…       # generated only
-  finding: f-01JZJ…      # generated only — the critic finding text is stored with the finding id
-  goal: security-review  # generated only
-events:                  # append-only
-  - {t: …, e: logged, by: registrar}
-  - {t: …, e: prioritized, tier: P3, rationale: "raw question, default"}
-  - {t: …, e: rejected, by: asker, raw: raw/003-rejection.md}   # reopen
+  parent: q-01JZJ… # generated only
+  finding: f-01JZJ… # generated only — the critic finding text is stored with the finding id
+  goal: security-review # generated only
+events: # append-only
+  - { t: …, e: logged, by: registrar }
+  - { t: …, e: prioritized, tier: P3, rationale: "raw question, default" }
+  - { t: …, e: rejected, by: asker, raw: raw/003-rejection.md } # reopen
 ```
 
-Whoever answers a generated question sees *why the critic thought it was a gap* — questions are never stripped of their motivation.
+Whoever answers a generated question sees _why the critic thought it was a gap_ — questions are never stripped of their motivation.
 
 ## 5. Goals
 
 - Askers tag ≥1 goal per question; the Goal Clerk suggests tags from `goals/vocabulary.md`; freeform allowed but nudged toward existing tags.
-- Vocabulary entries define what *satisfying* that goal means (per-goal critic guidelines live with the definition). Seed set: `implementation`, `api-integration`, `security-review`, `complexity-analysis`, `documentation`, `onboarding`.
+- Vocabulary entries define what _satisfying_ that goal means (per-goal critic guidelines live with the definition). Seed set: `implementation`, `api-integration`, `security-review`, `complexity-analysis`, `documentation`, `onboarding`.
 - Answers are evaluated per-goal (IGC row: each goal ✔/✘/?). Satisfied goals are dropped from spawned child questions; children inherit only their unsatisfied goal(s).
 - "Good enough" is always relative to declared goals. No goal-free questions: if the asker declines to tag, default `documentation`.
 
@@ -98,19 +98,20 @@ Whoever answers a generated question sees *why the critic thought it was a gap* 
 
 Tiers P1 (high) – P5 (low), assigned by rules in `goals/priority-rules.md`:
 
-| Tier | Rule |
-|---|---|
-| P1 | contradiction-spawned; reopened after asker rejection |
-| P2 | unsatisfied goal on an active question; demand-promoted deferred |
-| P3 | raw questions (default) |
-| P4 | generated, depth 1, no contradiction |
-| P5 | generated, depth ≥2; tagged `extra-detail` |
+| Tier | Rule                                                             |
+| ---- | ---------------------------------------------------------------- |
+| P1   | contradiction-spawned; reopened after asker rejection            |
+| P2   | unsatisfied goal on an active question; demand-promoted deferred |
+| P3   | raw questions (default)                                          |
+| P4   | generated, depth 1, no contradiction                             |
+| P5   | generated, depth ≥2; tagged `extra-detail`                       |
 
 Every assignment includes a one-line rationale; every surfaced priority is human-overridable (one glance, one click). Rules are prose guidelines fitted over time via PRs — never a weighted score.
 
 ## 7. Core flows
 
 ### 7.1 Ask
+
 1. Asker submits question in chat; Goal Clerk suggests tags from the vocabulary; asker confirms/edits (≥1 tag; default `documentation`).
 2. Librarian retrieves agentically (maps → grep/BM25 tool → read) and answers with citations, or declares specific goals unsatisfied. Conversation continues (follow-ups, objections).
 3. On unsatisfied: Matcher checks active, deferred, and answered queues.
@@ -121,6 +122,7 @@ Every assignment includes a one-line rationale; every surfaced priority is human
 4. Asker is told: "logged as `q-…` at P*n*" — no further asker effort.
 
 ### 7.2 Answer
+
 1. Answerer opens queue (sorted by tier, then age), claims a question; sees raw question, chat context, goals, provenance.
 2. Dictates. Transcript stored verbatim (immutable); audio kept locally keyed by qID.
 3. Structurer produces a structured draft from all transcripts so far.
@@ -129,25 +131,29 @@ Every assignment includes a one-line rationale; every surfaced priority is human
 6. Loop 2–5 until DONE: every declared goal ✔ or explicitly deferred, zero unresolved contradictions.
 
 ### 7.3 Integrate
+
 1. Integrator plans touched docs from the structured answer, dispatches workers (per-doc edits + map/index updates), opens branch + PR. Concurrent answer branches resolve through ordinary git merge; the integrator rebases and re-plans on conflict.
 2. Three isolated checks, mandatory fresh context:
-   - **Reviewer**: sees question, answer, and the *diff only* → approve/findings (missed touch-points, inaccurate updates).
-   - **Diff Summarizer**: sees the *diff only* → plain-language summary of documentation changes for the answerer. Never sees the integrator's plan (a summarizer that shared context would summarize intent, not the diff — the divergence between them is the target error class).
-   - **Simulated Asker**: roleplays from the *verbatim* question + chat log + goals: "does this answer my question, for my goals?" Cheap pre-filter; the real asker is the decisive check.
+   - **Reviewer**: sees question, answer, and the _diff only_ → approve/findings (missed touch-points, inaccurate updates).
+   - **Diff Summarizer**: sees the _diff only_ → plain-language summary of documentation changes for the answerer. Never sees the integrator's plan (a summarizer that shared context would summarize intent, not the diff — the divergence between them is the target error class).
+   - **Simulated Asker**: roleplays from the _verbatim_ question + chat log + goals: "does this answer my question, for my goals?" Cheap pre-filter; the real asker is the decisive check.
 3. **Auto mode**: findings clean → merge; answerer sees the diff summary and can veto. **Manual mode**: answerer (or maintainer) reviews the PR itself. Mode is a per-repo (optionally per-tier) setting.
 4. On merge: question → `answered/`, index updated, asker notified (v1: in-app).
 5. Asker accepts, rejects-with-reason, or times out (auto-accept after a configurable window, default 14 days, logged as `timeout-accept` in provenance — silence must not strand questions in `merged`). Rejection is recorded verbatim, joins the provenance chain, and reopens at P1 — the next attempt is grounded in what was tried and the asker's own words on why it missed.
 
 ### 7.4 Self-modification
+
 Agent-Smith creates/updates agent definitions (agent.md + schema.json + fixtures) via PR. CI runs fixtures for every touched agent; generated agents must ship passing fixtures of their own. Merge gating is a deployment choice (relaxed by default; the mechanism supports stricter). Fixtures double as drift detection when the underlying model is upgraded.
 
 ## 8. Application architecture
 
 **Deterministic shell (small, library-backed, tested):**
-- Audio capture + recording UI — *the one unrecoverable failure mode*: silent truncation destroys what nothing can reconstruct. Use mature browser/OS libraries; hand-written glue minimal; tested hardest of anything in the system; agents never modify it.
+
+- Audio capture + recording UI — _the one unrecoverable failure mode_: silent truncation destroys what nothing can reconstruct. Use mature browser/OS libraries; hand-written glue minimal; tested hardest of anything in the system; agents never modify it.
 - Transcription adapter (pluggable STT), git plumbing (branch/commit/PR), file I/O + immutability checks, JSONL index maintenance, ephemeral BM25 builder (e.g. tantivy), MCP server host.
 
 **Generative interior (agent-maintained, cheap to change):**
+
 - All `agents/` definitions, prompts, per-goal critic guidelines, doc-integration logic, UI copy. TDD via fixtures; changed through PRs like everything else.
 
 **Agents as MCP tools.** Each agent is exposed as an MCP tool: highly specialized, instantiated fresh from its file per call, output validated against `schema.json` before it reaches any other agent. Structured interfaces — not prompts alone — are what keep a pipeline of LLMs from becoming a game of telephone.
@@ -156,7 +162,7 @@ Agent-Smith creates/updates agent definitions (agent.md + schema.json + fixtures
 
 ## 9. Modes, checks, and error philosophy
 
-Every automated judgment is (a) decisive where possible (per-goal ✔/✘/?), (b) accompanied by a short rationale, (c) surfaced to a human who can override in one action. The system's guarantee is not correctness but *cheap correctability*: raw inputs are immutable and everything downstream is re-derivable; every change is a diff; every diff is revertible.
+Every automated judgment is (a) decisive where possible (per-goal ✔/✘/?), (b) accompanied by a short rationale, (c) surfaced to a human who can override in one action. The system's guarantee is not correctness but _cheap correctability_: raw inputs are immutable and everything downstream is re-derivable; every change is a diff; every diff is revertible.
 
 ## 10. Open items (tracked in 05-self-review.md)
 

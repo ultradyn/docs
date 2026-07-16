@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["satisfied", "reason", "goalResults"],
+  "properties": {
+    "satisfied": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "goalResults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["goal", "satisfied", "rationale"],
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "satisfied": {
+            "type": "boolean"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
++--------------------------------------+
+| * ULTRADYN DOCS                      |
+|                                      |
+| Documentation that grows around real |
+| questions, expert answers, and       |
+| reviewable Git changes.              |
+|                                      |
+| Suggested destination                |
+| ./network-docs                       |
++--------------------------------------+
+
++--------------------------------------+
+| OK Repository ready                  |
+| /home/max/network-docs               |
+|                                      |
+| 184 files installed; 2 existing      |
+| preserved                            |
+| Existing Git repository preserved    |
+|                                      |
+| Start the browser app                |
+| cd /home/max/network-docs            |
+| npx @ultradyn/docs serve             |
++--------------------------------------+

@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "done",
+    "goalResults",
+    "findings",
+    "deferredQuestions",
+    "contradictions"
+  ],
+  "properties": {
+    "done": {
+      "type": "boolean"
+    },
+    "goalResults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["goal", "status", "rationale"],
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "status": {
+            "enum": ["satisfied", "unsatisfied", "uncertain", "deferred"]
+          },
+          "rationale": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "text", "blocking"],
+        "properties": {
+          "category": {
+            "enum": ["goal-gap", "uncertainty", "contradiction", "depth"]
+          },
+          "text": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "deferredQuestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "goal", "extraDetail"],
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "extraDetail": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

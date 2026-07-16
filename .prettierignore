@@ -1,0 +1,7 @@
+dist
+coverage
+code/web/dist
+node_modules
+.plan/architecture.html
+code/cli/test/tmux/snapshots/**/*.ansi
+tauri-app/app-icon.svg

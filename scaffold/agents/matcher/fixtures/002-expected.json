@@ -1,0 +1,6 @@
+{
+  "decision": "deferred",
+  "matchedQuestionId": "q-b",
+  "rationale": "The deferred question covers the same codec configuration.",
+  "confidence": 0.93
+}

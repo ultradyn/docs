@@ -1,0 +1,21 @@
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│ \x1b[36m◆\x1b[39m \x1b[1mULTRADYN DOCS\x1b[22m                                                                      │
+│                                                                                      │
+│ \x1b[2mDocumentation that grows around real questions, expert answers, and reviewable Git\x1b[22m   │
+│ \x1b[2mchanges.\x1b[22m                                                                             │
+│                                                                                      │
+│ \x1b[1mSuggested destination\x1b[22m                                                                │
+│ \x1b[36m./network-docs\x1b[39m                                                                       │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│ \x1b[32m✓\x1b[39m \x1b[1mRepository ready\x1b[22m                                                                   │
+│ \x1b[36m/home/max/network-docs\x1b[39m                                                               │
+│                                                                                      │
+│ 184 files installed · 2 existing preserved                                           │
+│ Existing Git repository preserved                                                    │
+│                                                                                      │
+│ \x1b[1mStart the browser app\x1b[22m                                                                │
+│ \x1b[2mcd /home/max/network-docs\x1b[22m                                                            │
+│ \x1b[36mnpx @ultradyn/docs serve\x1b[39m                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────╯

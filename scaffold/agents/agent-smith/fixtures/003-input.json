@@ -1,0 +1,4 @@
+{
+  "request": "Create reporter.",
+  "constraints": ["Diff only."]
+}

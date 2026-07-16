@@ -1,0 +1,6 @@
+{
+  "question": "Is safe?",
+  "goals": ["security-review"],
+  "structuredAnswer": "It is safe.",
+  "documentation": "docs says it is unsafe."
+}
