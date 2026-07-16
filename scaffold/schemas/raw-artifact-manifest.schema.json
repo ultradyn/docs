@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ultradyn.dev/schemas/raw-artifact-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "kind", "sha256", "bytes", "createdAt"],
+        "properties": {
+          "path": { "type": "string" },
+          "kind": {
+            "enum": [
+              "question",
+              "chatlog",
+              "rejection",
+              "transcript",
+              "correction"
+            ]
+          },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "done": true,
+  "goalResults": [
+    {
+      "goal": "implementation",
+      "status": "satisfied",
+      "rationale": "A decisive step is supplied."
+    }
+  ],
+  "findings": [],
+  "deferredQuestions": [],
+  "contradictions": []
+}

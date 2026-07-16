@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "acceptanceTimeoutDays": 14,
+  "integrationMode": "manual",
+  "checkpointCommits": true,
+  "maintenance": {
+    "enabled": false,
+    "pollIntervalMinutes": 15
+  },
+  "providers": {
+    "llm": "fake-llm",
+    "stt": "fake-stt",
+    "codec": "fake-codec",
+    "gitHost": "fake-git-host"
+  }
+}

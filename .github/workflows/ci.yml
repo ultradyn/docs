@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install --yes tmux
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check
+        run: pnpm check
+
+      - name: Terminal snapshots
+        env:
+          LANG: C.UTF-8
+          TZ: UTC
+        run: pnpm test:tui
+
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser end-to-end tests
+        run: pnpm test:e2e
+
+      - name: Clean tarball npx smoke test
+        run: pnpm test:package
+
+      - name: Upload TUI captures on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-captures
+          path: code/cli/test/tmux/artifacts
+          if-no-files-found: ignore

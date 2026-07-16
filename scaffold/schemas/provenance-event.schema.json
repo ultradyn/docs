@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ultradyn.dev/schemas/provenance-event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["at", "type", "by"],
+  "properties": {
+    "at": { "type": "string", "format": "date-time" },
+    "type": {
+      "enum": [
+        "logged",
+        "prioritized",
+        "state-transitioned",
+        "asker-attached",
+        "priority-overridden",
+        "raw-artifact-appended",
+        "derived-artifact-written",
+        "accepted",
+        "timeout-accepted",
+        "rejected",
+        "repaired"
+      ]
+    },
+    "by": { "type": "string", "minLength": 1 },
+    "details": { "type": "object" }
+  }
+}

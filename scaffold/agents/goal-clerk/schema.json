@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["suggestedGoals", "defaultApplied"],
+  "properties": {
+    "suggestedGoals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["goal", "rationale"],
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "defaultApplied": {
+      "type": "boolean"
+    }
+  }
+}

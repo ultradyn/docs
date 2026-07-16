@@ -1,0 +1,9 @@
+{
+  "suggestedGoals": [
+    {
+      "goal": "documentation",
+      "rationale": "No narrower use was declared."
+    }
+  ],
+  "defaultApplied": true
+}

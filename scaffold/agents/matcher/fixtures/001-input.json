@@ -1,0 +1,11 @@
+{
+  "question": "How rebuild?",
+  "goals": ["implementation"],
+  "candidates": [
+    {
+      "id": "q-a",
+      "state": "active",
+      "question": "How rebuild index?"
+    }
+  ]
+}

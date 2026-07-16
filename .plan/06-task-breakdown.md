@@ -5,7 +5,8 @@ Document 6 of 6 · Hierarchical decomposition of the spec (doc 03) into implemen
 ---
 
 ## M0 — Repo schema & shell skeleton
-*Constraint: nothing can be built or tested until the data layout and git plumbing exist.*
+
+_Constraint: nothing can be built or tested until the data layout and git plumbing exist._
 
 - **T0.1 ⛓ Repository schema** — create the layout of 03 §2 as a template repo: `docs/`, `questions/{active,deferred,answered}`, `goals/`, `agents/`, `app/`, `.ultradyn-docs/`, `.gitignore` (derived dirs, `**/audio/`).
   - T0.1.1 `question.md` frontmatter schema + `provenance.yaml` schema (03 §4) as JSON Schema files.
@@ -17,7 +18,8 @@ Document 6 of 6 · Hierarchical decomposition of the spec (doc 03) into implemen
 - **T0.5 Index regenerator** — `questions/index.jsonl` and `_map.md` rebuild commands; conflict-resolution hook (regenerate, never hand-merge).
 
 ## M1 — Capture path (the unrecoverable component)
-*Constraint: raw inputs are sacred (C3); everything downstream re-derives from them, so this must be trustworthy before anything consumes it.*
+
+_Constraint: raw inputs are sacred (C3); everything downstream re-derives from them, so this must be trustworthy before anything consumes it._
 
 - **T1.1 ⛓ Audio capture** — record/pause/resume/persist, library-backed (browser MediaRecorder or equivalent); local storage at `~/.ultradyn-docs/audio/<qid>/NNN.<ext>`.
   - T1.1.1 Failure-mode tests: interrupted recording, disk-full, permission-revoked, silent-truncation detection (duration vs expected).
@@ -26,7 +28,8 @@ Document 6 of 6 · Hierarchical decomposition of the spec (doc 03) into implemen
 - **T1.4 Capture-path test suite** — hardest-tested code in the system; agents never modify this directory (enforced by CODEOWNERS or equivalent).
 
 ## M2 — Agent runtime & definitions
-*Constraint: every loop is made of agents; the runtime that loads, isolates, and validates them gates all three loops.*
+
+_Constraint: every loop is made of agents; the runtime that loads, isolates, and validates them gates all three loops._
 
 - **T2.1 ⛓ Agent runtime (MCP host)** — load `agents/<name>/`, instantiate fresh context per call, validate output against `schema.json` before returning; reject-and-retry on schema violation.
 - **T2.2 Fixture runner** — CI: run `fixtures/` for every agent whose files a PR touches; generated agents must ship passing fixtures (03 §7.4).
@@ -36,7 +39,8 @@ Document 6 of 6 · Hierarchical decomposition of the spec (doc 03) into implemen
 - **T2.6 Retrieval tooling** — ephemeral BM25 builder (tantivy or equiv.) exposed as a Librarian tool; map-first navigation conventions in Librarian's agent.md.
 
 ## M3 — Loop A: Ask
-*First end-to-end user value: questions get answered from docs or logged well.*
+
+_First end-to-end user value: questions get answered from docs or logged well._
 
 - **T3.1 ⛓ Chat UI (asker surface)** — question input, goal-tag confirm (Clerk suggestions), cited answers, follow-up chat.
 - **T3.2 Intake pipeline** — Librarian → (insufficient) → Matcher (active/deferred/answered) → Registrar → Prioritizer → queue; asker sees `logged as q-… at Pn`.
@@ -44,18 +48,21 @@ Document 6 of 6 · Hierarchical decomposition of the spec (doc 03) into implemen
 - **T3.4 Queue views** — unanswered queue sorted tier→age; per-question detail (raw q, chat log, goals, provenance, rationale); one-click priority override.
 
 ## M4 — Loop B: Answer
+
 - **T4.1 ⛓ Answerer surface** — claim question, dictation UI (M1 components), transcript review, typed-edit fallback.
 - **T4.2 Evaluator–optimizer loop** — Structurer draft → Critic round (fresh ctx) → findings to answerer → repeat; DONE detection (all goals ✔/deferred, zero contradictions).
 - **T4.3 Spawn pipeline** — critic findings → Registrar (generated, provenance = parent+finding+goal, tags incl. `extra-detail`) → Prioritizer (depth decay; contradiction ⇒ P1) → deferred queue.
 - **T4.4 Answer artifacts** — `answers/raw/`, `structured.md`, `evaluation.md` (final IGC table) written per 03 §2.
 
 ## M5 — Loop C: Integrate
+
 - **T5.1 ⛓ Integrator orchestration** — touched-doc planning, worker edits, map/index updates, branch+PR; rebase-and-replan on conflict.
 - **T5.2 Isolated checks** — Reviewer, Diff Summarizer, Simulated Asker wired to the PR; findings loop back to Integrator.
 - **T5.3 Merge modes** — auto (clean checks + answerer summary veto) and manual (full PR review); per-repo/per-tier config.
 - **T5.4 Closure flow** — merge → move to `answered/` → in-app notify → asker accept / reject-with-reason (verbatim → provenance, reopen P1) / timeout-accept (default 14d, logged).
 
 ## M6 — Loop D: Self-modification & hardening
+
 - **T6.1 Agent-Smith** — meta-agent producing agent files + fixtures via PR; may not touch `app/capture/` or `raw/`.
 - **T6.2 Dynamic agent loading** — hot-load agents from HEAD; in-app agent-creation surface.
 - **T6.3 Model-drift canary** — scheduled fixture run against current model; drift reported as findings, not auto-fixed.

@@ -1,0 +1,10 @@
+{
+  "title": "API port",
+  "sections": [
+    {
+      "heading": "Port",
+      "content": "The port is 8080."
+    }
+  ],
+  "correctionsApplied": ["Replace 80 with 8080."]
+}

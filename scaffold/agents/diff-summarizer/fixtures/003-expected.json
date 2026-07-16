@@ -1,0 +1,5 @@
+{
+  "summary": "Documented an unresolved status.",
+  "changes": ["The status is explicitly unknown."],
+  "risks": ["The new text does not resolve the uncertainty."]
+}

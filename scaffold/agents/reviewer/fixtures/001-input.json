@@ -1,0 +1,6 @@
+{
+  "question": "How init?",
+  "goals": ["implementation"],
+  "structuredAnswer": "Run init.",
+  "diff": "+ Run init."
+}

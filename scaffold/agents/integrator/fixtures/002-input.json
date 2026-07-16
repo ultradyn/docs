@@ -1,0 +1,6 @@
+{
+  "question": "New API?",
+  "goals": ["api-integration"],
+  "structuredAnswer": "POST /ask.",
+  "documentationIndex": []
+}

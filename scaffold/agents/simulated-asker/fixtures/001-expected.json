@@ -1,0 +1,11 @@
+{
+  "satisfied": true,
+  "reason": "The required command is present.",
+  "goalResults": [
+    {
+      "goal": "implementation",
+      "satisfied": true,
+      "rationale": "The asker can run init."
+    }
+  ]
+}

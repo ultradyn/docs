@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "agentMarkdown", "schema", "fixtures"],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "agentMarkdown": {
+      "type": "string"
+    },
+    "schema": {
+      "type": "object"
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["input", "expected"],
+        "properties": {
+          "input": {
+            "type": "object"
+          },
+          "expected": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

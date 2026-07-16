@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["suggestedTier", "rationale", "facts"],
+  "properties": {
+    "suggestedTier": {
+      "enum": ["P1", "P2", "P3", "P4", "P5"]
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "question": "How?",
+  "goals": ["documentation"],
+  "documentation": "docs/a.md says run A."
+}

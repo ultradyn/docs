@@ -1,0 +1,12 @@
+{
+  "edits": [
+    {
+      "path": "docs/api.md",
+      "operation": "create",
+      "summary": "Document ask endpoint.",
+      "content": "POST /ask."
+    }
+  ],
+  "mapUpdates": ["docs/_map.md"],
+  "rationale": "No API document exists."
+}

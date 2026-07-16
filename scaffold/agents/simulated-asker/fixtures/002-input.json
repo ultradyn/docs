@@ -1,0 +1,6 @@
+{
+  "verbatimQuestion": "Is it secure?",
+  "verbatimChat": "Need threat model.",
+  "goals": ["security-review"],
+  "postDiffDocumentation": "It uses tokens."
+}

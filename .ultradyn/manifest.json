@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "name": "@ultradyn/docs",
+    "version": "0.1.0"
+  },
+  "installedAt": "2026-07-16T00:00:00.000Z",
+  "source": {
+    "kind": "canonical-repository"
+  }
+}

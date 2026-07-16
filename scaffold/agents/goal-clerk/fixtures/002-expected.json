@@ -1,0 +1,9 @@
+{
+  "suggestedGoals": [
+    {
+      "goal": "api-integration",
+      "rationale": "The asker needs the external contract."
+    }
+  ],
+  "defaultApplied": false
+}

@@ -1,0 +1,33 @@
+{
+  "name": "mapper",
+  "agentMarkdown": "Map supplied topics only.",
+  "schema": {
+    "type": "object"
+  },
+  "fixtures": [
+    {
+      "input": {
+        "topic": "a"
+      },
+      "expected": {
+        "map": ["a"]
+      }
+    },
+    {
+      "input": {
+        "topic": "b"
+      },
+      "expected": {
+        "map": ["b"]
+      }
+    },
+    {
+      "input": {
+        "topic": "c"
+      },
+      "expected": {
+        "map": ["c"]
+      }
+    }
+  ]
+}
