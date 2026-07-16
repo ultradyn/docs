@@ -195,8 +195,8 @@ export function SettingsPage() {
         <div>
           <h2 id="server-connection-title">Server connection</h2>
           <p>
-            Open the server directly to establish its private browser session.
-            This control remains available if the current API cannot load.
+            This page reconnects to the current server automatically. Change
+            the URL only to connect to a different server.
           </p>
         </div>
         <label htmlFor="server-url">
@@ -215,11 +215,11 @@ export function SettingsPage() {
         </label>
         {serverSettingsUrl ? (
           <a className="button button-secondary" href={serverSettingsUrl}>
-            Connect to server
+            Connect to different server
           </a>
         ) : (
           <button className="button button-secondary" disabled>
-            Connect to server
+            Connect to different server
           </button>
         )}
         {!serverSettingsUrl ? (

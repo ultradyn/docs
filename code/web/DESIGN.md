@@ -25,7 +25,7 @@ cannot establish the server cookie.
 ## Information hierarchy
 
 1. Page identity and saved state.
-2. Always-available server connection and recovery action.
+2. Automatic recovery status, then the always-available different-server override.
 3. Preferences/Connections tabs.
 4. Loading, error, or loaded settings content.
 
@@ -76,7 +76,14 @@ HttpOnly `SameSite=Strict` cookie. This works on plain-HTTP remote hostnames,
 where Chromium omits Fetch Metadata, without letting ordinary cross-site
 navigation mint a session.
 
-The explicit `ultradyn_connect=1` query remains a transient recovery handshake
+Protected requests that receive `session_required` perform one deduplicated
+same-origin bootstrap and one replay. A failed SSE connection repeatedly tries
+the same bootstrap before opening a replacement stream. Transport failures are
+not enough to replay a write because the browser cannot know whether it reached
+the handler; Settings keeps its draft values and dirty state for a deliberate
+retry instead.
+
+The explicit `ultradyn_connect=1` query remains a transient override handshake
 for changing server origins. The server requires document-navigation headers,
 sets the same cookie, and redirects to the clean `/#/settings` route. It
 recognizes either Fetch Metadata or the HTML `Upgrade-Insecure-Requests`

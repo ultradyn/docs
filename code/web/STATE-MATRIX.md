@@ -3,15 +3,17 @@
 | State              | Observable behavior                                                                        | Evidence                                 |
 | ------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------- |
 | Default            | Same-origin bootstrap runs before runtime; current origin appears in the Server URL field. | API contract and built-browser receipt   |
-| Recovery           | Connect opens the explicit handshake for a corrected or different server origin.           | Web route test and connected screenshots |
+| Recovery           | Retry restores one stale session automatically; Connect opens a different-server override. | API contract and web route tests         |
 | Focus/keyboard     | Native URL input and link follow document order and use the global focus ring.             | Semantic review                          |
 | Loading            | Connection control remains available while server settings load.                           | Component structure                      |
-| Error              | API error remains an alert; URL and Connect stay usable above it.                          | Exact `session_required` route test      |
+| Error              | API error remains an alert; Retry restores auth and the different-server override remains usable. | Exact `session_required` route test |
 | Invalid URL        | Field is `aria-invalid`; Connect is disabled and no unsafe scheme is linked.               | URL construction branch                  |
 | Success            | Direct `/#/ask` and recovery navigation load protected APIs without `session_required`.    | Built-server Chromium flows              |
 | Mobile             | Surface stacks copy, input, and action; error icon/message/action use a two-column grid.   | 390 x 844 capture                        |
 | Long content       | Copy wraps inside `minmax(0, 1fr)` regions without covering actions.                       | Desktop/mobile error captures            |
 | Offline/permission | Recovery does not depend on the failed API and does not write portable settings.           | Component and security review            |
+| Save interrupted   | Draft values and Unsaved changes remain; ambiguous transport failures never replay writes. | Web route and API contract tests         |
+| Stream dropped     | The client bootstraps until the server returns, then opens a replacement SSE stream.        | API contract test                        |
 | Theme              | Uses semantic light-theme tokens; current app has no implemented dark theme.               | `src/styles.css`                         |
 
 ## Shared combobox states

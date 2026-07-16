@@ -12,8 +12,11 @@ npx @ultradyn/docs serve ./network-docs --maintainer --no-open
 The maintainer flag is `--maintainer` (not `--maintenance`). The server binds
 `127.0.0.1` by default. Open the printed URL directly; the served web client
 establishes its local HttpOnly session through a marked same-origin POST before
-loading protected API state. Settings retains an explicit connection link for
-recovering from a wrong or changed server origin.
+loading protected API state. After a server restart, stale-session API requests
+and the event stream re-establish the session automatically. Settings retains
+an explicit connection link for switching to a different server origin. If a
+connection drops during a settings write, the form keeps its unsaved values;
+save again after the connection recovers.
 
 If another machine must reach the service, prefer an SSH tunnel. A wildcard bind is refused unless each accepted public hostname is supplied explicitly, for example `--host 0.0.0.0 --allowed-host docs.internal.example`. `--allow-origin` admits an additional exact browser origin but does not provide identity, authorization, or TLS. Put any remote listener behind an authenticating TLS proxy and a deployment-specific threat review.
 

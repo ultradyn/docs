@@ -543,6 +543,46 @@ describe("primary web routes", () => {
     );
   });
 
+  it("retains unsaved settings when the connection drops during save", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ clientDemo: true });
+    vi.spyOn(api, "settings").mockResolvedValue({
+      values: { "server.pollIntervalMinutes": 15 },
+    });
+    vi.spyOn(api, "settingSchema").mockResolvedValue([
+      {
+        key: "server.pollIntervalMinutes",
+        label: "Maintenance poll interval",
+        description: "Minutes between Git-host checks.",
+        category: "Server",
+        scope: "repo",
+        type: "number",
+        defaultValue: 15,
+      },
+    ]);
+    vi.spyOn(api, "providers").mockResolvedValue([]);
+    vi.spyOn(api, "settingsSave").mockRejectedValue(
+      new Error("The server connection dropped before the save completed."),
+    );
+    renderRoute(<SettingsPage />, "/", "*", api);
+
+    const interval = await screen.findByRole("spinbutton", {
+      name: "Maintenance poll interval",
+    });
+    await user.clear(interval);
+    await user.type(interval, "30");
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(
+      await screen.findByText(
+        "The server connection dropped before the save completed.",
+      ),
+    ).toBeTruthy();
+    expect((interval as HTMLInputElement).value).toBe("30");
+    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save settings" })).toBeTruthy();
+  });
+
   it("can change the server URL when settings cannot establish a browser session", async () => {
     const user = userEvent.setup();
     const api = new ApiClient({ baseUrl: "http://127.0.0.1:49321" });
@@ -571,9 +611,14 @@ describe("primary web routes", () => {
 
     expect(
       screen
-        .getByRole("link", { name: "Connect to server" })
+        .getByRole("link", { name: "Connect to different server" })
         .getAttribute("href"),
     ).toBe("http://127.0.0.1:5885/?ultradyn_connect=1#/settings");
+    expect(
+      screen.getByText(
+        "This page reconnects to the current server automatically. Change the URL only to connect to a different server.",
+      ),
+    ).toBeTruthy();
   });
 
   it("does not put credentials into a server connection link", async () => {
@@ -589,12 +634,12 @@ describe("primary web routes", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: "Connect to server",
+          name: "Connect to different server",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
     expect(
-      screen.queryByRole("link", { name: "Connect to server" }),
+      screen.queryByRole("link", { name: "Connect to different server" }),
     ).toBeNull();
     expect(
       screen.getByText("Enter an HTTP(S) server URL without credentials."),

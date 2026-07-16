@@ -13,9 +13,10 @@ Trusted team members use the app on desktop and mobile browsers. The Settings
 route must keep repository behavior, machine-local preferences, provider
 consent, and the active server connection understandable and recoverable.
 
-The primary job of the server-connection control is recovery: when the current
-API cannot load, a person can enter the correct HTTP(S) server origin and open
-that origin directly so its HttpOnly local session is established.
+The browser restores its same-origin session automatically on initial load and
+after a server restart. The server-connection control is the explicit override:
+when a person needs a different HTTP(S) server origin, they can enter it and
+open that origin directly so its HttpOnly local session is established.
 
 ## Real content and states
 
@@ -45,8 +46,13 @@ that origin directly so its HttpOnly local session is established.
 - A same-origin browser load establishes its private session before the first
   protected API request, including on plain-HTTP hostnames where Fetch Metadata
   is unavailable.
+- A protected request rejected with `session_required` performs one
+  deduplicated bootstrap and one replay. The SSE connection uses the same
+  bootstrap while reconnecting after a dropped or restarted server.
+- Ambiguous transport failures do not replay writes. Settings remain visibly
+  dirty with their draft values intact so the person can save again safely.
 - The exact `session_required` failure still shows an editable Server URL.
-- Connect remains an explicit recovery handshake, then lands on
+- Connect to different server remains an explicit override handshake, then lands on
   `/#/settings` with authenticated settings requests.
 - Ordinary cross-site navigation still does not mint a session.
 - Desktop and 390 px mobile layouts keep the control and failure recovery

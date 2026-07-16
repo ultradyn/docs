@@ -27,6 +27,14 @@ endpoint but fail its method, exact-origin, or marker checks use
 `browser_session_rejected`. Repeating a valid bootstrap is idempotent for the
 running server session.
 
+The same-origin web adapter performs this bootstrap before its first runtime
+request. If a protected request later returns `401 session_required` (for
+example, because the server restarted and rotated its in-memory session), the
+adapter deduplicates concurrent bootstrap attempts and replays each rejected
+request once. It does not replay network or timeout failures: those are
+ambiguous for mutations because the response may have been lost after the
+handler committed the change.
+
 ## Runtime and events
 
 | Method | Path           | Purpose                                                                           |
@@ -37,7 +45,12 @@ running server session.
 
 `GET /api/desktop-readiness` is an internal Tauri ownership probe. It exists only for a server launched with a per-process nonce and returns `404` without the matching request header; it is not an authentication token for ordinary API calls.
 
-SSE events include a ULID `id`, ISO timestamp, `type`, and typed `data`. Clients reconnect normally; durable state is always reloaded from the relevant GET route rather than trusting an event replay buffer.
+SSE events include a ULID `id`, ISO timestamp, `type`, and typed `data`. A
+same-origin browser stream that drops re-establishes the browser session and
+opens a replacement stream, retrying the bootstrap while the server is
+unavailable. Cross-origin development overrides retain the browser's native
+EventSource reconnect behavior. Durable state is always reloaded from the
+relevant GET route rather than trusting an event replay buffer.
 
 ## Ask and queue
 

@@ -130,6 +130,176 @@ describe("live HTTP contract adapter", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("reauthenticates one stale session before replaying concurrent settings reads", async () => {
+    const calls: string[] = [];
+    let authenticated = false;
+    const browserSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const browserClearTimeout = globalThis.clearTimeout.bind(globalThis);
+    vi.stubGlobal("window", {
+      location: { origin: "http://xsm:5885" },
+      setTimeout: browserSetTimeout,
+      clearTimeout: browserClearTimeout,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const pathname = new URL(String(input)).pathname;
+        calls.push(pathname);
+        if (pathname === "/api/browser-session") {
+          authenticated = true;
+          return json({ status: "ok" });
+        }
+        if (!authenticated)
+          return json(
+            {
+              error: {
+                code: "session_required",
+                message:
+                  "Open the server URL directly to establish a local browser session.",
+              },
+            },
+            401,
+          );
+        if (pathname === "/api/settings") return json({ items: [] });
+        if (pathname === "/api/settings/schema") return json({ items: [] });
+        if (pathname === "/api/providers") return json({ items: [] });
+        throw new Error(`Unexpected route ${pathname}`);
+      }),
+    );
+    const api = new ApiClient({ baseUrl: "http://xsm:5885" });
+
+    const [settings, schema, providers] = await Promise.all([
+      api.settings(),
+      api.settingSchema(),
+      api.providers(),
+    ]);
+
+    expect(settings).toEqual({ values: {} });
+    expect(schema).toEqual([]);
+    expect(providers).toEqual([]);
+    expect(calls.filter((path) => path === "/api/browser-session")).toHaveLength(
+      1,
+    );
+    expect(calls.filter((path) => path === "/api/settings")).toHaveLength(2);
+    expect(calls.filter((path) => path === "/api/settings/schema")).toHaveLength(
+      2,
+    );
+    expect(calls.filter((path) => path === "/api/providers")).toHaveLength(2);
+  });
+
+  it("reauthenticates before safely replaying a settings write rejected by the auth hook", async () => {
+    const calls: Array<{ method: string; path: string }> = [];
+    let authenticated = false;
+    const browserSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const browserClearTimeout = globalThis.clearTimeout.bind(globalThis);
+    vi.stubGlobal("window", {
+      location: { origin: "http://xsm:5885" },
+      setTimeout: browserSetTimeout,
+      clearTimeout: browserClearTimeout,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const path = new URL(String(input)).pathname;
+        const method = init?.method ?? "GET";
+        calls.push({ method, path });
+        if (path === "/api/browser-session") {
+          authenticated = true;
+          return json({ status: "ok" });
+        }
+        if (!authenticated)
+          return json(
+            {
+              error: {
+                code: "session_required",
+                message:
+                  "Open the server URL directly to establish a local browser session.",
+              },
+            },
+            401,
+          );
+        if (method === "PUT") return json({ status: "ok" });
+        return json({ items: [{ key: "server.maintenance", value: false }] });
+      }),
+    );
+    const api = new ApiClient({ baseUrl: "http://xsm:5885" });
+
+    await expect(
+      api.settingsSave(
+        { "server.maintenance": false },
+        { "server.maintenance": "repo" },
+      ),
+    ).resolves.toEqual({ values: { "server.maintenance": false } });
+    expect(calls).toEqual([
+      { method: "PUT", path: "/api/settings" },
+      { method: "POST", path: "/api/browser-session" },
+      { method: "PUT", path: "/api/settings" },
+      { method: "GET", path: "/api/settings" },
+    ]);
+  });
+
+  it("does not replay a settings write after an ambiguous transport failure", async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error("connection dropped"));
+    vi.stubGlobal("fetch", fetch);
+    const api = new ApiClient({ baseUrl: "http://server.test" });
+
+    await expect(
+      api.settingsSave(
+        { "server.maintenance": false },
+        { "server.maintenance": "repo" },
+      ),
+    ).rejects.toThrow("connection dropped");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the browser session and event stream after the server drops", async () => {
+    class FakeEventSource {
+      static instances: FakeEventSource[] = [];
+      readonly close = vi.fn();
+      onopen: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+
+      constructor(readonly url: string) {
+        FakeEventSource.instances.push(this);
+      }
+
+      addEventListener() {}
+    }
+    const browserSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const browserClearTimeout = globalThis.clearTimeout.bind(globalThis);
+    vi.stubGlobal("window", {
+      location: { origin: "http://xsm:5885" },
+      setTimeout: browserSetTimeout,
+      clearTimeout: browserClearTimeout,
+    });
+    const fetch = vi.fn().mockResolvedValue(json({ status: "ok" }));
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const api = new ApiClient({ baseUrl: "http://xsm:5885" });
+    const onConnection = vi.fn();
+
+    const unsubscribe = api.subscribe(vi.fn(), onConnection);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    FakeEventSource.instances[0]?.onerror?.(new Event("error"));
+
+    await vi.waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(2);
+    });
+    expect(FakeEventSource.instances[0]?.close).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "http://xsm:5885/api/browser-session",
+    );
+    expect(FakeEventSource.instances[1]?.url).toBe(
+      "http://xsm:5885/api/events",
+    );
+    expect(onConnection).toHaveBeenCalledWith(false);
+
+    unsubscribe();
+    expect(FakeEventSource.instances[1]?.close).toHaveBeenCalledOnce();
+  });
+
   it("interoperates with the real Fastify public seam", async () => {
     const server = buildServer({
       services: createDemoServices(),

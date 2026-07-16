@@ -17,7 +17,9 @@ flowchart TD
 The server binds to loopback by default. It validates the HTTP `Host` and
 browser `Origin`; a marked same-origin POST establishes an unguessable HttpOnly,
 `SameSite=Strict` session before protected web requests, while explicit
-navigation remains the server-change recovery path. This POST works on
+navigation remains the different-server override. A stale session rejection
+triggers one deduplicated bootstrap and request replay; a dropped SSE stream
+keeps bootstrapping until it can reconnect. This POST works on
 plain-HTTP hostnames where browsers omit Fetch Metadata without allowing an
 ordinary cross-site navigation or form to mint the cookie. Wildcard binds fail
 closed without an explicit hostname allowlist. This is request hardening for a
