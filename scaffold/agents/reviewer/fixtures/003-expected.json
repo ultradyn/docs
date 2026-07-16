@@ -1,0 +1,9 @@
+{
+  "approved": false,
+  "findings": [
+    {
+      "severity": "blocking",
+      "text": "The diff states the wrong port."
+    }
+  ]
+}

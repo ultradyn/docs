@@ -1,0 +1,11 @@
+{
+  "status": "answered",
+  "answer": "Run A.",
+  "citations": [
+    {
+      "path": "docs/a.md",
+      "claim": "Run A."
+    }
+  ],
+  "unsatisfiedGoals": []
+}

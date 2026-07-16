@@ -1,0 +1,33 @@
+{
+  "name": "critic",
+  "agentMarkdown": "Block contradictions in fresh context.",
+  "schema": {
+    "type": "object"
+  },
+  "fixtures": [
+    {
+      "input": {
+        "case": 1
+      },
+      "expected": {
+        "done": true
+      }
+    },
+    {
+      "input": {
+        "case": 2
+      },
+      "expected": {
+        "done": false
+      }
+    },
+    {
+      "input": {
+        "case": 3
+      },
+      "expected": {
+        "done": false
+      }
+    }
+  ]
+}

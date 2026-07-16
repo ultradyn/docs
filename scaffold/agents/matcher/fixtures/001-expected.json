@@ -1,0 +1,6 @@
+{
+  "decision": "active",
+  "matchedQuestionId": "q-a",
+  "rationale": "The active question requests the same implementation detail.",
+  "confidence": 0.98
+}

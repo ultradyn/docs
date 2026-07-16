@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "structuredQuestion", "relevantContext", "tags"],
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "structuredQuestion": {
+      "type": "string"
+    },
+    "relevantContext": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

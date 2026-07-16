@@ -1,0 +1,19 @@
+{
+  "done": false,
+  "goalResults": [
+    {
+      "goal": "security-review",
+      "status": "unsatisfied",
+      "rationale": "The answer contradicts existing documentation."
+    }
+  ],
+  "findings": [
+    {
+      "category": "contradiction",
+      "text": "Safety claims conflict.",
+      "blocking": true
+    }
+  ],
+  "deferredQuestions": [],
+  "contradictions": ["Safety claims conflict."]
+}

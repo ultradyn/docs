@@ -1,0 +1,5 @@
+{
+  "suggestedTier": "P3",
+  "rationale": "Raw questions default to P3.",
+  "facts": ["raw"]
+}

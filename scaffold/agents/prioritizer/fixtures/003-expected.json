@@ -1,0 +1,5 @@
+{
+  "suggestedTier": "P5",
+  "rationale": "Generated depth at least two defaults to P5.",
+  "facts": ["generated", "depth>=2"]
+}

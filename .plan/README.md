@@ -1,6 +1,6 @@
 # Ultradyn-docs — Design Bundle
 
-Question-driven, git-backed, agent-operated documentation system. 
+Question-driven, git-backed, agent-operated documentation system.
 
 Read in order:
 

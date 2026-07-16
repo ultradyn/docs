@@ -1,0 +1,6 @@
+{
+  "question": "Risk?",
+  "goals": ["security-review"],
+  "structuredAnswer": "Tokens are scoped.",
+  "documentationIndex": ["docs/security.md", "docs/auth.md"]
+}

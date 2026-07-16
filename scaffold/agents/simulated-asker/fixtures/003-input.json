@@ -1,0 +1,5 @@
+{
+  "verbatimQuestion": "Which endpoint?",
+  "goals": ["api-integration"],
+  "postDiffDocumentation": "POST /ask accepts JSON."
+}

@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ultradyn.dev/schemas/question-record.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "question",
+    "state",
+    "tier",
+    "priorityRationale",
+    "prioritySource",
+    "goals",
+    "tags",
+    "askers",
+    "origin",
+    "depth",
+    "createdAt",
+    "updatedAt",
+    "revision",
+    "provenance"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^q-[0-9A-HJKMNP-TV-Z]{26}$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "question": { "type": "string", "minLength": 1 },
+    "state": {
+      "enum": [
+        "asked",
+        "logged",
+        "active",
+        "deferred",
+        "in-answer",
+        "integrating",
+        "merged",
+        "accepted",
+        "reopened"
+      ]
+    },
+    "tier": { "enum": ["P1", "P2", "P3", "P4", "P5"] },
+    "priorityRationale": { "type": "string", "minLength": 1 },
+    "prioritySource": { "enum": ["rule", "override"] },
+    "goals": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "askers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "acceptance"],
+        "properties": {
+          "id": { "type": "string" },
+          "displayName": { "type": "string" },
+          "acceptance": {
+            "enum": ["pending", "accepted", "rejected", "timed-out"]
+          },
+          "decidedAt": { "type": "string", "format": "date-time" },
+          "rawReason": { "type": "string" }
+        }
+      }
+    },
+    "origin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "raw" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "parentQuestionId", "findingId", "goal"],
+          "properties": {
+            "kind": { "const": "generated" },
+            "parentQuestionId": {
+              "type": "string",
+              "pattern": "^q-[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "findingId": {
+              "type": "string",
+              "pattern": "^f-[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "goal": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "depth": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "provenance": {
+      "type": "array",
+      "items": { "$ref": "provenance-event.schema.json" }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "question": "Port?",
+  "goals": ["api-integration"],
+  "structuredAnswer": "Use 8080.",
+  "diff": "+ Use 80."
+}

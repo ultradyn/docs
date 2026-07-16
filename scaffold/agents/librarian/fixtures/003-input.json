@@ -1,0 +1,6 @@
+{
+  "question": "API and internals?",
+  "chat": "Need both.",
+  "goals": ["api-integration", "implementation"],
+  "documentation": "docs/api.md documents the API."
+}

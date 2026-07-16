@@ -1,0 +1,12 @@
+{
+  "edits": [
+    {
+      "path": "docs/setup.md",
+      "operation": "update",
+      "summary": "Add init step.",
+      "content": "Run init."
+    }
+  ],
+  "mapUpdates": ["docs/_map.md"],
+  "rationale": "Setup is the canonical touchpoint."
+}

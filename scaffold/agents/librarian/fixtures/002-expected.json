@@ -1,0 +1,6 @@
+{
+  "status": "insufficient",
+  "answer": "The setup is documented, but no threat model is present.",
+  "citations": [],
+  "unsatisfiedGoals": ["security-review"]
+}

@@ -1,0 +1,4 @@
+{
+  "request": "Create a mapper.",
+  "constraints": ["No filesystem writes."]
+}

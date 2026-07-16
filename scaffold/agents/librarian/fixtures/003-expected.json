@@ -1,0 +1,11 @@
+{
+  "status": "insufficient",
+  "answer": "The API contract is documented.",
+  "citations": [
+    {
+      "path": "docs/api.md",
+      "claim": "The API contract is documented."
+    }
+  ],
+  "unsatisfiedGoals": ["implementation"]
+}

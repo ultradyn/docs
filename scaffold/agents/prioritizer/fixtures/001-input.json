@@ -1,0 +1,11 @@
+{
+  "question": "Claims conflict.",
+  "goals": ["security-review"],
+  "origin": "generated",
+  "depth": 2,
+  "findings": [
+    {
+      "category": "contradiction"
+    }
+  ]
+}

@@ -8,20 +8,20 @@ The design uses the standard composable workflow patterns (prompt chaining, rout
 
 ## 1. Agent roster
 
-| Agent | Pattern role | Input → Output (structured) | Fresh ctx |
-|---|---|---|---|
-| **Librarian** | Retrieval + chat | question, chat history → answer w/ doc citations, or `insufficient` | per conversation |
-| **Goal Clerk** | Routing helper | raw question → suggested goal tags from `goals/vocabulary.md` | yes |
-| **Registrar** | Deterministic-ish intake | question, goals, chat log → question record (ULID, files, index rows) | yes |
-| **Matcher** | Routing / dedup | new question → semantic matches in active + deferred + answered queues | yes |
-| **Prioritizer** | Rule application | question record + provenance → P1–P5 + one-line rationale | yes |
-| **Structurer** | Chaining step | raw transcript(s) → structured answer draft | shares answer session |
-| **Critic** | Evaluator (in evaluator–optimizer) | draft + goals + doc excerpts → per-goal ✔/✘/? findings; contradictions; spawn-list | yes, per round |
-| **Integrator** | Orchestrator–workers | accepted answer → doc edit plan → worker edits → branch + PR | yes |
-| **Reviewer** | Independent evaluator | question, answer, **diff only** → approve / findings | yes (mandatory) |
-| **Diff Summarizer** | Independent reporter | **diff only** → plain-language change summary for answerer | yes (mandatory) |
-| **Simulated Asker** | Independent evaluator | raw verbatim question + chat log + goals + proposed answer → "does this answer *my* question?" | yes (mandatory) |
-| **Agent-Smith** | Meta (orchestrator) | agent request → new/updated agent file + schema + fixtures, via PR | yes |
+| Agent               | Pattern role                       | Input → Output (structured)                                                                    | Fresh ctx             |
+| ------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------- |
+| **Librarian**       | Retrieval + chat                   | question, chat history → answer w/ doc citations, or `insufficient`                            | per conversation      |
+| **Goal Clerk**      | Routing helper                     | raw question → suggested goal tags from `goals/vocabulary.md`                                  | yes                   |
+| **Registrar**       | Deterministic-ish intake           | question, goals, chat log → question record (ULID, files, index rows)                          | yes                   |
+| **Matcher**         | Routing / dedup                    | new question → semantic matches in active + deferred + answered queues                         | yes                   |
+| **Prioritizer**     | Rule application                   | question record + provenance → P1–P5 + one-line rationale                                      | yes                   |
+| **Structurer**      | Chaining step                      | raw transcript(s) → structured answer draft                                                    | shares answer session |
+| **Critic**          | Evaluator (in evaluator–optimizer) | draft + goals + doc excerpts → per-goal ✔/✘/? findings; contradictions; spawn-list             | yes, per round        |
+| **Integrator**      | Orchestrator–workers               | accepted answer → doc edit plan → worker edits → branch + PR                                   | yes                   |
+| **Reviewer**        | Independent evaluator              | question, answer, **diff only** → approve / findings                                           | yes (mandatory)       |
+| **Diff Summarizer** | Independent reporter               | **diff only** → plain-language change summary for answerer                                     | yes (mandatory)       |
+| **Simulated Asker** | Independent evaluator              | raw verbatim question + chat log + goals + proposed answer → "does this answer _my_ question?" | yes (mandatory)       |
+| **Agent-Smith**     | Meta (orchestrator)                | agent request → new/updated agent file + schema + fixtures, via PR                             | yes                   |
 
 "Fresh ctx: mandatory" marks the evaluation-isolation constraint (C6): these agents must never share context with the producer of what they evaluate — a summarizer that saw the integrator's plan summarizes intent, not the diff.
 
@@ -109,6 +109,7 @@ P3  raw questions, default
 P4  generated depth-1 children (no contradiction)
 P5  generated depth-2+ children; tagged extra-detail
 ```
+
 Every assignment ships with a one-line rationale and is human-overridable. Rules live in `goals/priority-rules.md` and are themselves PR-editable.
 
 ## 7. Question lifecycle (single source of truth)
