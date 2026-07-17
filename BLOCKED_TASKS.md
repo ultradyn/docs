@@ -14,12 +14,12 @@ These items need implementation and tests; no external approval is required to s
 - [ ] Regenerate documentation maps deterministically for arbitrary Integrator edits. The default single-answer path appends `docs/_map.md`, but there is no general map regenerator or drift check.
 - [ ] Decide which change-request metadata is portable. Branch/worktree review records currently live only in the machine-local data directory.
 
-Actual branch diffs, fresh Reviewer/Diff Summarizer/Simulated Asker calls, post-diff documentation reads, per-asker decisions, rejection provenance, and acceptance timeout processing are implemented and covered by local tests.
+Actual branch diffs, non-prefix-conflicting attempt branches, input-fingerprinted current-input ensure/reuse, preflighted locked/journaled creation and supersession recovery, schema-version-1 change-request migration with fail-closed missing evaluator input, reopened multi-attempt history, stale-attempt supersession that preserves dirty user work, mandatory fresh Reviewer/Diff Summarizer/Simulated Asker calls over stored input, exact Simulated Asker goal coverage, post-diff documentation reads, fail-closed non-authoritative production fakes, durable local-merge reconciliation, dirty-worktree-preserving cleanup, merged-only pending-asker acceptance/timeout, revision-scoped journaled exactly-once rejection/reopen, shared production-validator parity coverage for every shipped portable schema, duplicate-goal intake rejection, conflict-detecting UUID-managed staging-ignore initialization, and acceptance timeout processing are implemented and covered by local tests.
 
 ### Audio and browser hardening
 
 - [ ] Add browser-level MediaRecorder/getUserMedia fakes and a Playwright answer-and-audio flow. The current Playwright suite covers one Chromium Ask flow only.
-- [ ] Add capture tests for upload/disk-full failure, permission denial and revocation, retry after a failed chunk, pause/resume ordering, and silent truncation/duration checks. Unit coverage currently includes unmount cleanup, device removal, recorder error, ordered durable server chunks, byte/chunk quotas, failed transcode retention, retryable finalization UI, and metadata-failure recovery before and after cleanup intent.
+- [ ] Add capture tests for upload/disk-full failure, permission denial and revocation, pause/resume ordering, and silent truncation/duration checks. Unit coverage currently includes unmount cleanup, device removal, recorder error, ordered durable server chunks, byte/chunk quotas, adoption/rejection of unmanifested chunk bytes after metadata failure, nonblocking special-file rejection, metadata-publication pathname-swap rollback, failed transcode retention, retryable finalization UI, and metadata-failure recovery before and after cleanup intent.
 - [ ] Stream STT partials from the provider through the server to the active answer session. Browser audio is saved incrementally, but OpenAI/xAI transcription currently begins after finalization and returns a batch final transcript.
 - [ ] Surface transcript confidence when a provider supplies it and add an unmistakable fake-transcript banner in the real answer workflow.
 - [ ] Display the resolved machine-local data path plus audio/transcode recovery status in Settings so backup instructions are actionable.
@@ -37,6 +37,7 @@ Actual branch diffs, fresh Reviewer/Diff Summarizer/Simulated Asker calls, post-
 - [ ] Invoke the full Goal Clerk → Matcher → Registrar → Prioritizer agent loop for new asks. The current accessible control loads the vocabulary and accepts normalized freeform goals; deterministic services perform lexical matching, durable registration, and rule-based priority while only Librarian is called through the agent runtime. Agent suggestions must remain advisory to the deterministic authority described in `AGENTS.md`.
 - [ ] Run every touched agent fixture through the agent runtime in CI. Current fixture validation checks input projection and expected-output schema; it does not execute every input/expected pair.
 - [ ] Make Agent-Smith use its isolated agent contract to propose meaningful prompts, schemas, and fixtures. The current create path emits a generic schema and canned expected files; update appends prose without regenerating schema/fixtures.
+- [ ] Wire mandatory fresh Reviewer, Diff Summarizer, and Simulated Asker execution for Agent-Smith proposals. Those proposals now fail closed with pending evaluator checks, so they cannot be approved or merged until that evaluation path runs.
 - [ ] Add a model-drift canary and persist its findings.
 - [ ] Generalize checkpoint commits beyond the approved-local-merge path. `review.checkpointCommits=true` currently checkpoints managed question/settings state around that merge; `false` leaves it uncommitted and exposes one pending task in Maintenance. Other portable mutation workflows do not yet trigger an autonomous checkpoint commit.
 - [ ] Turn remote maintenance entries into actionable local review workflows and wire `GitHostProvider.publish()` to approved change requests. GitHub polling and the `gh pr create` primitive exist independently.
@@ -132,7 +133,7 @@ Activation checklist:
 
 ### Native Tauri builds and signing
 
-Status: desktop source/config and repository-selection tests are present. This execution environment has no Rust toolchain, so the source cannot be compiled here. Signing identities and clean target machines are also external.
+Status: desktop source/config and repository-selection tests are present. On 2026-07-17 this Linux host ran the crate with Cargo 1.97.0 and all 11 tests passed without a lockfile. The declared Rust 1.77.2 minimum and `--locked` build remain unverified because `Cargo.lock` is not committed. Signing identities and clean target machines are also external.
 
 Activation checklist:
 
@@ -144,13 +145,14 @@ Activation checklist:
 
 ### Canonical tmux snapshot execution (activated in CI)
 
-Status: GitHub Actions [run 7](https://github.com/ultradyn/docs/actions/runs/29464696553) installed tmux 3.4 and passed the canonical harness at 40×18, 80×24, and 120×36 after multiple artifact review-and-fix loops. This local execution image still does not include `tmux`, so it records an explicit local skip; that is no longer a release-verification blocker.
+Status: GitHub Actions [run 7](https://github.com/ultradyn/docs/actions/runs/29464696553) installed tmux 3.4 and passed the canonical harness at 40×18, 80×24, and 120×36 after multiple artifact review-and-fix loops. On 2026-07-17 this local Linux host passed the same matrix with tmux 3.7b while Fish was the configured/default shell and every pane launched explicit `/bin/bash`; no snapshots were updated.
 
 Verified checklist:
 
 - [x] Install tmux 3.3 or newer on Ubuntu 24.04 CI.
 - [x] Run `pnpm test:tui` at 40×18, 80×24, and 120×36.
 - [x] Inspect plain, ANSI, full-history, cursor, resize, cancellation, and terminal-cleanup artifacts.
+- [x] Prove Bash/POSIX harness commands do not depend on the configured/default Fish shell.
 - [x] Accept snapshot changes only after the three review passes recorded in `code/cli/test/VISUAL_REVIEW.md`.
 
 ### Browser and OS hardware matrix

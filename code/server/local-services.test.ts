@@ -21,6 +21,87 @@ import {
 const shippedAgentsRoot = existsSync(join(process.cwd(), "scaffold", "agents"))
   ? join(process.cwd(), "scaffold", "agents")
   : join(process.cwd(), "agents");
+const shippedRepositorySeedRoot = existsSync(join(process.cwd(), "scaffold"))
+  ? join(process.cwd(), "scaffold")
+  : process.cwd();
+
+async function copyShippedRepositorySeed(destination: string): Promise<void> {
+  await Promise.all(
+    ["agents", "docs", "goals", "questions", "schemas", "settings"].map(
+      (directory) =>
+        cp(
+          join(shippedRepositorySeedRoot, directory),
+          join(destination, directory),
+          {
+            recursive: true,
+          },
+        ),
+    ),
+  );
+}
+
+function successfulAnswerOutputs(
+  goal: string,
+  content: string,
+  options: { librarianCalls?: number; path?: string } = {},
+) {
+  const librarian = Array.from({ length: options.librarianCalls ?? 1 }, () => ({
+    status: "insufficient",
+    answer: "The current documentation does not satisfy this goal.",
+    citations: [],
+    unsatisfiedGoals: [goal],
+  }));
+  return [
+    ...librarian,
+    {
+      title: "Recovery",
+      sections: [{ heading: "Procedure", content }],
+      correctionsApplied: [],
+    },
+    {
+      done: true,
+      goalResults: [
+        {
+          goal,
+          status: "satisfied",
+          rationale: "The procedure is explicit.",
+        },
+      ],
+      findings: [],
+      deferredQuestions: [],
+      contradictions: [],
+    },
+    {
+      edits: [
+        {
+          path: options.path ?? "docs/recovery.md",
+          operation: "create",
+          summary: "Document the recovery procedure.",
+          content: `# Recovery\n\n${content}\n`,
+        },
+      ],
+      mapUpdates: [],
+      rationale: "Adds the missing procedure.",
+    },
+    { approved: true, findings: [] },
+    {
+      summary: "Adds the reviewed recovery procedure.",
+      changes: ["Documents the exact recovery procedure."],
+      risks: [],
+    },
+    {
+      satisfied: true,
+      reason: "The post-diff documentation answers the ask.",
+      goalResults: [
+        {
+          goal,
+          satisfied: true,
+          rationale: "The requested procedure is present.",
+        },
+      ],
+    },
+  ];
+}
 
 describe("persistent local HTTP workflow", () => {
   const servers: Array<ReturnType<typeof buildServer>> = [];
@@ -323,7 +404,14 @@ describe("persistent local HTTP workflow", () => {
 
   it("exposes approval and merge of the actual local documentation change", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-local-integration-"));
-    const app = await server(root);
+    await cp(shippedAgentsRoot, join(root, "agents"), { recursive: true });
+    const answer =
+      "Replay from the last verified checkpoint and ignore the incomplete tail record.";
+    const app = await server(root, {
+      llmProvider: new FakeLlmProvider({
+        outputs: successfulAnswerOutputs("implementation", answer),
+      }),
+    });
     const logged = await app.inject({
       method: "POST",
       url: "/api/ask",
@@ -343,7 +431,7 @@ describe("persistent local HTTP workflow", () => {
       method: "POST",
       url: `/api/questions/${id}/transcripts`,
       payload: {
-        text: "Replay from the last verified checkpoint and ignore the incomplete tail record.",
+        text: answer,
         source: "typed",
       },
     });
@@ -359,7 +447,9 @@ describe("persistent local HTTP workflow", () => {
       state: "integrating",
       changeRequest: {
         state: "open",
-        branch: `ultradyn/${id}`,
+        branch: expect.stringMatching(
+          /^ultradyn-attempts\/cr-[0-9A-HJKMNP-TV-Z]{26}$/u,
+        ),
         checks: expect.arrayContaining([
           expect.objectContaining({ status: "passed" }),
         ]),
@@ -384,9 +474,9 @@ describe("persistent local HTTP workflow", () => {
     });
     expect(merged.statusCode, merged.body).toBe(200);
     expect(merged.json().state).toBe("merged");
-    expect(
-      await readFile(join(root, "docs", "answers", `${id}.md`), "utf8"),
-    ).toContain("last verified checkpoint");
+    expect(await readFile(join(root, "docs", "recovery.md"), "utf8")).toContain(
+      "last verified checkpoint",
+    );
     const mergeStatus = await simpleGit(root).status();
     expect(
       [...mergeStatus.modified, ...mergeStatus.not_added].filter(
@@ -405,9 +495,264 @@ describe("persistent local HTTP workflow", () => {
     });
   });
 
+  it("creates and merges a distinct active change-request attempt after asker rejection reopens a question", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-reopened-attempt-"));
+    await cp(shippedAgentsRoot, join(root, "agents"), { recursive: true });
+    const firstAnswer = "Replay only the last verified checkpoint.";
+    const revisedAnswer =
+      "Replay the last verified checkpoint and reject a corrupt checkpoint before recovery.";
+    const app = await server(root, {
+      llmProvider: new FakeLlmProvider({
+        outputs: [
+          ...successfulAnswerOutputs("implementation", firstAnswer),
+          ...successfulAnswerOutputs("implementation", revisedAnswer).slice(1),
+        ],
+      }),
+    });
+    const logged = await app.inject({
+      method: "POST",
+      url: "/api/ask",
+      payload: {
+        question: "How are interrupted writes recovered?",
+        goals: ["implementation"],
+        asker: "max",
+      },
+    });
+    const id = logged.json().question.id as string;
+
+    async function integrateAttempt(answer: string) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: `/api/questions/${id}/claim`,
+            payload: { answerer: "max" },
+          })
+        ).statusCode,
+      ).toBe(200);
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: `/api/questions/${id}/transcripts`,
+            payload: { text: answer, source: "typed" },
+          })
+        ).statusCode,
+      ).toBe(201);
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: `/api/questions/${id}/structure`,
+          })
+        ).statusCode,
+      ).toBe(200);
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: `/api/questions/${id}/critic`,
+          })
+        ).statusCode,
+      ).toBe(200);
+      const integrated = await app.inject({
+        method: "POST",
+        url: `/api/questions/${id}/integrate`,
+      });
+      expect(integrated.statusCode, integrated.body).toBe(200);
+      return integrated.json().changeRequest as {
+        id: string;
+        branch: string;
+      };
+    }
+
+    async function approveAndMerge() {
+      const approved = await app.inject({
+        method: "POST",
+        url: `/api/questions/${id}/change-request/approve`,
+        payload: { by: "max", kind: "answerer" },
+      });
+      expect(approved.statusCode, approved.body).toBe(200);
+      const merged = await app.inject({
+        method: "POST",
+        url: `/api/questions/${id}/change-request/merge`,
+        payload: { by: "max" },
+      });
+      expect(merged.statusCode, merged.body).toBe(200);
+    }
+
+    const first = await integrateAttempt(firstAnswer);
+    await approveAndMerge();
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/questions/${id}/reject`,
+      payload: {
+        asker: "max",
+        reason: "The answer does not explain corrupt-checkpoint handling.",
+      },
+    });
+    expect(rejected.statusCode, rejected.body).toBe(200);
+    expect(rejected.json().state).toBe("reopened");
+    expect(rejected.json()).not.toHaveProperty("changeRequest");
+
+    const second = await integrateAttempt(revisedAnswer);
+    expect(second.id).not.toBe(first.id);
+    expect(second.branch).not.toBe(first.branch);
+    await approveAndMerge();
+
+    expect(await readFile(join(root, "docs", "recovery.md"), "utf8")).toContain(
+      "reject a corrupt checkpoint",
+    );
+    const requests = await app.inject({
+      method: "GET",
+      url: "/api/change-requests",
+    });
+    expect(requests.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: first.id, state: "merged" }),
+        expect.objectContaining({ id: second.id, state: "merged" }),
+      ]),
+    );
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/questions/${id}/accept`,
+      payload: { asker: "max" },
+    });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(accepted.json().state).toBe("accepted");
+  });
+
+  it("keeps the default scaffold fake visible but cannot use it to authorize a contradictory merge", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-default-fake-gate-"));
+    await copyShippedRepositorySeed(root);
+    await writeFile(
+      join(root, "docs", "recovery.md"),
+      "# Recovery\n\nInterrupted writes are recovered from the last verified checkpoint.\n",
+      "utf8",
+    );
+    const app = await server(root);
+    const providers = await app.inject({
+      method: "GET",
+      url: "/api/providers",
+    });
+    expect(providers.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "fake-llm",
+          state: "ready",
+          fakeAvailable: true,
+        }),
+      ]),
+    );
+    const logged = await app.inject({
+      method: "POST",
+      url: "/api/ask",
+      payload: {
+        question: "How are interrupted writes recovered?",
+        goals: ["implementation"],
+        asker: "max",
+      },
+    });
+    const id = logged.json().question.id as string;
+    await app.inject({
+      method: "POST",
+      url: `/api/questions/${id}/claim`,
+      payload: { answerer: "max" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/questions/${id}/transcripts`,
+      payload: {
+        text: "Interrupted writes are never recovered and checkpoints are ignored.",
+        source: "typed",
+      },
+    });
+    await app.inject({ method: "POST", url: `/api/questions/${id}/structure` });
+
+    const critic = await app.inject({
+      method: "POST",
+      url: `/api/questions/${id}/critic`,
+    });
+    expect(critic.statusCode).toBe(409);
+    expect(critic.json()).toMatchObject({ error: { code: "llm_unavailable" } });
+
+    const integrated = await app.inject({
+      method: "POST",
+      url: `/api/questions/${id}/integrate`,
+    });
+    expect(integrated.statusCode).toBe(409);
+    expect(integrated.json()).toMatchObject({
+      error: { code: "evaluation_required" },
+    });
+
+    const repository = new KnowledgeRepository(root);
+    await repository.initialize();
+    const current = await repository.getQuestion(id);
+    await repository.writeDerived(
+      id,
+      "answers/evaluation.json",
+      `${JSON.stringify({
+        done: true,
+        goalResults: [
+          {
+            goal: "implementation",
+            status: "satisfied",
+            rationale:
+              "Legacy deterministic fake marked the contradiction satisfied.",
+          },
+        ],
+        contradictions: [],
+        deferredChildren: [],
+      })}\n`,
+      { expectedRevision: current.revision, by: "legacy-fake-critic" },
+    );
+    const reviewGate = await app.inject({
+      method: "POST",
+      url: `/api/questions/${id}/integrate`,
+    });
+    expect(reviewGate.statusCode).toBe(409);
+    expect(reviewGate.json()).toMatchObject({
+      error: { code: "integration_review_failed" },
+    });
+    const requests = await app.inject({
+      method: "GET",
+      url: "/api/change-requests",
+    });
+    expect(requests.json().items).toEqual([
+      expect.objectContaining({
+        state: "blocked",
+        checks: expect.arrayContaining([
+          expect.objectContaining({ id: "reviewer", status: "failed" }),
+          expect.objectContaining({ id: "diff-summary", status: "failed" }),
+          expect.objectContaining({ id: "simulated-asker", status: "failed" }),
+        ]),
+      }),
+    ]);
+    for (const action of ["approve", "merge"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/questions/${id}/change-request/${action}`,
+        payload:
+          action === "approve"
+            ? { by: "max", kind: "answerer" }
+            : { by: "max" },
+      });
+      expect(response.statusCode).toBe(409);
+    }
+  });
+
   it("deduplicates active questions and waits for every attached asker decision", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-local-askers-"));
-    const app = await server(root);
+    await cp(shippedAgentsRoot, join(root, "agents"), { recursive: true });
+    const answer = "Replay from the last verified checkpoint.";
+    const app = await server(root, {
+      llmProvider: new FakeLlmProvider({
+        outputs: successfulAnswerOutputs("implementation", answer, {
+          librarianCalls: 2,
+          path: "docs/relay-recovery.md",
+        }),
+      }),
+    });
     const question = "How does the relay recover after an interrupted write?";
     const first = await app.inject({
       method: "POST",
@@ -440,7 +785,7 @@ describe("persistent local HTTP workflow", () => {
     await app.inject({
       method: "POST",
       url: `/api/questions/${id}/transcripts`,
-      payload: { text: "Replay from the checkpoint.", source: "typed" },
+      payload: { text: answer, source: "typed" },
     });
     await app.inject({ method: "POST", url: `/api/questions/${id}/structure` });
     await app.inject({ method: "POST", url: `/api/questions/${id}/critic` });
@@ -479,6 +824,7 @@ describe("persistent local HTTP workflow", () => {
       expect.objectContaining({ id: "alice", acceptance: "accepted" }),
     ]);
 
+    const artifactsBeforeLateRejection = await repository.listRawArtifacts(id);
     const rejected = await app.inject({
       method: "POST",
       url: `/api/questions/${id}/reject`,
@@ -487,16 +833,102 @@ describe("persistent local HTTP workflow", () => {
         reason: "It omits the corrupt checkpoint case.",
       },
     });
-    expect(rejected.json()).toMatchObject({ state: "reopened", tier: "P1" });
-    const reopened = await repository.getQuestion(id);
-    expect(reopened.askers.at(-1)).toMatchObject({ acceptance: "rejected" });
-    const rejection = (await repository.listRawArtifacts(id)).find(
-      (artifact) => artifact.kind === "rejection",
+    expect(rejected.statusCode).toBe(409);
+    expect(await repository.getQuestion(id)).toEqual(accepted);
+    expect(await repository.listRawArtifacts(id)).toEqual(
+      artifactsBeforeLateRejection,
     );
-    expect(rejection).toBeDefined();
-    expect(await repository.readRawArtifact(id, rejection!.path)).toBe(
-      "It omits the corrupt checkpoint case.",
+  });
+
+  it("rejects an ineligible asker rejection before appending a raw artifact", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-rejection-preflight-"));
+    const app = await server(root);
+    const logged = await app.inject({
+      method: "POST",
+      url: "/api/ask",
+      payload: {
+        question: "Can I reject before an answer is merged?",
+        goals: ["documentation"],
+        asker: "max",
+      },
+    });
+    const id = logged.json().question.id as string;
+    const repository = new KnowledgeRepository(root);
+    const before = await repository.listRawArtifacts(id);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/questions/${id}/reject`,
+      payload: {
+        asker: "max",
+        reason: "There is no merged answer to reject.",
+      },
+    });
+
+    expect(rejected.statusCode).toBe(409);
+    expect(rejected.json()).toMatchObject({
+      error: { code: "asker_decision_unavailable" },
+    });
+    expect(await repository.listRawArtifacts(id)).toEqual(before);
+  });
+
+  it("publishes exactly one rejection artifact for concurrent duplicate public rejections", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "ultradyn-concurrent-rejection-"),
     );
+    const repository = new KnowledgeRepository(root);
+    await repository.initialize();
+    const created = await repository.createQuestion({
+      title: "Can duplicate rejection race?",
+      verbatimQuestion: "Can duplicate rejection race?",
+      goals: ["implementation"],
+      asker: { id: "max", acceptance: "pending" },
+      origin: { kind: "raw" },
+    });
+    const claimed = await repository.transition(created.id, {
+      to: "in-answer",
+      expectedRevision: created.revision,
+      by: "answerer:max",
+    });
+    const integrating = await repository.transition(created.id, {
+      to: "integrating",
+      expectedRevision: claimed.revision,
+      by: "integrator",
+    });
+    const merged = await repository.transition(created.id, {
+      to: "merged",
+      expectedRevision: integrating.revision,
+      by: "maintainer:max",
+    });
+    const app = await server(root);
+    const request = () =>
+      app.inject({
+        method: "POST",
+        url: `/api/questions/${created.id}/reject`,
+        payload: {
+          asker: "max",
+          reason: "The answer omits duplicate rejection recovery.",
+        },
+      });
+
+    const responses = await Promise.all([request(), request()]);
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([
+      200, 409,
+    ]);
+    const artifacts = await repository.listRawArtifacts(created.id);
+    expect(
+      artifacts.filter((artifact) => artifact.kind === "rejection"),
+    ).toHaveLength(1);
+    const reopened = await repository.getQuestion(created.id);
+    expect(reopened).toMatchObject({
+      state: "reopened",
+      tier: "P1",
+      revision: merged.revision + 1,
+      askers: [expect.objectContaining({ id: "max", acceptance: "rejected" })],
+    });
+    expect(
+      reopened.provenance.filter((event) => event.type === "rejected"),
+    ).toHaveLength(1);
   });
 
   it("rejects an asker value that cannot produce an honest stable identifier", async () => {
@@ -517,6 +949,42 @@ describe("persistent local HTTP workflow", () => {
     expect(response.json()).toMatchObject({
       error: { code: "invalid_identifier" },
     });
+  });
+
+  it("rejects duplicate Ask goals before persistence while preserving ordered distinct goals", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-ask-goals-"));
+    const app = await server(root);
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/ask",
+      payload: {
+        question: "Can duplicate goals be stored?",
+        goals: ["implementation", "implementation"],
+        asker: "max",
+      },
+    });
+
+    expect(duplicate.statusCode).toBe(400);
+    expect(duplicate.json()).toMatchObject({
+      error: { code: "invalid_request" },
+    });
+    const repository = new KnowledgeRepository(root);
+    expect(await repository.listQuestions()).toEqual([]);
+
+    const distinct = await app.inject({
+      method: "POST",
+      url: "/api/ask",
+      payload: {
+        question: "In what order are distinct goals stored?",
+        goals: ["security-review", "implementation"],
+        asker: "max",
+      },
+    });
+    expect(distinct.statusCode, distinct.body).toBe(200);
+    expect(distinct.json().question.goals).toEqual([
+      "security-review",
+      "implementation",
+    ]);
   });
 
   it("keeps display-name askers distinct from colliding stable handles", async () => {
@@ -1461,6 +1929,156 @@ describe("persistent local HTTP workflow", () => {
     });
   });
 
+  it("supersedes a stored proposal when current integration input changes without rerunning Integrator for comparison", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-current-input-"));
+    await cp(shippedAgentsRoot, join(root, "agents"), { recursive: true });
+    const repository = new KnowledgeRepository(root);
+    await repository.initialize();
+    const created = await repository.createQuestion({
+      title: "Who verifies recovery?",
+      verbatimQuestion: "Who verifies the recovery checksum?",
+      goals: ["implementation"],
+      asker: { id: "max", acceptance: "pending" },
+      origin: { kind: "raw" },
+    });
+    const claimed = await repository.transition(created.id, {
+      to: "in-answer",
+      expectedRevision: created.revision,
+      by: "answerer:max",
+    });
+    let current = await repository.writeDerived(
+      created.id,
+      "answers/structured.md",
+      "# Recovery owner\n\nThe service verifies the checksum.\n",
+      { expectedRevision: claimed.revision, by: "structurer" },
+    );
+    current = await repository.writeDerived(
+      created.id,
+      "answers/evaluation.json",
+      `${JSON.stringify({
+        done: true,
+        goalResults: [
+          {
+            goal: "implementation",
+            status: "satisfied",
+            rationale: "The owner is explicit.",
+          },
+        ],
+        contradictions: [],
+        deferredChildren: [],
+      })}\n`,
+      { expectedRevision: current.revision, by: "critic" },
+    );
+    const firstLlm = new FakeLlmProvider({
+      outputs: [
+        {
+          edits: [
+            {
+              path: "docs/recovery-owner.md",
+              operation: "create",
+              summary: "Document checksum ownership.",
+              content:
+                "# Recovery owner\n\nThe service verifies the checksum.\n",
+            },
+          ],
+          mapUpdates: [],
+          rationale: "Documents checksum ownership.",
+        },
+        {
+          approved: false,
+          findings: [
+            {
+              severity: "blocking",
+              text: "The answer does not name the operator escalation.",
+            },
+          ],
+        },
+        {
+          summary: "Documents checksum ownership.",
+          changes: ["Names the checksum verifier."],
+          risks: ["Escalation remains unclear."],
+        },
+        {
+          satisfied: false,
+          reason: "Escalation remains unclear.",
+          goalResults: [
+            {
+              goal: "implementation",
+              satisfied: false,
+              rationale: "The operational escalation is missing.",
+            },
+          ],
+        },
+      ],
+    });
+    const first = await server(root, { llmProvider: firstLlm });
+    const failed = await first.inject({
+      method: "POST",
+      url: `/api/questions/${created.id}/integrate`,
+    });
+    expect(failed.statusCode, failed.body).toBe(409);
+    const blocked = await first.inject({
+      method: "GET",
+      url: `/api/questions/${created.id}`,
+    });
+    const priorId = blocked.json().changeRequest.id as string;
+    await first.close();
+    servers.splice(servers.indexOf(first), 1);
+
+    await repository.writeDerived(
+      created.id,
+      "answers/structured.md",
+      "# Recovery owner\n\nThe service verifies the checksum and the maintainer handles escalation.\n",
+      { expectedRevision: current.revision, by: "structurer" },
+    );
+    const retryLlm = new FakeLlmProvider({
+      outputs: [
+        { approved: true, findings: [] },
+        {
+          summary: "Reviews checksum ownership and escalation.",
+          changes: ["Checks the revised answer against the stored proposal."],
+          risks: [],
+        },
+        {
+          satisfied: true,
+          reason: "Ownership and escalation are explicit.",
+          goalResults: [
+            {
+              goal: "implementation",
+              satisfied: true,
+              rationale: "Both responsibilities are named.",
+            },
+          ],
+        },
+      ],
+    });
+    const restarted = await server(root, { llmProvider: retryLlm });
+    const retried = await restarted.inject({
+      method: "POST",
+      url: `/api/questions/${created.id}/integrate`,
+    });
+
+    expect(retried.statusCode, retried.body).toBe(200);
+    expect(retried.json().changeRequest.id).not.toBe(priorId);
+    expect(retryLlm.requests.map((request) => request.agent.name)).toEqual([
+      "reviewer",
+      "diff-summarizer",
+      "simulated-asker",
+    ]);
+    expect(
+      JSON.parse(retryLlm.requests[0]!.messages[0]!.content).structuredAnswer,
+    ).toContain("maintainer handles escalation");
+    const requests = await restarted.inject({
+      method: "GET",
+      url: "/api/change-requests",
+    });
+    expect(requests.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: priorId, state: "superseded" }),
+      ]),
+    );
+  });
+
   it("finalizes durable audio through the selected fake STT contract", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-local-audio-"));
     const app = await server(root, { allowFakeMedia: true });
@@ -1535,7 +2153,7 @@ describe("persistent local HTTP workflow", () => {
     });
   });
 
-  it("reports shipped agent fixtures and creates Agent-Smith work on an isolated branch", async () => {
+  it("reports shipped agent fixtures and keeps Agent-Smith work blocked until fresh evaluation", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-local-agents-"));
     await cp(shippedAgentsRoot, join(root, "agents"), {
       recursive: true,
@@ -1576,8 +2194,13 @@ describe("persistent local HTTP workflow", () => {
     expect(proposal.json()).toMatchObject({
       agent: expect.stringMatching(/recovery/),
       changeRequest: {
-        state: "open",
-        branch: expect.stringMatching(/^ultradyn\/agent-/),
+        state: "blocked",
+        branch: expect.stringMatching(/^ultradyn-attempts\/cr-/u),
+        checks: expect.arrayContaining([
+          expect.objectContaining({ id: "reviewer", status: "failed" }),
+          expect.objectContaining({ id: "diff-summary", status: "failed" }),
+          expect.objectContaining({ id: "simulated-asker", status: "failed" }),
+        ]),
       },
     });
     expect(proposal.json().changeRequest.diff).toContain("/agent.md");
@@ -1589,30 +2212,20 @@ describe("persistent local HTTP workflow", () => {
       code: "ENOENT",
     });
     const changeRequestId = proposal.json().changeRequest.id as string;
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: `/api/change-requests/${changeRequestId}/approve`,
-          payload: { by: "maintainer", kind: "maintainer" },
-        })
-      ).statusCode,
-    ).toBe(200);
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: `/api/change-requests/${changeRequestId}/merge`,
-          payload: { by: "maintainer" },
-        })
-      ).statusCode,
-    ).toBe(200);
-    expect(
-      await readFile(
-        join(root, "agents", proposal.json().agent, "agent.md"),
-        "utf8",
-      ),
-    ).toContain("Explain recovery decisions");
+    for (const action of ["approve", "merge"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/change-requests/${changeRequestId}/${action}`,
+        payload:
+          action === "approve"
+            ? { by: "maintainer", kind: "maintainer" }
+            : { by: "maintainer" },
+      });
+      expect(response.statusCode).toBe(409);
+    }
+    await expect(
+      readFile(join(root, "agents", proposal.json().agent, "agent.md"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("reports a malformed agent directory as an invalid agent row", async () => {

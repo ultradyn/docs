@@ -25,12 +25,12 @@ Width-aware project copy uses [`string-width`](https://github.com/sindresorhus/s
 
 The canonical Ubuntu suite follows tmux's documented [`send-keys` behavior](https://github.com/tmux/tmux/wiki/Advanced-Use#sending-keys) and [`capture-pane` options](https://man7.org/linux/man-pages/man1/tmux.1.html):
 
-1. Use an isolated `tmux -L` server and `/dev/null` configuration.
-2. Create exact 40×18, 80×24, and 120×36 panes.
+1. Use an isolated `tmux -L` server, configure its default shell to Fish when available, and launch every test pane explicitly with `/bin/bash --noprofile --norc`.
+2. Create exact 40×18, 80×24, and 120×36 panes; assert the configured default and explicit pane start command independently.
 3. Poll captures for prompt text rather than sleeping blindly.
 4. Send arbitrary input with literal `send-keys -l`; send Enter separately.
 5. Capture visible plain, visible ANSI, and full unjoined history at each meaningful state.
 6. Record pane dimensions, cursor/alternate-screen state, exit status, and terminal state before/after.
-7. Kill the isolated server in `finally`.
+7. Remove inherited `NO_COLOR` only in cases whose contract explicitly requires ANSI or `NODE_DISABLE_COLORS`, and kill the isolated server in `finally`.
 
 macOS and Windows/WSL are smoke-tested, not byte-snapshot compared with Ubuntu. Snapshot updates require separate happy-path, stress/resize, and accessibility/cleanup review passes.

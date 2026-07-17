@@ -3,6 +3,16 @@
   "$id": "https://ultradyn.dev/schemas/question-record.schema.json",
   "type": "object",
   "additionalProperties": false,
+  "definitions": {
+    "safeSlug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "x-utf16MinLength": 1,
+      "x-utf16MaxLength": 96,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$"
+    }
+  },
   "required": [
     "schemaVersion",
     "id",
@@ -25,8 +35,18 @@
   "properties": {
     "schemaVersion": { "const": 1 },
     "id": { "type": "string", "pattern": "^q-[0-9A-HJKMNP-TV-Z]{26}$" },
-    "title": { "type": "string", "minLength": 1, "maxLength": 240 },
-    "question": { "type": "string", "minLength": 1 },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "x-utf16MinLength": 1,
+      "x-utf16MaxLength": 240
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "x-utf16MinLength": 1
+    },
     "state": {
       "enum": [
         "asked",
@@ -41,25 +61,50 @@
       ]
     },
     "tier": { "enum": ["P1", "P2", "P3", "P4", "P5"] },
-    "priorityRationale": { "type": "string", "minLength": 1 },
+    "priorityRationale": {
+      "type": "string",
+      "minLength": 1,
+      "x-utf16MinLength": 1
+    },
     "prioritySource": { "enum": ["rule", "override"] },
-    "goals": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-    "tags": { "type": "array", "items": { "type": "string" } },
+    "goals": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/safeSlug" }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/safeSlug" }
+    },
     "askers": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
+      "$comment": "Draft-07 cannot enforce uniqueness by object property. Register the shipped schema set with createPortableSchemaValidator from code/domain/index.ts; validators that ignore x-uniqueBy do not implement the Ultradyn contract.",
+      "x-uniqueBy": "id",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["id", "acceptance"],
         "properties": {
-          "id": { "type": "string" },
-          "displayName": { "type": "string" },
+          "id": { "$ref": "#/definitions/safeSlug" },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "x-utf16MinLength": 1,
+            "x-utf16MaxLength": 160
+          },
           "acceptance": {
             "enum": ["pending", "accepted", "rejected", "timed-out"]
           },
           "decidedAt": { "type": "string", "format": "date-time" },
-          "rawReason": { "type": "string" }
+          "rawReason": {
+            "type": "string",
+            "minLength": 1,
+            "x-utf16MinLength": 1
+          }
         }
       }
     },
@@ -85,18 +130,54 @@
               "type": "string",
               "pattern": "^f-[0-9A-HJKMNP-TV-Z]{26}$"
             },
-            "goal": { "type": "string" }
+            "goal": { "$ref": "#/definitions/safeSlug" }
           }
         }
       ]
     },
-    "depth": { "type": "integer", "minimum": 0 },
+    "depth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" },
-    "revision": { "type": "integer", "minimum": 0 },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
     "provenance": {
       "type": "array",
       "items": { "$ref": "provenance-event.schema.json" }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "origin": {
+            "type": "object",
+            "properties": { "kind": { "const": "raw" } }
+          }
+        }
+      },
+      "then": {
+        "properties": { "depth": { "type": "integer", "const": 0 } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "origin": {
+            "type": "object",
+            "properties": { "kind": { "const": "generated" } }
+          }
+        }
+      },
+      "then": {
+        "properties": { "depth": { "type": "integer", "minimum": 1 } }
+      }
+    }
+  ]
 }

@@ -860,9 +860,8 @@ function AnswerSession({ questionId }: { questionId: string }) {
             </div>
             <h2>Prepare documentation change</h2>
             <p>
-              Integration creates an isolated{" "}
-              <code>ultradyn/{question.id}</code> branch, then independent
-              reviewers see the actual diff.
+              Integration creates an isolated, attempt-specific branch, then
+              independent reviewers see the actual diff.
             </p>
             <div className="check-list">
               <span className={criticDone ? "done" : ""}>

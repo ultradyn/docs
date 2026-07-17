@@ -70,7 +70,7 @@ relevant GET route rather than trusting an event replay buffer.
 | POST   | `/api/questions/:id/transcripts`            | Append immutable `{text,source,confidence?}`.                     |
 | POST   | `/api/questions/:id/structure`              | Rebuild derived answer from all raw segments/corrections.         |
 | POST   | `/api/questions/:id/critic`                 | Run an isolated decisive goal/contradiction evaluation.           |
-| POST   | `/api/questions/:id/integrate`              | Create/update the documentation change request after Critic DONE. |
+| POST   | `/api/questions/:id/integrate`              | Create/reuse the active input-bound attempt after Critic DONE; reopened questions get a new attempt. |
 | POST   | `/api/questions/:id/accept`                 | Record acceptance with the matching `{asker}` handle.             |
 | POST   | `/api/questions/:id/reject`                 | Append `{asker,reason}` verbatim and reopen at P1.                |
 | POST   | `/api/questions/:id/change-request/approve` | Record `{by,kind}` approval on the local diff.                    |

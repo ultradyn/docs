@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "cr-01J00000000000000000000030",
+  "questionId": "q-01J00000000000000000000030",
+  "title": "Document: Legacy active request",
+  "state": "open",
+  "branch": "ultradyn/q-01J00000000000000000000030",
+  "baseBranch": "main",
+  "baseSha": "1111111111111111111111111111111111111111",
+  "headSha": "2222222222222222222222222222222222222222",
+  "worktreePath": "/tmp/ultradyn-legacy-active",
+  "diff": "diff --git a/docs/legacy.md b/docs/legacy.md\n",
+  "summary": "Legacy active change request without stored evaluator input.",
+  "checks": [
+    {
+      "id": "diff-check",
+      "label": "Git diff check",
+      "status": "passed",
+      "detail": "Passed under schema version 1."
+    }
+  ],
+  "approvals": [],
+  "createdAt": "2026-07-15T01:00:00.000Z",
+  "updatedAt": "2026-07-15T01:00:00.000Z"
+}

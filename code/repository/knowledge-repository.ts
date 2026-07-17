@@ -100,11 +100,20 @@ export interface AttachMatchedAskInput {
   by: string;
 }
 
+export interface RejectAskerInput {
+  askerId: string;
+  reason: string;
+  by: string;
+}
+
 export type MatchedAskCheckpoint =
   | "after-question-artifact"
   | "after-chat-artifact"
   | "before-record-update"
   | "after-record-update";
+
+export type AskerRejectionCheckpoint =
+  "after-artifact" | "before-record-update" | "after-record-update";
 
 export interface KnowledgeRepositoryOptions {
   ids?: IdGenerator;
@@ -115,6 +124,10 @@ export interface KnowledgeRepositoryOptions {
   /** Optional deterministic mutation checkpoint used by process supervisors. */
   onMatchedAskCheckpoint?: (
     checkpoint: MatchedAskCheckpoint,
+  ) => void | Promise<void>;
+  /** Optional deterministic rejection checkpoint used by recovery tests. */
+  onAskerRejectionCheckpoint?: (
+    checkpoint: AskerRejectionCheckpoint,
   ) => void | Promise<void>;
 }
 
@@ -135,6 +148,19 @@ const MatchedAskJournalSchema = z.object({
 });
 type MatchedAskJournal = z.infer<typeof MatchedAskJournalSchema>;
 
+const AskerRejectionJournalSchema = z.object({
+  schemaVersion: z.literal(2),
+  operationId: z.string().regex(/^[0-9a-f]{64}$/u),
+  questionId: IdSchemas.question,
+  askerId: SafeSlugSchema,
+  reason: z.string().min(1),
+  by: z.string().min(1).max(160),
+  baseRevision: z.number().int().nonnegative(),
+  at: z.string().datetime({ offset: true }),
+  artifact: RawArtifactManifestEntrySchema,
+});
+type AskerRejectionJournal = z.infer<typeof AskerRejectionJournalSchema>;
+
 interface ValidatedMatchedAskInput {
   verbatimQuestion: string;
   chatlog?: string;
@@ -142,6 +168,12 @@ interface ValidatedMatchedAskInput {
   requestedGoals: string[];
   asker: Asker;
   expectedRevision: number;
+  by: string;
+}
+
+interface ValidatedRejectAskerInput {
+  askerId: string;
+  reason: string;
   by: string;
 }
 
@@ -221,6 +253,25 @@ function matchedAskOperationId(
   );
 }
 
+function askerRejectionOperationId(
+  questionId: string,
+  input: ValidatedRejectAskerInput,
+  baseRevision: number,
+): string {
+  return sha256(
+    new TextEncoder().encode(
+      JSON.stringify({
+        schemaVersion: 2,
+        questionId,
+        askerId: input.askerId,
+        reason: input.reason,
+        by: input.by,
+        baseRevision,
+      }),
+    ),
+  );
+}
+
 async function readMatchedAskJournal(
   path: string,
 ): Promise<MatchedAskJournal | undefined> {
@@ -237,6 +288,30 @@ async function readMatchedAskJournal(
 async function writeMatchedAskJournal(
   path: string,
   journal: MatchedAskJournal,
+): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFileAtomic(path, `${JSON.stringify(journal, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+}
+
+async function readAskerRejectionJournal(
+  path: string,
+): Promise<AskerRejectionJournal | undefined> {
+  try {
+    return AskerRejectionJournalSchema.parse(
+      JSON.parse(await readFile(path, "utf8")),
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function writeAskerRejectionJournal(
+  path: string,
+  journal: AskerRejectionJournal,
 ): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   await writeFileAtomic(path, `${JSON.stringify(journal, null, 2)}\n`, {
@@ -634,6 +709,154 @@ function hasCompletedMatchedAsk(
   return true;
 }
 
+function validateRejectAskerInput(
+  input: RejectAskerInput,
+): ValidatedRejectAskerInput {
+  return {
+    askerId: SafeSlugSchema.parse(input.askerId),
+    reason: z.string().min(1).parse(input.reason),
+    by: z.string().min(1).max(160).parse(input.by),
+  };
+}
+
+function assertAskerMayReject(record: QuestionRecord, askerId: string): void {
+  const asker = record.askers.find((candidate) => candidate.id === askerId);
+  if (record.state !== "merged" || !asker) {
+    throw new Error("Only an attached asker may reject a merged answer.");
+  }
+  if (asker.acceptance !== "pending") {
+    throw new Error(
+      `Asker ${askerId} has already decided; only pending askers may decide.`,
+    );
+  }
+}
+
+function buildRejectedAskerRecord(
+  base: QuestionRecord,
+  input: ValidatedRejectAskerInput,
+  at: string,
+  operationId: string,
+  artifact: RawArtifactManifestEntry,
+): QuestionRecord {
+  assertAskerMayReject(base, input.askerId);
+  return QuestionRecordSchema.parse({
+    ...base,
+    state: "reopened",
+    tier: "P1",
+    priorityRationale: "Reopened after explicit asker rejection.",
+    prioritySource: "rule",
+    askers: base.askers.map((asker) =>
+      asker.id === input.askerId
+        ? {
+            ...asker,
+            acceptance: "rejected",
+            decidedAt: at,
+            rawReason: artifact.path,
+          }
+        : asker,
+    ),
+    revision: base.revision + 1,
+    updatedAt: at,
+    provenance: [
+      ...base.provenance,
+      {
+        at,
+        type: "raw-artifact-appended",
+        by: input.by,
+        details: {
+          operationId,
+          baseRevision: base.revision,
+          path: artifact.path,
+          kind: artifact.kind,
+          askerId: input.askerId,
+        },
+      },
+      {
+        at,
+        type: "rejected",
+        by: input.by,
+        details: {
+          operationId,
+          baseRevision: base.revision,
+          askerId: input.askerId,
+          rawReason: artifact.path,
+        },
+      },
+      {
+        at,
+        type: "state-transitioned",
+        by: input.by,
+        details: {
+          operationId,
+          baseRevision: base.revision,
+          from: "merged",
+          to: "reopened",
+          rawReason: artifact.path,
+        },
+      },
+    ],
+  });
+}
+
+function hasCompletedAskerRejection(
+  record: QuestionRecord,
+  journal: AskerRejectionJournal,
+): boolean {
+  const operationEvents = record.provenance
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) => event.details?.operationId === journal.operationId);
+  if (operationEvents.length === 0) return false;
+  const [rawArtifact, rejection, transition] = operationEvents;
+  const complete =
+    operationEvents.length === 3 &&
+    rawArtifact?.event.type === "raw-artifact-appended" &&
+    rejection?.event.type === "rejected" &&
+    transition?.event.type === "state-transitioned" &&
+    rejection.index === rawArtifact.index + 1 &&
+    transition.index === rejection.index + 1 &&
+    operationEvents.every(({ event }) => event.at === journal.at) &&
+    operationEvents.every(
+      ({ event }) => event.details?.baseRevision === journal.baseRevision,
+    ) &&
+    operationEvents.every(({ event }) => event.by === journal.by) &&
+    rawArtifact.event.details?.path === journal.artifact.path &&
+    rawArtifact.event.details?.kind === "rejection" &&
+    rawArtifact.event.details?.askerId === journal.askerId &&
+    rejection.event.details?.askerId === journal.askerId &&
+    rejection.event.details?.rawReason === journal.artifact.path &&
+    transition.event.details?.from === "merged" &&
+    transition.event.details?.to === "reopened" &&
+    transition.event.details?.rawReason === journal.artifact.path &&
+    journal.artifact.kind === "rejection" &&
+    journal.artifact.createdAt === journal.at &&
+    record.revision >= journal.baseRevision + 1;
+  if (!complete) {
+    throw new RawArtifactIntegrityError(
+      `Asker-rejection operation ${journal.operationId} has incomplete portable provenance.`,
+    );
+  }
+  if (record.revision === journal.baseRevision + 1) {
+    const asker = record.askers.find(
+      (candidate) => candidate.id === journal.askerId,
+    );
+    if (
+      record.state !== "reopened" ||
+      record.tier !== "P1" ||
+      record.priorityRationale !== "Reopened after explicit asker rejection." ||
+      record.prioritySource !== "rule" ||
+      record.updatedAt !== journal.at ||
+      asker?.acceptance !== "rejected" ||
+      asker.decidedAt !== journal.at ||
+      asker.rawReason !== journal.artifact.path
+    ) {
+      throw new RawArtifactIntegrityError(
+        `Asker-rejection operation ${journal.operationId} has incomplete canonical state.`,
+      );
+    }
+  }
+  return true;
+}
+
 export class KnowledgeRepository {
   readonly root: string;
   readonly #ids: IdGenerator;
@@ -642,6 +865,8 @@ export class KnowledgeRepository {
   readonly #lockRoot: string;
   readonly #onMatchedAskCheckpoint:
     KnowledgeRepositoryOptions["onMatchedAskCheckpoint"] | undefined;
+  readonly #onAskerRejectionCheckpoint:
+    KnowledgeRepositoryOptions["onAskerRejectionCheckpoint"] | undefined;
 
   constructor(root: string, options: KnowledgeRepositoryOptions = {}) {
     this.root = resolve(root);
@@ -650,6 +875,7 @@ export class KnowledgeRepository {
     this.#lockRetries = options.lockRetries ?? 20;
     this.#lockRoot = resolve(options.lockRoot ?? defaultRepositoryLockRoot());
     this.#onMatchedAskCheckpoint = options.onMatchedAskCheckpoint;
+    this.#onAskerRejectionCheckpoint = options.onAskerRejectionCheckpoint;
   }
 
   async initialize(): Promise<void> {
@@ -797,6 +1023,7 @@ export class KnowledgeRepository {
     return this.#locked(async () => {
       const located = await this.#locate(id);
       await this.#verifyQuestionRawArtifacts(located);
+      await this.#reconcileCompletedAskerRejectionJournals(located);
       let next = applyQuestionTransition(located.record, {
         ...input,
         at: this.#now(),
@@ -838,6 +1065,7 @@ export class KnowledgeRepository {
     return this.#locked(async () => {
       const located = await this.#locate(id);
       await this.#verifyQuestionRawArtifacts(located);
+      await this.#reconcileCompletedAskerRejectionJournals(located);
       return appendArtifactUnlocked(
         this.root,
         located.directory,
@@ -888,13 +1116,14 @@ export class KnowledgeRepository {
     }
     return this.#locked(async () => {
       const located = await this.#locate(id);
+      await this.#verifyQuestionRawArtifacts(located);
+      await this.#reconcileCompletedAskerRejectionJournals(located);
       if (located.record.revision !== options.expectedRevision) {
         throw new QuestionRevisionConflictError(
           options.expectedRevision,
           located.record.revision,
         );
       }
-      await this.#verifyQuestionRawArtifacts(located);
       const at = this.#now();
       const updated = QuestionRecordSchema.parse({
         ...located.record,
@@ -944,6 +1173,8 @@ export class KnowledgeRepository {
   ): Promise<QuestionRecord> {
     return this.#locked(async () => {
       const located = await this.#locate(id);
+      await this.#verifyQuestionRawArtifacts(located);
+      await this.#reconcileCompletedAskerRejectionJournals(located);
       if (located.record.revision !== input.expectedRevision) {
         throw new QuestionRevisionConflictError(
           input.expectedRevision,
@@ -985,6 +1216,8 @@ export class KnowledgeRepository {
   ): Promise<QuestionRecord> {
     return this.#locked(async () => {
       const located = await this.#locate(id);
+      await this.#verifyQuestionRawArtifacts(located);
+      await this.#reconcileCompletedAskerRejectionJournals(located);
       const existing = located.record.askers.find(
         (asker) => asker.id === input.asker.id,
       );
@@ -1025,6 +1258,7 @@ export class KnowledgeRepository {
       const validated = validateMatchedAskInput(input);
       const located = await this.#locate(id);
       await this.#verifyQuestionRawArtifacts(located);
+      await this.#reconcileCompletedAskerRejectionJournals(located);
       const operationId = matchedAskOperationId(located.record.id, validated);
       const journalPath = await this.#matchedAskJournalPath(
         located.record.id,
@@ -1147,40 +1381,155 @@ export class KnowledgeRepository {
     });
   }
 
+  async rejectAsker(
+    id: string,
+    input: RejectAskerInput,
+  ): Promise<QuestionRecord> {
+    return this.#locked(async () => {
+      const validated = validateRejectAskerInput(input);
+      const located = await this.#locate(id);
+      await this.#verifyQuestionRawArtifacts(located);
+      const journalPath = await this.#askerRejectionJournalPath(
+        located.record.id,
+        validated.askerId,
+      );
+      let journal = await readAskerRejectionJournal(journalPath);
+      const baseRevision = journal?.baseRevision ?? located.record.revision;
+      const operationId = askerRejectionOperationId(
+        located.record.id,
+        validated,
+        baseRevision,
+      );
+
+      if (journal) {
+        if (
+          journal.operationId !== operationId ||
+          journal.questionId !== located.record.id ||
+          journal.askerId !== validated.askerId ||
+          journal.reason !== validated.reason ||
+          journal.by !== validated.by ||
+          journal.baseRevision !== baseRevision
+        ) {
+          throw new RawArtifactIntegrityError(
+            `Pending asker-rejection journal for ${validated.askerId} does not match the retry input.`,
+          );
+        }
+        if (hasCompletedAskerRejection(located.record, journal)) {
+          await this.#assertAskerRejectionArtifact(located, journal);
+          await this.#regenerateIndexUnlocked();
+          await rm(journalPath, { force: true });
+          return located.record;
+        }
+        if (located.record.revision !== journal.baseRevision) {
+          throw new QuestionRevisionConflictError(
+            journal.baseRevision,
+            located.record.revision,
+          );
+        }
+        buildRejectedAskerRecord(
+          located.record,
+          validated,
+          journal.at,
+          journal.operationId,
+          journal.artifact,
+        );
+      } else {
+        assertAskerMayReject(located.record, validated.askerId);
+        const at = this.#now();
+        const artifact = reserveArtifactFromManifest(
+          await readManifest(this.root, located.directory),
+          { kind: "rejection", content: validated.reason },
+          at,
+        );
+        journal = AskerRejectionJournalSchema.parse({
+          schemaVersion: 2,
+          operationId,
+          questionId: located.record.id,
+          askerId: validated.askerId,
+          reason: validated.reason,
+          by: validated.by,
+          baseRevision: located.record.revision,
+          at,
+          artifact,
+        });
+        buildRejectedAskerRecord(
+          located.record,
+          validated,
+          journal.at,
+          journal.operationId,
+          journal.artifact,
+        );
+        await writeAskerRejectionJournal(journalPath, journal);
+      }
+
+      const artifact = await appendReservedArtifactUnlocked(
+        this.root,
+        located.directory,
+        { kind: "rejection", content: validated.reason },
+        journal.artifact,
+      );
+      await this.#askerRejectionCheckpoint("after-artifact");
+      const updated = buildRejectedAskerRecord(
+        located.record,
+        validated,
+        journal.at,
+        journal.operationId,
+        artifact,
+      );
+      await this.#askerRejectionCheckpoint("before-record-update");
+      await this.#writeRecord(located.directory, updated);
+      await this.#askerRejectionCheckpoint("after-record-update");
+      await this.#regenerateIndexUnlocked();
+      await rm(journalPath, { force: true });
+      return updated;
+    });
+  }
+
   async decideAsker(
     id: string,
     input: {
       askerId: string;
-      decision: Exclude<Asker["acceptance"], "pending">;
+      decision: Extract<Asker["acceptance"], "accepted" | "timed-out">;
       expectedRevision: number;
       by: string;
-      rawReason?: string;
     },
   ): Promise<QuestionRecord> {
     return this.#locked(async () => {
+      if (input.decision !== "accepted" && input.decision !== "timed-out") {
+        throw new Error(
+          "Asker rejection must use rejectAsker so the reason is published and the question reopens atomically.",
+        );
+      }
       const located = await this.#locate(id);
+      await this.#verifyQuestionRawArtifacts(located);
+      await this.#reconcileCompletedAskerRejectionJournals(located);
       if (located.record.revision !== input.expectedRevision) {
         throw new QuestionRevisionConflictError(
           input.expectedRevision,
           located.record.revision,
         );
       }
-      if (!located.record.askers.some((asker) => asker.id === input.askerId)) {
+      if (located.record.state !== "merged") {
+        throw new Error(
+          "Asker decisions are allowed only after the question is merged.",
+        );
+      }
+      const decidingAsker = located.record.askers.find(
+        (asker) => asker.id === input.askerId,
+      );
+      if (!decidingAsker) {
         throw new Error(
           `Asker ${input.askerId} is not attached to question ${id}.`,
         );
       }
-      if (input.decision === "rejected" && !input.rawReason) {
-        throw new Error("A raw rejection artifact reference is required.");
+      if (decidingAsker.acceptance !== "pending") {
+        throw new Error(
+          `Asker ${input.askerId} has already decided; only pending askers may decide.`,
+        );
       }
-      await this.#verifyQuestionRawArtifacts(located);
       const at = this.#now();
       const eventType =
-        input.decision === "timed-out"
-          ? "timeout-accepted"
-          : input.decision === "accepted"
-            ? "accepted"
-            : "rejected";
+        input.decision === "timed-out" ? "timeout-accepted" : "accepted";
       const updated = QuestionRecordSchema.parse({
         ...located.record,
         askers: located.record.askers.map((asker) =>
@@ -1189,7 +1538,6 @@ export class KnowledgeRepository {
                 ...asker,
                 acceptance: input.decision,
                 decidedAt: at,
-                ...(input.rawReason ? { rawReason: input.rawReason } : {}),
               }
             : asker,
         ),
@@ -1201,10 +1549,7 @@ export class KnowledgeRepository {
             at,
             type: eventType,
             by: input.by,
-            details: {
-              askerId: input.askerId,
-              ...(input.rawReason ? { rawReason: input.rawReason } : {}),
-            },
+            details: { askerId: input.askerId },
           },
         ],
       });
@@ -1426,8 +1771,100 @@ export class KnowledgeRepository {
     return resolveContainedPathNoSymlinks(this.#lockRoot, path);
   }
 
+  async #askerRejectionJournalPath(
+    questionId: string,
+    askerId: string,
+  ): Promise<string> {
+    const journalId = sha256(
+      new TextEncoder().encode(`${questionId}:${askerId}`),
+    );
+    const path = join(
+      this.#lockRoot,
+      "operations",
+      repositoryIdentityKey(this.root),
+      `asker-rejection-${journalId}.json`,
+    );
+    return resolveContainedPathNoSymlinks(this.#lockRoot, path);
+  }
+
+  async #assertAskerRejectionArtifact(
+    located: LocatedQuestion,
+    journal: AskerRejectionJournal,
+  ): Promise<void> {
+    const manifest = await readManifest(this.root, located.directory);
+    const artifact = manifest.artifacts.find(
+      (candidate) => candidate.path === journal.artifact.path,
+    );
+    if (!artifact || !sameManifestEntry(artifact, journal.artifact)) {
+      throw new RawArtifactIntegrityError(
+        `Asker-rejection operation ${journal.operationId} does not match its immutable artifact manifest entry.`,
+      );
+    }
+    const artifactPath = await resolveContainedPathNoSymlinks(
+      this.root,
+      join(located.directory, journal.artifact.path),
+    );
+    const reasonBytes = await readFile(artifactPath);
+    if (!hasSameContent(reasonBytes, artifactContentBytes(journal.reason))) {
+      throw new RawArtifactIntegrityError(
+        `Asker-rejection operation ${journal.operationId} does not match its exact immutable reason bytes.`,
+      );
+    }
+    const expectedOperationId = askerRejectionOperationId(
+      journal.questionId,
+      {
+        askerId: journal.askerId,
+        reason: journal.reason,
+        by: journal.by,
+      },
+      journal.baseRevision,
+    );
+    if (journal.operationId !== expectedOperationId) {
+      throw new RawArtifactIntegrityError(
+        `Asker-rejection operation ${journal.operationId} is not bound to its question, asker, actor, exact reason, and base revision.`,
+      );
+    }
+  }
+
+  async #reconcileCompletedAskerRejectionJournals(
+    located: LocatedQuestion,
+  ): Promise<void> {
+    const completedJournalPaths: string[] = [];
+    for (const asker of located.record.askers) {
+      const journalPath = await this.#askerRejectionJournalPath(
+        located.record.id,
+        asker.id,
+      );
+      const journal = await readAskerRejectionJournal(journalPath);
+      if (!journal) continue;
+      if (
+        journal.questionId !== located.record.id ||
+        journal.askerId !== asker.id
+      ) {
+        throw new RawArtifactIntegrityError(
+          `Pending asker-rejection journal for ${asker.id} is bound to a different question or asker.`,
+        );
+      }
+      if (!hasCompletedAskerRejection(located.record, journal)) {
+        throw new RawArtifactIntegrityError(
+          `Pending asker-rejection operation ${journal.operationId} must be recovered before another question mutation.`,
+        );
+      }
+      await this.#assertAskerRejectionArtifact(located, journal);
+      completedJournalPaths.push(journalPath);
+    }
+    for (const journalPath of completedJournalPaths)
+      await rm(journalPath, { force: true });
+  }
+
   async #matchedAskCheckpoint(checkpoint: MatchedAskCheckpoint): Promise<void> {
     await this.#onMatchedAskCheckpoint?.(checkpoint);
+  }
+
+  async #askerRejectionCheckpoint(
+    checkpoint: AskerRejectionCheckpoint,
+  ): Promise<void> {
+    await this.#onAskerRejectionCheckpoint?.(checkpoint);
   }
 
   async #locked<T>(operation: () => Promise<T>): Promise<T> {

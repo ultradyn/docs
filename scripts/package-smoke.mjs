@@ -1,4 +1,11 @@
-import { access, mkdtemp, readdir, rm } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -180,6 +187,18 @@ try {
       ".github/workflows/ci.yml",
       "pnpm-lock.yaml",
     ].map((path) => access(join(destination, path))),
+  );
+  await mkdir(join(destination, ".ultradyn", "staging"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(destination, ".ultradyn", "staging", "package-probe"),
+    "transient staging data\n",
+  );
+  await run(
+    "git",
+    ["check-ignore", ".ultradyn/staging/package-probe"],
+    destination,
   );
   await run(
     "pnpm",

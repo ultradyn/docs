@@ -88,7 +88,12 @@ const policyFields: Record<
       "goals",
       "postDiffDocumentation",
     ],
-    required: ["verbatimQuestion", "goals", "postDiffDocumentation"],
+    required: [
+      "verbatimQuestion",
+      "verbatimChat",
+      "goals",
+      "postDiffDocumentation",
+    ],
   },
   "agent-smith": {
     allowed: ["request", "constraints", "existingDefinitions"],

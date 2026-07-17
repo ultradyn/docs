@@ -30,7 +30,12 @@ export interface BuildServerOptions {
 
 const askSchema = z.object({
   question: z.string().trim().min(1).max(20_000),
-  goals: z.array(z.string().trim().min(1)).default(["documentation"]),
+  goals: z
+    .array(z.string().trim().min(1))
+    .refine((goals) => new Set(goals).size === goals.length, {
+      message: "Ask goals must be unique.",
+    })
+    .default(["documentation"]),
   asker: z.string().trim().min(1),
   chat: z.string().max(100_000).optional(),
 });

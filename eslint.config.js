@@ -10,6 +10,7 @@ export default tseslint.config(
       "code/web/dist/**",
       "coverage/**",
       "node_modules/**",
+      "tauri-app/src-tauri/target/**",
       ".plan/**",
       ".codex/skills/**",
     ],

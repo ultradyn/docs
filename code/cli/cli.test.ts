@@ -133,6 +133,7 @@ function dependencies(
     mkdirExclusive: vi.fn(async () => undefined),
     copyFile: vi.fn(async () => undefined),
     writeFile: vi.fn(async () => undefined),
+    compareAndSwapFile: vi.fn(async () => true),
     chmod: vi.fn(async () => undefined),
     rename: vi.fn(async () => undefined),
     remove: vi.fn(async () => undefined),

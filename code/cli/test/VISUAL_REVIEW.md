@@ -1,6 +1,6 @@
 # Installer terminal visual review
 
-Reviewed on 2026-07-16 against committed plain and ANSI renderer captures at exact 40×18, 80×24, and 120×36 terminal sizes. The ANSI fixtures store escape bytes as visible `\x1b` tokens so color boundaries remain reviewable in ordinary Git diffs. The executable tmux harness uses the same three pane sizes and captures destination, confirmation, completion, cancellation, cursor, and terminal-mode states when tmux 3.3+ is available.
+Reviewed on 2026-07-17 against committed plain and ANSI renderer captures at exact 40×18, 80×24, and 120×36 terminal sizes, plus fresh executable captures from tmux 3.7b on a Linux host whose configured/default shell is Fish. The ANSI fixtures store escape bytes as visible `\x1b` tokens so color boundaries remain reviewable in ordinary Git diffs. The executable tmux harness uses the same three pane sizes and captures destination, confirmation, completion, cancellation, cursor, and terminal-mode states when tmux 3.3+ is available.
 
 ## Pass 1 — wrapping and density
 
@@ -58,4 +58,18 @@ Artifacts:
 - On failure it preserves the error stack plus full ANSI pane history for every live session before cleaning the private tmux socket.
 - The artifact directory ignores generated captures/status; Git retains only its `.gitignore` policy while CI uploads each run's artifacts.
 
-Result: accepted for the deterministic renderer suite. Canonical PTY execution remains environment-gated here because tmux is not installed; `code/cli/test/tmux/run.mjs` records `SKIP_TMUX_MISSING` and the exact activation command. On a tmux-capable host it executes all six width/mode combinations, standalone `NODE_DISABLE_COLORS`, resize, deterministic error, and Ctrl+C cancellation cases.
+Result: accepted for the deterministic renderer suite. PTY execution remains environment-gated when tmux is unavailable; `code/cli/test/tmux/run.mjs` records `SKIP_TMUX_MISSING` and the exact activation command in that case. On this tmux-capable host it executed all six width/mode combinations, standalone `NODE_DISABLE_COLORS`, resize, deterministic error, and Ctrl+C cancellation cases.
+
+## Pass 4 — configured-shell isolation
+
+Finding:
+
+- tmux inherited the host's configured Fish shell while the harness sent Bash/POSIX commands, so `$?` failed before the installer ran.
+
+Fixes:
+
+- Launch every tmux session with explicit `/bin/bash --noprofile --norc` while retaining Fish as tmux's configured default shell for the test.
+- Assert both the configured default shell and the pane start command before sending installer input.
+- Remove inherited `NO_COLOR` explicitly from ANSI and standalone `NODE_DISABLE_COLORS` cases; plain cases continue to set `NO_COLOR=1` deliberately.
+
+Result: the 2026-07-17 run passed all nine captures plus cancellation with `tmux_default_shell=/bin/fish` and `session_shell=/bin/bash`. The 40-, 80-, and 120-column plain/ANSI captures, resize history, error path, cancellation path, cursor bounds, shell exit codes, and terminal restoration were inspected. No snapshot update was needed.

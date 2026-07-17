@@ -1,0 +1,424 @@
+{
+  "base": {
+    "schemaVersion": 1,
+    "id": "q-01J00000000000000000000000",
+    "title": "How are indexes rebuilt?",
+    "question": "How are indexes rebuilt?",
+    "state": "active",
+    "tier": "P3",
+    "priorityRationale": "Raw questions default to P3.",
+    "prioritySource": "rule",
+    "goals": ["implementation"],
+    "tags": ["raw"],
+    "askers": [{ "id": "max", "acceptance": "pending" }],
+    "origin": { "kind": "raw" },
+    "depth": 0,
+    "createdAt": "2026-07-16T00:00:00.000Z",
+    "updatedAt": "2026-07-16T00:00:00.000Z",
+    "revision": 0,
+    "provenance": [
+      {
+        "at": "2026-07-16T00:00:00.000Z",
+        "type": "logged",
+        "by": "registrar"
+      }
+    ]
+  },
+  "cases": [
+    { "name": "valid raw question", "valid": true, "overrides": {} },
+    {
+      "name": "unknown question schema version",
+      "valid": false,
+      "overrides": { "schemaVersion": 2 }
+    },
+    {
+      "name": "malformed question ID",
+      "valid": false,
+      "overrides": { "id": "q-not-a-ulid" }
+    },
+    {
+      "name": "empty question title",
+      "valid": false,
+      "overrides": { "title": "" }
+    },
+    {
+      "name": "empty verbatim question",
+      "valid": false,
+      "overrides": { "question": "" }
+    },
+    {
+      "name": "unknown lifecycle state",
+      "valid": false,
+      "overrides": { "state": "unknown" }
+    },
+    {
+      "name": "unknown priority tier",
+      "valid": false,
+      "overrides": { "tier": "P6" }
+    },
+    {
+      "name": "empty priority rationale",
+      "valid": false,
+      "overrides": { "priorityRationale": "" }
+    },
+    {
+      "name": "unknown priority source",
+      "valid": false,
+      "overrides": { "prioritySource": "agent" }
+    },
+    {
+      "name": "empty goal inventory",
+      "valid": false,
+      "overrides": { "goals": [] }
+    },
+    {
+      "name": "empty asker inventory",
+      "valid": false,
+      "overrides": { "askers": [] }
+    },
+    {
+      "name": "unknown question origin",
+      "valid": false,
+      "overrides": { "origin": { "kind": "unknown" } }
+    },
+    {
+      "name": "fractional question depth",
+      "valid": false,
+      "overrides": { "depth": 0.5 }
+    },
+    {
+      "name": "date-only updated timestamp",
+      "valid": false,
+      "overrides": { "updatedAt": "2026-07-16" }
+    },
+    {
+      "name": "updated timestamp without seconds",
+      "valid": false,
+      "overrides": { "updatedAt": "2026-07-16T10:20Z" }
+    },
+    {
+      "name": "fractional question revision",
+      "valid": false,
+      "overrides": { "revision": 0.5 }
+    },
+    {
+      "name": "non-array provenance inventory",
+      "valid": false,
+      "overrides": { "provenance": {} }
+    },
+    {
+      "name": "invalid asker decision timestamp",
+      "valid": false,
+      "overrides": {
+        "askers": [
+          {
+            "id": "max",
+            "acceptance": "accepted",
+            "decidedAt": "2026-07-16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty asker raw reason",
+      "valid": false,
+      "overrides": {
+        "askers": [{ "id": "max", "acceptance": "rejected", "rawReason": "" }]
+      }
+    },
+    {
+      "name": "revision at maximum safe integer",
+      "valid": true,
+      "overrides": { "revision": 9007199254740991 }
+    },
+    {
+      "name": "revision above maximum safe integer",
+      "valid": false,
+      "overrides": { "revision": 9007199254740992 }
+    },
+    {
+      "name": "astral title at maximum UTF-16 length",
+      "valid": true,
+      "overrides": {
+        "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      }
+    },
+    {
+      "name": "astral title above maximum UTF-16 length",
+      "valid": false,
+      "overrides": {
+        "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      }
+    },
+    {
+      "name": "generated depth at maximum safe integer",
+      "valid": true,
+      "overrides": {
+        "origin": {
+          "kind": "generated",
+          "parentQuestionId": "q-01J00000000000000000000001",
+          "findingId": "f-01J00000000000000000000001",
+          "goal": "security-review"
+        },
+        "depth": 9007199254740991
+      }
+    },
+    {
+      "name": "generated depth above maximum safe integer",
+      "valid": false,
+      "overrides": {
+        "origin": {
+          "kind": "generated",
+          "parentQuestionId": "q-01J00000000000000000000001",
+          "findingId": "f-01J00000000000000000000001",
+          "goal": "security-review"
+        },
+        "depth": 9007199254740992
+      }
+    },
+    {
+      "name": "negative raw depth",
+      "valid": false,
+      "overrides": { "depth": -1 }
+    },
+    {
+      "name": "negative revision",
+      "valid": false,
+      "overrides": { "revision": -1 }
+    },
+    {
+      "name": "valid generated question",
+      "valid": true,
+      "overrides": {
+        "origin": {
+          "kind": "generated",
+          "parentQuestionId": "q-01J00000000000000000000001",
+          "findingId": "f-01J00000000000000000000001",
+          "goal": "security-review"
+        },
+        "depth": 1
+      }
+    },
+    {
+      "name": "valid distinct askers",
+      "valid": true,
+      "overrides": {
+        "askers": [
+          { "id": "max", "acceptance": "pending" },
+          { "id": "alice", "acceptance": "pending" }
+        ]
+      }
+    },
+    {
+      "name": "astral display name at maximum UTF-16 length",
+      "valid": true,
+      "overrides": {
+        "askers": [
+          {
+            "id": "max",
+            "displayName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+            "acceptance": "pending"
+          }
+        ]
+      }
+    },
+    {
+      "name": "astral display name above maximum UTF-16 length",
+      "valid": false,
+      "overrides": {
+        "askers": [
+          {
+            "id": "max",
+            "displayName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+            "acceptance": "pending"
+          }
+        ]
+      }
+    },
+    {
+      "name": "astral provenance actor at maximum UTF-16 length",
+      "valid": true,
+      "overrides": {
+        "provenance": [
+          {
+            "at": "2026-07-16T00:00:00.000Z",
+            "type": "logged",
+            "by": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+          }
+        ]
+      }
+    },
+    {
+      "name": "astral provenance actor above maximum UTF-16 length",
+      "valid": false,
+      "overrides": {
+        "provenance": [
+          {
+            "at": "2026-07-16T00:00:00.000Z",
+            "type": "logged",
+            "by": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+          }
+        ]
+      }
+    },
+    {
+      "name": "valid provenance actor at maximum length",
+      "valid": true,
+      "overrides": {
+        "provenance": [
+          {
+            "at": "2026-07-16T00:00:00.000Z",
+            "type": "logged",
+            "by": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "overlong provenance actor",
+      "valid": false,
+      "overrides": {
+        "provenance": [
+          {
+            "at": "2026-07-16T00:00:00.000Z",
+            "type": "logged",
+            "by": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "valid goal slug at maximum length",
+      "valid": true,
+      "overrides": {
+        "goals": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "name": "overlong goal slug",
+      "valid": false,
+      "overrides": {
+        "goals": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "name": "duplicate goals",
+      "valid": false,
+      "overrides": { "goals": ["implementation", "implementation"] }
+    },
+    {
+      "name": "unexpected top-level property",
+      "valid": false,
+      "overrides": { "unexpected": true }
+    },
+    {
+      "name": "unexpected nested asker property",
+      "valid": false,
+      "overrides": {
+        "askers": [{ "id": "max", "acceptance": "pending", "unexpected": true }]
+      }
+    },
+    {
+      "name": "unexpected nested origin property",
+      "valid": false,
+      "overrides": { "origin": { "kind": "raw", "unexpected": true } }
+    },
+    {
+      "name": "unexpected nested provenance property",
+      "valid": false,
+      "overrides": {
+        "provenance": [
+          {
+            "at": "2026-07-16T00:00:00.000Z",
+            "type": "logged",
+            "by": "registrar",
+            "unexpected": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "unsafe goal slug",
+      "valid": false,
+      "overrides": { "goals": ["security review"] }
+    },
+    {
+      "name": "unsafe tag slug",
+      "valid": false,
+      "overrides": { "tags": ["../raw"] }
+    },
+    {
+      "name": "unsafe asker slug",
+      "valid": false,
+      "overrides": {
+        "askers": [{ "id": "max user", "acceptance": "pending" }]
+      }
+    },
+    {
+      "name": "duplicate asker IDs",
+      "valid": false,
+      "overrides": {
+        "askers": [
+          { "id": "max", "acceptance": "pending" },
+          {
+            "id": "max",
+            "acceptance": "accepted",
+            "decidedAt": "2026-07-16T01:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw question below root depth",
+      "valid": false,
+      "overrides": { "depth": 1 }
+    },
+    {
+      "name": "generated question at root depth",
+      "valid": false,
+      "overrides": {
+        "origin": {
+          "kind": "generated",
+          "parentQuestionId": "q-01J00000000000000000000001",
+          "findingId": "f-01J00000000000000000000001",
+          "goal": "security-review"
+        },
+        "depth": 0
+      }
+    },
+    {
+      "name": "date-only timestamp",
+      "valid": false,
+      "overrides": { "createdAt": "2026-07-16" }
+    },
+    {
+      "name": "timestamp without an offset",
+      "valid": false,
+      "overrides": { "createdAt": "2026-07-16T10:20:30" }
+    },
+    {
+      "name": "timestamp with an out-of-range offset hour",
+      "valid": false,
+      "overrides": { "createdAt": "2026-07-16T10:20:30+24:00" }
+    },
+    {
+      "name": "timestamp with malformed fractional seconds",
+      "valid": false,
+      "overrides": { "createdAt": "2026-07-16T10:20:30.Z" }
+    },
+    {
+      "name": "timestamp with a positive offset and long fraction",
+      "valid": true,
+      "overrides": { "createdAt": "2026-07-16T10:20:30.123456+10:30" }
+    },
+    {
+      "name": "timestamp with a negative offset",
+      "valid": true,
+      "overrides": { "createdAt": "2026-07-16T10:20:30-04:00" }
+    }
+  ]
+}

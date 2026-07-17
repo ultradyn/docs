@@ -20,6 +20,12 @@ import stripAnsi from "strip-ansi";
 import stringWidth from "string-width";
 
 const TMUX_MINIMUM = [3, 3];
+const SESSION_SHELL = "/bin/bash";
+const CONFIGURED_DEFAULT_SHELL = existsSync("/bin/fish")
+  ? "/bin/fish"
+  : existsSync("/usr/bin/fish")
+    ? "/usr/bin/fish"
+    : (process.env.SHELL ?? "/bin/sh");
 const TERMINAL_MATRIX = [
   { width: 40, rows: 18 },
   { width: 80, rows: 24 },
@@ -49,6 +55,8 @@ if (!commandExists("tmux")) {
 }
 if (!existsSync(tsx))
   throw new Error("Missing node_modules/.bin/tsx; run `pnpm install` first.");
+if (!existsSync(SESSION_SHELL))
+  throw new Error(`Missing supported tmux session shell ${SESSION_SHELL}.`);
 
 const version = tmuxVersion();
 if (!isAtLeast(version, TMUX_MINIMUM)) {
@@ -84,6 +92,8 @@ try {
     [
       "status=passed",
       `tmux=${version.join(".")}`,
+      `tmux_default_shell=${CONFIGURED_DEFAULT_SHELL}`,
+      `session_shell=${SESSION_SHELL}`,
       "matrix=40x18,80x24,120x36",
       `captures=${captures.length}`,
       "plain_color_contract=NO_COLOR + --no-color",
@@ -117,7 +127,7 @@ async function runCase({ mode, width, rows }) {
   const command =
     mode === "plain"
       ? `NO_COLOR=1 ${shellQuote(tsx)} ${shellQuote(bin)} init --dir ${shellQuote(target)} --yes --plain --no-color; printf '\\n__EXIT_CODE__%s\\n' "$?"`
-      : `TERM=xterm-256color FORCE_COLOR=1 ${shellQuote(tsx)} ${shellQuote(bin)} init; printf '\\n__EXIT_CODE__%s\\n' "$?"`;
+      : `env -u NO_COLOR TERM=xterm-256color FORCE_COLOR=1 ${shellQuote(tsx)} ${shellQuote(bin)} init; printf '\\n__EXIT_CODE__%s\\n' "$?"`;
   sendLiteral(session, command);
   sendKey(session, "Enter");
 
@@ -174,7 +184,7 @@ async function runNodeDisableColorsCase() {
   const before = await recordStty(session, "NODE_COLORS_BEFORE");
   sendLiteral(
     session,
-    `TERM=xterm-256color NODE_DISABLE_COLORS=1 ${shellQuote(tsx)} ${shellQuote(bin)} init --dir ${shellQuote(target)} --yes; printf '\\n__EXIT_CODE__%s\\n' "$?"`,
+    `env -u NO_COLOR TERM=xterm-256color NODE_DISABLE_COLORS=1 ${shellQuote(tsx)} ${shellQuote(bin)} init --dir ${shellQuote(target)} --yes; printf '\\n__EXIT_CODE__%s\\n' "$?"`,
   );
   sendKey(session, "Enter");
   await pollPane(session, "Repository ready", 30_000);
@@ -206,7 +216,7 @@ async function runResizeCase() {
   const before = await recordStty(session, "RESIZE_BEFORE");
   sendLiteral(
     session,
-    `TERM=xterm-256color FORCE_COLOR=1 ${shellQuote(tsx)} ${shellQuote(bin)} init; printf '\\n__EXIT_CODE__%s\\n' "$?"`,
+    `env -u NO_COLOR TERM=xterm-256color FORCE_COLOR=1 ${shellQuote(tsx)} ${shellQuote(bin)} init; printf '\\n__EXIT_CODE__%s\\n' "$?"`,
   );
   sendKey(session, "Enter");
   const wide = await pollPane(session, "Where should Ultradyn");
@@ -289,7 +299,7 @@ async function runCancellationCase() {
   const before = await recordStty(session, "CANCEL_BEFORE");
   sendLiteral(
     session,
-    `TERM=xterm-256color FORCE_COLOR=1 ${shellQuote(tsx)} ${shellQuote(bin)} init; printf '\\n__EXIT_CODE__%s\\n' "$?"`,
+    `env -u NO_COLOR TERM=xterm-256color FORCE_COLOR=1 ${shellQuote(tsx)} ${shellQuote(bin)} init; printf '\\n__EXIT_CODE__%s\\n' "$?"`,
   );
   sendKey(session, "Enter");
   const prompt = await pollPane(session, "Where should Ultradyn");
@@ -328,7 +338,11 @@ async function startSession(session, width, rows, directory) {
     String(rows),
     "-c",
     directory,
+    SESSION_SHELL,
+    "--noprofile",
+    "--norc",
   ]);
+  tmux(["set-option", "-g", "default-shell", CONFIGURED_DEFAULT_SHELL]);
   tmux(["set-option", "-t", session, "status", "off"]);
   resizeTerminal(session, width, rows);
   sendLiteral(
@@ -337,8 +351,30 @@ async function startSession(session, width, rows, directory) {
   );
   sendKey(session, "Enter");
   await pollPane(session, "__UD_PROMPT__");
+  assertSessionShell(session);
   tmux(["clear-history", "-t", session]);
   assertPaneMetadata(session, width, rows);
+}
+
+function assertSessionShell(session) {
+  const configured = tmux(["show-options", "-gv", "default-shell"]).trim();
+  const started = tmux([
+    "display-message",
+    "-p",
+    "-t",
+    session,
+    "#{pane_start_command}",
+  ]).trim();
+  if (configured !== CONFIGURED_DEFAULT_SHELL) {
+    throw new Error(
+      `${session}: expected configured default shell ${CONFIGURED_DEFAULT_SHELL}, received ${configured}.`,
+    );
+  }
+  if (!started.startsWith(SESSION_SHELL)) {
+    throw new Error(
+      `${session}: expected explicit session shell ${SESSION_SHELL}, received ${started}.`,
+    );
+  }
 }
 
 async function recordStty(session, label) {

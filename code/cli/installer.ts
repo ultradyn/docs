@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import {
   chmod,
   copyFile as nodeCopyFile,
+  link,
   lstat,
   mkdir,
   readFile,
@@ -12,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
+import lockfile from "proper-lockfile";
 
 export type FileKind = "missing" | "file" | "directory" | "symlink" | "other";
 
@@ -22,6 +25,39 @@ export interface DirectoryEntry {
 
 export interface CopyFileOptions {
   readonly exclusive?: boolean;
+}
+
+export interface NodeFileSystemOptions {
+  readonly beforeCompareAndSwapCommit?: (context: {
+    readonly filePath: string;
+    readonly expectedContents: string;
+    readonly replacementContents: string;
+  }) => void | Promise<void>;
+  readonly afterCompareAndSwapReplacementLink?: (context: {
+    readonly filePath: string;
+    readonly expectedContents: string;
+    readonly replacementContents: string;
+  }) => void | Promise<void>;
+  readonly afterCompareAndSwapFinalDisplacedRead?: (context: {
+    readonly filePath: string;
+    readonly expectedContents: string;
+    readonly replacementContents: string;
+  }) => void | Promise<void>;
+  readonly beforeCompareAndSwapDisplacedRestore?: (context: {
+    readonly filePath: string;
+    readonly expectedContents: string;
+    readonly replacementContents: string;
+  }) => void | Promise<void>;
+  readonly beforeCompareAndSwapDisplacedCleanup?: (context: {
+    readonly filePath: string;
+    readonly expectedContents: string;
+    readonly replacementContents: string;
+  }) => void | Promise<void>;
+  readonly afterCompareAndSwapDisplacedIdentity?: (context: {
+    readonly filePath: string;
+    readonly expectedContents: string;
+    readonly replacementContents: string;
+  }) => void | Promise<void>;
 }
 
 /** Filesystem boundary used by the package installer. */
@@ -38,6 +74,11 @@ export interface InstallerFileSystem {
     options?: CopyFileOptions,
   ): Promise<void>;
   writeFile(filePath: string, contents: string): Promise<void>;
+  compareAndSwapFile(
+    filePath: string,
+    expectedContents: string,
+    replacementContents: string,
+  ): Promise<boolean>;
   chmod(filePath: string, mode: number): Promise<void>;
   rename(source: string, destination: string): Promise<void>;
   remove(targetPath: string): Promise<void>;
@@ -137,6 +178,8 @@ const ROOT_SOURCE_FILES = [
   "skills-lock.json",
 ] as const;
 const MANIFEST_PATH = ".ultradyn/manifest.json";
+const SCAFFOLD_GITIGNORE_TEMPLATE = ".gitignore.template";
+const REQUIRED_STAGING_IGNORE_RULE = ".ultradyn/staging/";
 const IGNORED_SOURCE_DIRECTORIES = new Set([
   ".git",
   ".ultradyn",
@@ -148,7 +191,9 @@ const IGNORED_SOURCE_DIRECTORIES = new Set([
   "test-results",
 ]);
 
-export function createNodeFileSystem(): InstallerFileSystem {
+export function createNodeFileSystem(
+  options: NodeFileSystemOptions = {},
+): InstallerFileSystem {
   return {
     async kind(targetPath) {
       try {
@@ -196,6 +241,307 @@ export function createNodeFileSystem(): InstallerFileSystem {
     },
     async writeFile(filePath, contents) {
       await writeFile(filePath, contents, { flag: "wx" });
+    },
+    async compareAndSwapFile(filePath, expectedContents, replacementContents) {
+      const release = await lockfile.lock(filePath, {
+        realpath: false,
+        lockfilePath: `${filePath}.ultradyn.lock`,
+        stale: 30_000,
+        retries: {
+          retries: 20,
+          factor: 1.2,
+          minTimeout: 10,
+          maxTimeout: 200,
+        },
+      });
+      try {
+        let currentContents: string;
+        try {
+          currentContents = await readFile(filePath, "utf8");
+        } catch (error) {
+          if (isNodeError(error) && error.code === "ENOENT") return false;
+          throw error;
+        }
+        if (currentContents !== expectedContents) return false;
+        const token = randomUUID();
+        const directory = path.dirname(filePath);
+        const name = path.basename(filePath);
+        const previousPath = path.join(
+          directory,
+          `.${name}.ultradyn-cas-${token}.previous`,
+        );
+        const replacementPath = path.join(
+          directory,
+          `.${name}.ultradyn-cas-${token}.replacement`,
+        );
+        const mode = (await lstat(filePath)).mode & 0o777;
+        await writeFile(replacementPath, replacementContents, {
+          flag: "wx",
+          mode,
+        });
+        let replacementLinked = false;
+        try {
+          await options.beforeCompareAndSwapCommit?.({
+            filePath,
+            expectedContents,
+            replacementContents,
+          });
+          try {
+            await rename(filePath, previousPath);
+          } catch (error) {
+            if (isNodeError(error) && error.code === "ENOENT") return false;
+            throw error;
+          }
+          const displacedContents = await readFile(previousPath, "utf8");
+          if (displacedContents !== expectedContents) {
+            try {
+              await link(previousPath, filePath);
+            } catch (error) {
+              const preservedPath = path.join(
+                directory,
+                `${name.replace(/^\./u, "")}.ultradyn-preserved-${token}`,
+              );
+              await rename(previousPath, preservedPath);
+              throw new Error(
+                `The file changed during installation and both owner versions were preserved at ${filePath} and ${preservedPath}: ${error instanceof Error ? error.message : String(error)}`,
+                { cause: error },
+              );
+            }
+            await options.beforeCompareAndSwapDisplacedCleanup?.({
+              filePath,
+              expectedContents,
+              replacementContents,
+            });
+            const [visibleIdentity, displacedIdentity] = await Promise.all([
+              lstat(filePath),
+              lstat(previousPath),
+            ]);
+            await options.afterCompareAndSwapDisplacedIdentity?.({
+              filePath,
+              expectedContents,
+              replacementContents,
+            });
+            const preservedPath = path.join(
+              directory,
+              `${name.replace(/^\./u, "")}.ultradyn-preserved-${token}`,
+            );
+            await rename(previousPath, preservedPath);
+            const [finalVisibleIdentity, preservedIdentity] = await Promise.all(
+              [lstat(filePath), lstat(preservedPath)],
+            );
+            if (
+              visibleIdentity.dev !== displacedIdentity.dev ||
+              visibleIdentity.ino !== displacedIdentity.ino ||
+              finalVisibleIdentity.dev !== preservedIdentity.dev ||
+              finalVisibleIdentity.ino !== preservedIdentity.ino
+            ) {
+              throw new Error(
+                `The restored owner path changed during installation; both owner versions were preserved at ${filePath} and ${preservedPath}.`,
+              );
+            }
+            return false;
+          }
+          try {
+            await link(replacementPath, filePath);
+            replacementLinked = true;
+          } catch (error) {
+            throw new Error(
+              `The file changed during installation; its prior bytes were preserved at ${previousPath}: ${error instanceof Error ? error.message : String(error)}`,
+              { cause: error },
+            );
+          }
+          await options.afterCompareAndSwapReplacementLink?.({
+            filePath,
+            expectedContents,
+            replacementContents,
+          });
+          const [committedContents, finalDisplacedContents] = await Promise.all(
+            [readFile(filePath, "utf8"), readFile(previousPath, "utf8")],
+          );
+          await options.afterCompareAndSwapFinalDisplacedRead?.({
+            filePath,
+            expectedContents,
+            replacementContents,
+          });
+          if (
+            committedContents !== replacementContents ||
+            finalDisplacedContents !== expectedContents
+          ) {
+            if (finalDisplacedContents !== expectedContents) {
+              if (committedContents !== replacementContents) {
+                const preservedPath = path.join(
+                  directory,
+                  `${name.replace(/^\./u, "")}.ultradyn-preserved-${token}`,
+                );
+                await rename(previousPath, preservedPath);
+                replacementLinked = false;
+                throw new Error(
+                  `The displaced owner inode and visible file both changed during installation; both owner versions were preserved at ${filePath} and ${preservedPath}.`,
+                );
+              }
+              await options.beforeCompareAndSwapDisplacedRestore?.({
+                filePath,
+                expectedContents,
+                replacementContents,
+              });
+              const observedVisiblePath = path.join(
+                directory,
+                `.${name}.ultradyn-cas-${token}.observed-visible`,
+              );
+              await rename(filePath, observedVisiblePath);
+              const [observedIdentity, replacementIdentity] = await Promise.all(
+                [lstat(observedVisiblePath), lstat(replacementPath)],
+              );
+              if (
+                observedIdentity.dev !== replacementIdentity.dev ||
+                observedIdentity.ino !== replacementIdentity.ino
+              ) {
+                let restoreFailure: unknown;
+                try {
+                  await link(observedVisiblePath, filePath);
+                } catch (error) {
+                  restoreFailure = error;
+                }
+                const displacedPreservedPath = path.join(
+                  directory,
+                  `${name.replace(/^\./u, "")}.ultradyn-preserved-${token}-displaced`,
+                );
+                const visiblePreservedPath = path.join(
+                  directory,
+                  `${name.replace(/^\./u, "")}.ultradyn-preserved-${token}-visible`,
+                );
+                await rename(previousPath, displacedPreservedPath);
+                await rename(observedVisiblePath, visiblePreservedPath);
+                replacementLinked = false;
+                throw new Error(
+                  `The displaced owner inode and visible file both changed during installation; both owner versions were preserved at ${displacedPreservedPath} and ${visiblePreservedPath}${restoreFailure ? ` while ${filePath} was also preserved: ${restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)}` : `, with the visible owner restored at ${filePath}`}.`,
+                );
+              }
+              try {
+                await link(previousPath, filePath);
+              } catch (error) {
+                const preservedPath = path.join(
+                  directory,
+                  `${name.replace(/^\./u, "")}.ultradyn-preserved-${token}`,
+                );
+                await rename(previousPath, preservedPath);
+                await rm(observedVisiblePath, { force: true });
+                replacementLinked = false;
+                throw new Error(
+                  `The visible file changed while the displaced owner was being restored; both owner versions were preserved at ${filePath} and ${preservedPath}: ${error instanceof Error ? error.message : String(error)}`,
+                  { cause: error },
+                );
+              }
+              await options.beforeCompareAndSwapDisplacedCleanup?.({
+                filePath,
+                expectedContents,
+                replacementContents,
+              });
+              const [visibleIdentity, displacedIdentity] = await Promise.all([
+                lstat(filePath),
+                lstat(previousPath),
+              ]);
+              await options.afterCompareAndSwapDisplacedIdentity?.({
+                filePath,
+                expectedContents,
+                replacementContents,
+              });
+              const preservedPath = path.join(
+                directory,
+                `${name.replace(/^\./u, "")}.ultradyn-preserved-${token}`,
+              );
+              await rename(previousPath, preservedPath);
+              const [finalVisibleIdentity, preservedIdentity] =
+                await Promise.all([lstat(filePath), lstat(preservedPath)]);
+              if (
+                visibleIdentity.dev !== displacedIdentity.dev ||
+                visibleIdentity.ino !== displacedIdentity.ino ||
+                finalVisibleIdentity.dev !== preservedIdentity.dev ||
+                finalVisibleIdentity.ino !== preservedIdentity.ino
+              ) {
+                await rm(observedVisiblePath, { force: true });
+                replacementLinked = false;
+                throw new Error(
+                  `The restored owner path changed during installation; both owner versions were preserved at ${filePath} and ${preservedPath}.`,
+                );
+              }
+              await rm(observedVisiblePath);
+              replacementLinked = false;
+              return false;
+            }
+            throw new Error(
+              `The file changed while the version-token commit was completing; preserved versions remain at ${filePath} and ${previousPath}.`,
+            );
+          }
+          const displacedIdentity = await lstat(previousPath);
+          const recoveryPath = path.join(
+            directory,
+            `${name.replace(/^\./u, "")}.ultradyn-recovery-${displacedIdentity.dev.toString(16)}-${displacedIdentity.ino.toString(16)}`,
+          );
+          try {
+            await link(previousPath, recoveryPath);
+          } catch (error) {
+            if (isNodeError(error) && error.code === "EEXIST") {
+              const existingRecovery = await lstat(recoveryPath);
+              if (
+                existingRecovery.dev !== displacedIdentity.dev ||
+                existingRecovery.ino !== displacedIdentity.ino
+              ) {
+                const conflictRecoveryPath = `${recoveryPath}-conflict-${token}`;
+                await link(previousPath, conflictRecoveryPath);
+                const conflictRecovery = await lstat(conflictRecoveryPath);
+                if (
+                  conflictRecovery.dev !== displacedIdentity.dev ||
+                  conflictRecovery.ino !== displacedIdentity.ino
+                ) {
+                  throw new Error(
+                    `The installer could not bind displaced bytes to the visible conflict recovery path ${conflictRecoveryPath}.`,
+                    { cause: error },
+                  );
+                }
+                await rm(previousPath);
+                await rm(replacementPath);
+                replacementLinked = false;
+                throw new Error(
+                  `The deterministic installer recovery path was already owned by another inode; prior bytes remain visible at ${conflictRecoveryPath}.`,
+                  { cause: error },
+                );
+              }
+            } else {
+              throw error;
+            }
+          }
+          const recoveryIdentity = await lstat(recoveryPath);
+          if (
+            recoveryIdentity.dev !== displacedIdentity.dev ||
+            recoveryIdentity.ino !== displacedIdentity.ino
+          ) {
+            const conflictRecoveryPath = `${recoveryPath}-conflict-${token}`;
+            await link(previousPath, conflictRecoveryPath);
+            const conflictRecovery = await lstat(conflictRecoveryPath);
+            if (
+              conflictRecovery.dev === displacedIdentity.dev &&
+              conflictRecovery.ino === displacedIdentity.ino
+            ) {
+              await rm(previousPath);
+              await rm(replacementPath);
+              replacementLinked = false;
+            }
+            throw new Error(
+              `The installer could not retain displaced bytes at ${recoveryPath}; they remain visible at ${conflictRecoveryPath}.`,
+            );
+          }
+          await rm(previousPath);
+          await rm(replacementPath);
+          replacementLinked = false;
+          return true;
+        } finally {
+          if (!replacementLinked)
+            await rm(replacementPath, { force: true }).catch(() => undefined);
+        }
+      } finally {
+        await release();
+      }
     },
     chmod,
     rename,
@@ -264,9 +610,13 @@ export async function initializeDocumentationRepository(
       }
     }
     for (const file of inventory) {
-      if (
-        (await fs.kind(path.join(destination, file.relativePath))) !== "missing"
-      ) {
+      const existingKind = await fs.kind(
+        path.join(destination, file.relativePath),
+      );
+      if (existingKind !== "missing") {
+        if (file.relativePath === ".gitignore" && existingKind !== "file") {
+          throw new Error("Cannot install: .gitignore is not a regular file");
+        }
         existingPaths.add(file.relativePath);
       }
       await assertNoBlockingParent(fs, destination, file.relativePath);
@@ -380,7 +730,20 @@ async function createNewDestination(input: {
     throwIfAborted(input.signal);
     await input.fs.rename(stage, input.plan.destination);
   } catch (error) {
-    if (ownsStage) await input.fs.remove(stage).catch(() => undefined);
+    const rollbackErrors: unknown[] = [];
+    if (ownsStage) {
+      try {
+        await input.fs.remove(stage);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length > 0)
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        "Installation failed and its rollback did not complete",
+        { cause: error },
+      );
     throw error;
   }
 
@@ -405,6 +768,7 @@ async function mergeIntoDestination(input: {
 }): Promise<InitializationResult> {
   const createdFiles: string[] = [];
   const createdDirectories: string[] = [];
+  const addedGitignoreRules: GitignoreRuleAddition[] = [];
   const written: string[] = [];
   const skipped = [...input.plan.skipped];
   const manifestIsSkipped = input.plan.skipped.includes(MANIFEST_PATH);
@@ -453,6 +817,20 @@ async function mergeIntoDestination(input: {
         total: input.plan.files.length,
       });
     }
+    const gitignorePath = path.join(input.plan.destination, ".gitignore");
+    if ((await input.fs.kind(gitignorePath)) === "file") {
+      const addition = await addGitignoreRule(
+        input.fs,
+        gitignorePath,
+        REQUIRED_STAGING_IGNORE_RULE,
+      );
+      if (addition) {
+        addedGitignoreRules.push(addition);
+        const skippedIndex = skipped.indexOf(".gitignore");
+        if (skippedIndex !== -1) skipped.splice(skippedIndex, 1);
+        written.push(".gitignore");
+      }
+    }
     if (!manifestIsSkipped) {
       await ensureParents(
         input.fs,
@@ -478,16 +856,43 @@ async function mergeIntoDestination(input: {
       throwIfAborted(input.signal);
     }
   } catch (error) {
+    const rollbackErrors: unknown[] = [];
     if (gitInitializationAttempted && !gitMetadataExisted) {
-      await input.fs.remove(gitMetadataPath).catch(() => undefined);
+      try {
+        await input.fs.remove(gitMetadataPath);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
     }
-    for (const file of createdFiles.reverse())
-      await input.fs.remove(file).catch(() => undefined);
+    for (const file of createdFiles.reverse()) {
+      try {
+        await input.fs.remove(file);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    for (const addition of addedGitignoreRules.reverse()) {
+      try {
+        await rollbackGitignoreRule(input.fs, addition);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
     for (const directory of createdDirectories.reverse()) {
       // rmdir is intentionally non-recursive: a path raced in by another
       // process makes the directory non-empty and therefore survives rollback.
-      await input.fs.removeEmptyDirectory(directory).catch(() => undefined);
+      try {
+        await input.fs.removeEmptyDirectory(directory);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
     }
+    if (rollbackErrors.length > 0)
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        "Installation failed and its rollback did not complete",
+        { cause: error },
+      );
     throw error;
   }
 
@@ -496,6 +901,123 @@ async function mergeIntoDestination(input: {
     written,
     skipped,
     gitInitialized: input.plan.gitAction === "initialize",
+  };
+}
+
+interface GitignoreRuleAddition {
+  readonly path: string;
+  readonly original: string;
+  readonly installed: string;
+  readonly block: string;
+  readonly startMarker: string;
+  readonly endMarker: string;
+}
+
+async function addGitignoreRule(
+  fs: InstallerFileSystem,
+  gitignorePath: string,
+  rule: string,
+): Promise<GitignoreRuleAddition | undefined> {
+  const ownershipToken = randomUUID();
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const original = await fs.readFile(gitignorePath);
+    const merged = mergeGitignoreRule(original, rule, ownershipToken);
+    if (!merged) return undefined;
+    if (
+      !(await fs.compareAndSwapFile(gitignorePath, original, merged.installed))
+    )
+      continue;
+    return {
+      path: gitignorePath,
+      original,
+      ...merged,
+    };
+  }
+  throw new Error(
+    "Cannot install: .gitignore kept changing while adding the staging rule",
+  );
+}
+
+async function rollbackGitignoreRule(
+  fs: InstallerFileSystem,
+  addition: GitignoreRuleAddition,
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await fs.readFile(addition.path);
+    const replacement = removeAddedGitignoreRule(current, addition);
+    if (replacement === current) return;
+    if (await fs.compareAndSwapFile(addition.path, current, replacement))
+      return;
+  }
+  throw new Error(
+    "Cannot roll back: .gitignore kept changing while removing the staging rule",
+  );
+}
+
+function removeAddedGitignoreRule(
+  contents: string,
+  addition: GitignoreRuleAddition,
+): string {
+  if (contents === addition.installed) return addition.original;
+  let blockStart: number | undefined;
+  let offset = 0;
+  while (offset < contents.length) {
+    const lineStart = offset;
+    while (
+      offset < contents.length &&
+      contents[offset] !== "\r" &&
+      contents[offset] !== "\n"
+    )
+      offset += 1;
+    const line = contents.slice(lineStart, offset).trim();
+    if (line === addition.startMarker) blockStart = lineStart;
+    if (blockStart !== undefined && line === addition.endMarker) {
+      if (contents[offset] === "\r" && contents[offset + 1] === "\n")
+        offset += 2;
+      else if (contents[offset] === "\r" || contents[offset] === "\n")
+        offset += 1;
+      return `${contents.slice(0, blockStart)}${contents.slice(offset)}`;
+    }
+    if (contents[offset] === "\r" && contents[offset + 1] === "\n") offset += 2;
+    else if (contents[offset] === "\r" || contents[offset] === "\n")
+      offset += 1;
+  }
+  return contents;
+}
+
+function mergeGitignoreRule(
+  contents: string,
+  rule: string,
+  ownershipToken: string,
+):
+  | {
+      installed: string;
+      block: string;
+      startMarker: string;
+      endMarker: string;
+    }
+  | undefined {
+  const lines = contents.split(/\r\n|\r|\n/u);
+  if (lines.some((line) => line.trim() === rule)) return undefined;
+  const newline = contents.includes("\r\n")
+    ? "\r\n"
+    : contents.includes("\r")
+      ? "\r"
+      : "\n";
+  const separator =
+    contents.length === 0 || contents.endsWith("\n") || contents.endsWith("\r")
+      ? ""
+      : newline;
+  const marker = `ultradyn-docs managed staging ignore ${ownershipToken}`;
+  const startMarker = `# >>> ${marker}`;
+  const endMarker = `# <<< ${marker}`;
+  const block = [startMarker, rule, endMarker, ""].join(newline);
+  const contribution = `${separator}${block}`;
+  return {
+    installed: `${contents}${contribution}`,
+    block,
+    startMarker,
+    endMarker,
   };
 }
 
@@ -631,6 +1153,15 @@ async function collectPackageInventory(
   if (scaffoldKind === "directory") await collectTree(fs, scaffold, "", files);
   else if (scaffoldKind !== "missing")
     throw new Error("Installed package scaffold is not a directory");
+
+  const gitignoreTemplate = files.get(SCAFFOLD_GITIGNORE_TEMPLATE);
+  if (gitignoreTemplate) {
+    files.delete(SCAFFOLD_GITIGNORE_TEMPLATE);
+    files.set(".gitignore", {
+      ...gitignoreTemplate,
+      relativePath: ".gitignore",
+    });
+  }
 
   files.delete(MANIFEST_PATH);
   return [...files.values()].sort((left, right) =>

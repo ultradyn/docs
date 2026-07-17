@@ -1,0 +1,58 @@
+{
+  "base": {
+    "at": "2026-07-16T00:00:00.000Z",
+    "type": "logged",
+    "by": "registrar",
+    "details": { "source": "ask" }
+  },
+  "cases": [
+    { "name": "valid provenance event", "valid": true, "overrides": {} },
+    {
+      "name": "provenance timestamp with explicit offset",
+      "valid": true,
+      "overrides": { "at": "2026-07-16T10:20:30.123456+10:30" }
+    },
+    {
+      "name": "date-only provenance timestamp",
+      "valid": false,
+      "overrides": { "at": "2026-07-16" }
+    },
+    {
+      "name": "provenance timestamp without offset",
+      "valid": false,
+      "overrides": { "at": "2026-07-16T10:20:30" }
+    },
+    {
+      "name": "provenance timestamp without seconds",
+      "valid": false,
+      "overrides": { "at": "2026-07-16T10:20Z" }
+    },
+    {
+      "name": "unknown provenance type",
+      "valid": false,
+      "overrides": { "type": "unknown" }
+    },
+    {
+      "name": "empty provenance actor",
+      "valid": false,
+      "overrides": { "by": "" }
+    },
+    {
+      "name": "provenance actor above maximum UTF-16 length",
+      "valid": false,
+      "overrides": {
+        "by": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "non-object provenance details",
+      "valid": false,
+      "overrides": { "details": [] }
+    },
+    {
+      "name": "unexpected provenance property",
+      "valid": false,
+      "overrides": { "unexpected": true }
+    }
+  ]
+}
