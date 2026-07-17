@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "cr-01J00000000000000000000031",
+  "questionId": "q-01J00000000000000000000031",
+  "title": "Document: Legacy merged request",
+  "state": "merged",
+  "branch": "ultradyn/q-01J00000000000000000000031",
+  "baseBranch": "main",
+  "baseSha": "3333333333333333333333333333333333333333",
+  "headSha": "4444444444444444444444444444444444444444",
+  "worktreePath": "/tmp/ultradyn-legacy-merged",
+  "diff": "diff --git a/docs/legacy-merged.md b/docs/legacy-merged.md\n",
+  "summary": "Legacy merged change request retained for history.",
+  "checks": [
+    {
+      "id": "diff-check",
+      "label": "Git diff check",
+      "status": "passed",
+      "detail": "Passed under schema version 1."
+    }
+  ],
+  "approvals": [
+    {
+      "by": "max",
+      "kind": "maintainer",
+      "at": "2026-07-15T01:05:00.000Z"
+    }
+  ],
+  "createdAt": "2026-07-15T01:00:00.000Z",
+  "updatedAt": "2026-07-15T01:10:00.000Z",
+  "mergedAt": "2026-07-15T01:10:00.000Z"
+}

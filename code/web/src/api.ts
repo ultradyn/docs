@@ -24,8 +24,10 @@ function defaultApiBase(): string {
   const configured = import.meta.env.VITE_ULTRADYN_API_BASE as
     string | undefined;
   if (configured) return configured.replace(/\/$/, "");
-  if (typeof window !== "undefined" && window.__TAURI_INTERNALS__)
-    return DEFAULT_DESKTOP_API;
+  if (typeof window !== "undefined") {
+    if (window.__TAURI_INTERNALS__) return DEFAULT_DESKTOP_API;
+    return window.location.origin;
+  }
   return "";
 }
 
@@ -342,6 +344,8 @@ function unwrapQuestion(value: unknown): Question {
 export class ApiClient {
   readonly baseUrl: string;
   readonly clientDemo: boolean;
+  private browserSessionPromise: Promise<void> | undefined;
+  private browserSessionGeneration = 0;
 
   constructor(options: { baseUrl?: string; clientDemo?: boolean } = {}) {
     this.baseUrl = (options.baseUrl ?? defaultApiBase()).replace(/\/$/, "");
@@ -358,6 +362,7 @@ export class ApiClient {
       typeof window !== "undefined" && window.__TAURI_INTERNALS__ ? 24 : 1;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
+        await live.ensureBrowserSession();
         return { api: live, runtime: await live.runtime() };
       } catch {
         if (attempt < attempts - 1)
@@ -372,25 +377,74 @@ export class ApiClient {
     return `${this.baseUrl}${path}`;
   }
 
+  private isSameOriginBrowser(): boolean {
+    return (
+      typeof window !== "undefined" &&
+      new URL(this.baseUrl, window.location.origin).origin ===
+        window.location.origin
+    );
+  }
+
+  private async ensureBrowserSession(
+    staleGeneration?: number,
+  ): Promise<boolean> {
+    if (this.clientDemo || !this.isSameOriginBrowser()) return false;
+    if (
+      staleGeneration !== undefined &&
+      staleGeneration !== this.browserSessionGeneration
+    )
+      return true;
+    this.browserSessionPromise ??= this.request<{ status: "ok" }>(
+      "/api/browser-session",
+      {
+        method: "POST",
+        headers: { "x-ultradyn-browser-session": "1" },
+      },
+    )
+      .then(() => {
+        this.browserSessionGeneration += 1;
+      })
+      .finally(() => {
+        this.browserSessionPromise = undefined;
+      });
+    await this.browserSessionPromise;
+    return true;
+  }
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     if (typeof init.body === "string" && !headers.has("content-type"))
       headers.set("content-type", "application/json");
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
+    const sessionGeneration = this.browserSessionGeneration;
     try {
-      const response = this.clientDemo
-        ? await demoRequest(path, { ...init, headers })
-        : await fetch(this.url(path), {
-            ...init,
-            headers,
-            signal: init.signal ?? controller.signal,
-          });
-      const contentType = response.headers.get("content-type") ?? "";
-      const payload: unknown = contentType.includes("application/json")
-        ? await response.json()
-        : await response.text();
-      if (!response.ok) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const response = this.clientDemo
+          ? await demoRequest(path, { ...init, headers })
+          : await fetch(this.url(path), {
+              ...init,
+              headers,
+              signal: init.signal ?? controller.signal,
+            });
+        const contentType = response.headers.get("content-type") ?? "";
+        const payload: unknown = contentType.includes("application/json")
+          ? await response.json()
+          : await response.text();
+        if (response.ok) return payload as T;
+        const sessionRequired =
+          response.status === 401 &&
+          isRecord(payload) &&
+          isRecord(payload.error) &&
+          payload.error.code === "session_required";
+        if (
+          attempt === 0 &&
+          path !== "/api/browser-session" &&
+          sessionRequired &&
+          (await this.ensureBrowserSession(sessionGeneration))
+        ) {
+          continue;
+        }
         const message =
           isRecord(payload) && typeof payload.message === "string"
             ? payload.message
@@ -401,7 +455,7 @@ export class ApiClient {
               : `Request failed (${response.status})`;
         throw new ApiError(message, response.status, payload);
       }
-      return payload as T;
+      throw new ApiError("The server session could not be restored.");
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error instanceof DOMException && error.name === "AbortError")
@@ -669,16 +723,11 @@ export class ApiClient {
       );
       return () => window.clearInterval(timer);
     }
-    const source = new EventSource(this.url("/api/events"));
-    source.onopen = () => onConnection(true);
-    source.onerror = () => onConnection(false);
-    source.onmessage = (message) => {
-      try {
-        onEvent(adaptStreamEvent(JSON.parse(message.data)));
-      } catch {
-        onEvent({ type: "message", text: message.data });
-      }
-    };
+    let source: EventSource | undefined;
+    let reconnectTimer: number | undefined;
+    let reconnecting = false;
+    let stopped = false;
+    const restoresBrowserSession = this.isSameOriginBrowser();
     const namedEvents = [
       "question",
       "audio",
@@ -692,20 +741,65 @@ export class ApiClient {
       "provider.updated",
       "settings.updated",
     ];
-    for (const name of namedEvents) {
-      source.addEventListener(name, (message) => {
+
+    const reconnect = async () => {
+      if (stopped || reconnecting) return;
+      reconnecting = true;
+      try {
+        await this.ensureBrowserSession();
+        reconnecting = false;
+        if (!stopped) openSource();
+      } catch {
+        reconnecting = false;
+        if (!stopped)
+          reconnectTimer = window.setTimeout(() => void reconnect(), 1_000);
+      }
+    };
+
+    const openSource = () => {
+      if (stopped) return;
+      const connection = new EventSource(this.url("/api/events"));
+      source = connection;
+      connection.onopen = () => onConnection(true);
+      connection.onerror = () => {
+        onConnection(false);
+        if (!restoresBrowserSession || stopped || source !== connection)
+          return;
+        connection.close();
+        source = undefined;
+        void reconnect();
+      };
+      connection.onmessage = (message) => {
         try {
-          onEvent(
-            adaptStreamEvent(
-              JSON.parse((message as MessageEvent<string>).data),
-              name,
-            ),
-          );
+          onEvent(adaptStreamEvent(JSON.parse(message.data)));
         } catch {
-          onEvent({ type: name, text: (message as MessageEvent<string>).data });
+          onEvent({ type: "message", text: message.data });
         }
-      });
-    }
-    return () => source.close();
+      };
+      for (const name of namedEvents) {
+        connection.addEventListener(name, (message) => {
+          try {
+            onEvent(
+              adaptStreamEvent(
+                JSON.parse((message as MessageEvent<string>).data),
+                name,
+              ),
+            );
+          } catch {
+            onEvent({
+              type: name,
+              text: (message as MessageEvent<string>).data,
+            });
+          }
+        });
+      }
+    };
+
+    openSource();
+    return () => {
+      stopped = true;
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      source?.close();
+    };
   }
 }

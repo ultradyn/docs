@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-const isoDateTime = z.string().datetime({ offset: true });
+const isoDateTime = z
+  .string()
+  .datetime({ offset: true })
+  .regex(
+    /T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/u,
+  );
 export const SafeSlugSchema = z
   .string()
   .min(1)
@@ -36,44 +41,50 @@ export type QueueBucket = z.infer<typeof QueueBucketSchema>;
 export const PriorityTierSchema = z.enum(["P1", "P2", "P3", "P4", "P5"]);
 export type PriorityTier = z.infer<typeof PriorityTierSchema>;
 
-export const AskerSchema = z.object({
-  id: SafeSlugSchema,
-  displayName: z.string().min(1).max(160).optional(),
-  acceptance: z.enum(["pending", "accepted", "rejected", "timed-out"]),
-  decidedAt: isoDateTime.optional(),
-  rawReason: z.string().min(1).optional(),
-});
+export const AskerSchema = z
+  .object({
+    id: SafeSlugSchema,
+    displayName: z.string().min(1).max(160).optional(),
+    acceptance: z.enum(["pending", "accepted", "rejected", "timed-out"]),
+    decidedAt: isoDateTime.optional(),
+    rawReason: z.string().min(1).optional(),
+  })
+  .strict();
 export type Asker = z.infer<typeof AskerSchema>;
 
 export const QuestionOriginSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("raw") }),
-  z.object({
-    kind: z.literal("generated"),
-    parentQuestionId: IdSchemas.question,
-    findingId: IdSchemas.finding,
-    goal: SafeSlugSchema,
-  }),
+  z.object({ kind: z.literal("raw") }).strict(),
+  z
+    .object({
+      kind: z.literal("generated"),
+      parentQuestionId: IdSchemas.question,
+      findingId: IdSchemas.finding,
+      goal: SafeSlugSchema,
+    })
+    .strict(),
 ]);
 export type QuestionOrigin = z.infer<typeof QuestionOriginSchema>;
 
-export const ProvenanceEventSchema = z.object({
-  at: isoDateTime,
-  type: z.enum([
-    "logged",
-    "prioritized",
-    "state-transitioned",
-    "asker-attached",
-    "priority-overridden",
-    "raw-artifact-appended",
-    "derived-artifact-written",
-    "accepted",
-    "timeout-accepted",
-    "rejected",
-    "repaired",
-  ]),
-  by: z.string().min(1).max(160),
-  details: z.record(z.string(), z.unknown()).optional(),
-});
+export const ProvenanceEventSchema = z
+  .object({
+    at: isoDateTime,
+    type: z.enum([
+      "logged",
+      "prioritized",
+      "state-transitioned",
+      "asker-attached",
+      "priority-overridden",
+      "raw-artifact-appended",
+      "derived-artifact-written",
+      "accepted",
+      "timeout-accepted",
+      "rejected",
+      "repaired",
+    ]),
+    by: z.string().min(1).max(160),
+    details: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
 export type ProvenanceEvent = z.infer<typeof ProvenanceEventSchema>;
 
 export const QuestionRecordSchema = z
@@ -96,6 +107,7 @@ export const QuestionRecordSchema = z
     revision: z.number().int().nonnegative(),
     provenance: z.array(ProvenanceEventSchema),
   })
+  .strict()
   .superRefine((record, context) => {
     if (record.origin.kind === "raw" && record.depth !== 0) {
       context.addIssue({
@@ -117,6 +129,13 @@ export const QuestionRecordSchema = z
         code: "custom",
         path: ["askers"],
         message: "A question cannot contain the same asker twice.",
+      });
+    }
+    if (new Set(record.goals).size !== record.goals.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["goals"],
+        message: "Declared goals must be unique.",
       });
     }
   });
@@ -146,19 +165,23 @@ export const RawArtifactKindSchema = z.enum([
 ]);
 export type RawArtifactKind = z.infer<typeof RawArtifactKindSchema>;
 
-export const RawArtifactManifestEntrySchema = z.object({
-  path: z.string().min(1),
-  kind: RawArtifactKindSchema,
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  bytes: z.number().int().nonnegative(),
-  createdAt: isoDateTime,
-});
+export const RawArtifactManifestEntrySchema = z
+  .object({
+    path: z.string().min(1),
+    kind: RawArtifactKindSchema,
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    bytes: z.number().int().nonnegative(),
+    createdAt: isoDateTime,
+  })
+  .strict();
 export type RawArtifactManifestEntry = z.infer<
   typeof RawArtifactManifestEntrySchema
 >;
 
-export const RawArtifactManifestSchema = z.object({
-  schemaVersion: z.literal(1),
-  artifacts: z.array(RawArtifactManifestEntrySchema),
-});
+export const RawArtifactManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    artifacts: z.array(RawArtifactManifestEntrySchema),
+  })
+  .strict();
 export type RawArtifactManifest = z.infer<typeof RawArtifactManifestSchema>;

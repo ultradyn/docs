@@ -59,8 +59,23 @@ export function applyQuestionTransition(
   if (!transitions[record.state].has(transition.to)) {
     throw new InvalidQuestionTransitionError(record.state, transition.to);
   }
+  const askers =
+    record.state === "reopened" && transition.to === "in-answer"
+      ? record.askers.map((asker) =>
+          asker.acceptance === "rejected"
+            ? {
+                id: asker.id,
+                ...(asker.displayName
+                  ? { displayName: asker.displayName }
+                  : {}),
+                acceptance: "pending" as const,
+              }
+            : asker,
+        )
+      : record.askers;
   return QuestionRecordSchema.parse({
     ...record,
+    askers,
     state: transition.to,
     revision: record.revision + 1,
     updatedAt: transition.at,

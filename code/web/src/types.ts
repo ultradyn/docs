@@ -55,7 +55,7 @@ export interface ChangeRequestCheck {
 
 export interface ChangeRequestInfo {
   id: string;
-  state: "open" | "approved" | "merged" | "blocked";
+  state: "open" | "approved" | "merged" | "blocked" | "superseded";
   branch: string;
   summary: string;
   diff: string;

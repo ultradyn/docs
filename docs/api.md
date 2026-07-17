@@ -6,7 +6,34 @@ The default base URL is `http://127.0.0.1:4173`. Success bodies are JSON unless 
 { "error": { "code": "stable_code", "message": "Human-readable summary" } }
 ```
 
-The production server validates `Host` and browser `Origin` before routing. Opening the printed top-level URL establishes an HttpOnly, `SameSite=Strict` local session; non-preflight API requests other than health/runtime and the nonce-gated desktop readiness probe require that session. `OPTIONS` requests are handled without a session for preflight only. Static and API responses include a restrictive CSP plus framing, MIME-sniffing, referrer, resource, and microphone permission headers. These controls protect the trusted local surface and are not human identity or remote access control. `--allow-origin` admits an Origin check; it does not enable cookie-authenticated cross-origin use because session cookies remain `SameSite=Strict` and CORS credentials are disabled.
+The production server validates `Host` and browser `Origin` before routing. A same-origin web client establishes an HttpOnly, `SameSite=Strict` local session through the marked bootstrap below; an explicit top-level connection navigation remains available for recovery. Non-preflight API requests other than the browser-session bootstrap, health/runtime, and the nonce-gated desktop readiness probe require that session. `OPTIONS` requests are handled without a session for preflight only. Static and API responses include a restrictive CSP plus framing, MIME-sniffing, referrer, resource, and microphone permission headers. These controls protect the trusted local surface and are not human identity or remote access control. `--allow-origin` admits an Origin check; it does not enable cookie-authenticated cross-origin use because session cookies remain `SameSite=Strict` and CORS credentials are disabled.
+
+## Browser session bootstrap
+
+| Method | Path                   | Purpose                                                                  |
+| ------ | ---------------------- | ------------------------------------------------------------------------ |
+| POST   | `/api/browser-session` | Establish the private cookie before the first protected browser request. |
+
+This is the only ordinary session-exempt POST. The request must carry an
+HTTP(S) `Origin` whose hostname and port exactly match the validated `Host`,
+plus `X-Ultradyn-Browser-Session: 1`. The custom header prevents a plain HTML
+form from invoking the endpoint, and foreign browser requests fail the Origin
+check even when their Origin is admitted for non-cookie development CORS. A
+valid request returns `{"status":"ok"}`, `Cache-Control: no-store`, and, when
+session authorization is enabled, the HttpOnly `SameSite=Strict` cookie.
+Invalid requests return `403` without a cookie. A foreign Origin rejected by
+the global Origin check uses `origin_not_allowed`; requests that reach this
+endpoint but fail its method, exact-origin, or marker checks use
+`browser_session_rejected`. Repeating a valid bootstrap is idempotent for the
+running server session.
+
+The same-origin web adapter performs this bootstrap before its first runtime
+request. If a protected request later returns `401 session_required` (for
+example, because the server restarted and rotated its in-memory session), the
+adapter deduplicates concurrent bootstrap attempts and replays each rejected
+request once. It does not replay network or timeout failures: those are
+ambiguous for mutations because the response may have been lost after the
+handler committed the change.
 
 ## Runtime and events
 
@@ -18,7 +45,12 @@ The production server validates `Host` and browser `Origin` before routing. Open
 
 `GET /api/desktop-readiness` is an internal Tauri ownership probe. It exists only for a server launched with a per-process nonce and returns `404` without the matching request header; it is not an authentication token for ordinary API calls.
 
-SSE events include a ULID `id`, ISO timestamp, `type`, and typed `data`. Clients reconnect normally; durable state is always reloaded from the relevant GET route rather than trusting an event replay buffer.
+SSE events include a ULID `id`, ISO timestamp, `type`, and typed `data`. A
+same-origin browser stream that drops re-establishes the browser session and
+opens a replacement stream, retrying the bootstrap while the server is
+unavailable. Cross-origin development overrides retain the browser's native
+EventSource reconnect behavior. Durable state is always reloaded from the
+relevant GET route rather than trusting an event replay buffer.
 
 ## Ask and queue
 
@@ -38,7 +70,7 @@ SSE events include a ULID `id`, ISO timestamp, `type`, and typed `data`. Clients
 | POST   | `/api/questions/:id/transcripts`            | Append immutable `{text,source,confidence?}`.                     |
 | POST   | `/api/questions/:id/structure`              | Rebuild derived answer from all raw segments/corrections.         |
 | POST   | `/api/questions/:id/critic`                 | Run an isolated decisive goal/contradiction evaluation.           |
-| POST   | `/api/questions/:id/integrate`              | Create/update the documentation change request after Critic DONE. |
+| POST   | `/api/questions/:id/integrate`              | Create/reuse the active input-bound attempt after Critic DONE; reopened questions get a new attempt. |
 | POST   | `/api/questions/:id/accept`                 | Record acceptance with the matching `{asker}` handle.             |
 | POST   | `/api/questions/:id/reject`                 | Append `{asker,reason}` verbatim and reopen at P1.                |
 | POST   | `/api/questions/:id/change-request/approve` | Record `{by,kind}` approval on the local diff.                    |

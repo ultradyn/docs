@@ -27,6 +27,7 @@ import type { AgentDefinitionStatus, ChangeRequestInfo } from "../types.js";
 import {
   Button,
   Card,
+  ComboBox,
   EmptyState,
   ErrorState,
   InlineNotice,
@@ -476,7 +477,7 @@ function Agents({
 
   async function smith(event: FormEvent) {
     event.preventDefault();
-    if (!request.trim()) return;
+    if (!request.trim() || (mode === "update" && !target)) return;
     setSmithRunning(true);
     setSmithResult(undefined);
     try {
@@ -631,21 +632,22 @@ function Agents({
             </button>
           </div>
           {mode === "update" ? (
-            <label>
+            <div className="agent-smith-field">
               <span>Agent to update</span>
-              <select
+              <ComboBox
+                label="Agent to update"
                 value={target}
-                onChange={(event) => setTarget(event.target.value)}
+                options={[
+                  { value: "", label: "Choose an agent" },
+                  ...sorted.map((agent) => ({
+                    value: agent.id,
+                    label: agent.label,
+                  })),
+                ]}
+                onChange={setTarget}
                 required
-              >
-                <option value="">Choose an agent</option>
-                {sorted.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              />
+            </div>
           ) : null}
           <label>
             <span>What should this agent do?</span>
@@ -661,7 +663,14 @@ function Agents({
               <ShieldCheck size={14} /> Source, schema, and ≥3 fixtures are
               required
             </p>
-            <Button type="submit" disabled={!request.trim() || smithRunning}>
+            <Button
+              type="submit"
+              disabled={
+                !request.trim() ||
+                smithRunning ||
+                (mode === "update" && !target)
+              }
+            >
               {smithRunning ? (
                 <CircleDashed className="spin" size={16} />
               ) : (

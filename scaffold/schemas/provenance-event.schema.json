@@ -21,7 +21,13 @@
         "repaired"
       ]
     },
-    "by": { "type": "string", "minLength": 1 },
+    "by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "x-utf16MinLength": 1,
+      "x-utf16MaxLength": 160
+    },
     "details": { "type": "object" }
   }
 }

@@ -119,6 +119,21 @@ describe("knowledge repository public seam", () => {
     });
   });
 
+  it("rejects duplicate declared goals before persisting a question", async () => {
+    const { repo } = await repository();
+
+    await expect(
+      repo.createQuestion({
+        title: "Can duplicate goals persist?",
+        verbatimQuestion: "Can duplicate goals persist?",
+        goals: ["implementation", "implementation"],
+        asker: { id: "max", acceptance: "pending" },
+        origin: { kind: "raw" },
+      }),
+    ).rejects.toThrow(/goal.*unique|same goal|duplicate/i);
+    expect(await repo.listQuestions()).toEqual([]);
+  });
+
   it("detects direct raw mutation and refuses deletion through the API", async () => {
     const { root, repo } = await repository();
     const created = await repo.createQuestion({
@@ -1012,7 +1027,7 @@ describe("knowledge repository public seam", () => {
     ]);
   });
 
-  it("records each asker's independent decision and keeps the raw rejection reference", async () => {
+  it("allows only pending merged askers to accept or time out and rejects the public rejection bypass", async () => {
     const { repo } = await repository();
     const created = await repo.createQuestion({
       title: "Does this answer every asker?",
@@ -1027,10 +1042,36 @@ describe("knowledge repository public seam", () => {
       by: "matcher",
     });
 
+    await expect(
+      repo.decideAsker(created.id, {
+        askerId: "max",
+        decision: "accepted",
+        expectedRevision: attached.revision,
+        by: "asker:max",
+      }),
+    ).rejects.toThrow(/merged/i);
+    await expect(repo.getQuestion(created.id)).resolves.toEqual(attached);
+
+    const claimed = await repo.transition(created.id, {
+      to: "in-answer",
+      expectedRevision: attached.revision,
+      by: "answerer:max",
+    });
+    const integrating = await repo.transition(created.id, {
+      to: "integrating",
+      expectedRevision: claimed.revision,
+      by: "integrator",
+    });
+    const merged = await repo.transition(created.id, {
+      to: "merged",
+      expectedRevision: integrating.revision,
+      by: "maintainer:max",
+    });
+
     const accepted = await repo.decideAsker(created.id, {
       askerId: "max",
       decision: "accepted",
-      expectedRevision: attached.revision,
+      expectedRevision: merged.revision,
       by: "asker:max",
     });
     expect(accepted.askers).toEqual([
@@ -1046,22 +1087,490 @@ describe("knowledge repository public seam", () => {
       by: "asker:max",
     });
 
-    const rejected = await repo.decideAsker(created.id, {
-      askerId: "alice",
-      decision: "rejected",
-      rawReason: "raw/003-rejection.md",
-      expectedRevision: accepted.revision,
-      by: "asker:alice",
+    await expect(
+      repo.decideAsker(created.id, {
+        askerId: "max",
+        decision: "accepted",
+        expectedRevision: accepted.revision,
+        by: "asker:max",
+      }),
+    ).rejects.toThrow(/pending/i);
+    await expect(repo.getQuestion(created.id)).resolves.toEqual(accepted);
+
+    const rejection = await repo.appendRawArtifact(created.id, {
+      kind: "rejection",
+      content: "The answer omits the corrupted-checkpoint case.",
     });
-    expect(rejected.askers.at(-1)).toMatchObject({
-      id: "alice",
-      acceptance: "rejected",
-      rawReason: "raw/003-rejection.md",
+    const beforeBypass = await repo.getQuestion(created.id);
+
+    await expect(
+      repo.decideAsker(created.id, {
+        askerId: "alice",
+        decision: "rejected",
+        rawReason: rejection.path,
+        expectedRevision: beforeBypass.revision,
+        by: "asker:alice",
+      } as never),
+    ).rejects.toThrow(/rejectAsker/i);
+    await expect(repo.getQuestion(created.id)).resolves.toEqual(beforeBypass);
+  });
+
+  it("recovers one rejection artifact and one canonical reopen after failure between publication and decision", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-rejection-journal-"));
+    let failAfterPublication = true;
+    const crashing = new KnowledgeRepository(root, {
+      ids: createIdGenerator({
+        now: () => 1_700_000_000_000,
+        random: () => 0.3,
+      }),
+      now: () => "2026-07-16T02:00:00.000Z",
+      onAskerRejectionCheckpoint: (checkpoint) => {
+        if (checkpoint === "after-artifact" && failAfterPublication) {
+          failAfterPublication = false;
+          throw new Error("simulated rejection decision failure");
+        }
+      },
     });
-    expect(rejected.provenance.at(-1)).toMatchObject({
-      type: "rejected",
-      details: { askerId: "alice", rawReason: "raw/003-rejection.md" },
+    await crashing.initialize();
+    const created = await crashing.createQuestion({
+      title: "Can rejection recovery orphan raw input?",
+      verbatimQuestion: "Can rejection recovery orphan raw input?",
+      goals: ["implementation"],
+      asker: { id: "max", acceptance: "pending" },
+      origin: { kind: "raw" },
     });
+    const claimed = await crashing.transition(created.id, {
+      to: "in-answer",
+      expectedRevision: created.revision,
+      by: "answerer:max",
+    });
+    const integrating = await crashing.transition(created.id, {
+      to: "integrating",
+      expectedRevision: claimed.revision,
+      by: "integrator",
+    });
+    const merged = await crashing.transition(created.id, {
+      to: "merged",
+      expectedRevision: integrating.revision,
+      by: "maintainer:max",
+    });
+    const input = {
+      askerId: "max",
+      reason: "The answer omits the interrupted-publication recovery case.",
+      by: "asker:max",
+    };
+
+    await expect(crashing.rejectAsker(created.id, input)).rejects.toThrow(
+      /simulated rejection decision failure/i,
+    );
+    expect(
+      (await crashing.listRawArtifacts(created.id)).filter(
+        (artifact) => artifact.kind === "rejection",
+      ),
+    ).toHaveLength(1);
+    await expect(crashing.getQuestion(created.id)).resolves.toEqual(merged);
+
+    const restarted = new KnowledgeRepository(root, {
+      now: () => "2026-07-16T02:01:00.000Z",
+    });
+    const recovered = await restarted.rejectAsker(created.id, input);
+    expect(recovered).toMatchObject({
+      state: "reopened",
+      tier: "P1",
+      revision: merged.revision + 1,
+      askers: [
+        expect.objectContaining({
+          id: "max",
+          acceptance: "rejected",
+          rawReason: expect.stringMatching(/rejection\.md$/u),
+        }),
+      ],
+    });
+    const rejectionArtifacts = (
+      await restarted.listRawArtifacts(created.id)
+    ).filter((artifact) => artifact.kind === "rejection");
+    expect(rejectionArtifacts).toHaveLength(1);
+    expect(
+      recovered.provenance.filter(
+        (event) =>
+          event.type === "rejected" && event.details?.askerId === "max",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("reconciles a recorded rejection before later mutations and removes its completed journal", async () => {
+    async function crashAfterRejectionRecord() {
+      const root = await mkdtemp(
+        join(tmpdir(), "ultradyn-recorded-rejection-"),
+      );
+      const lockRoot = await mkdtemp(
+        join(tmpdir(), "ultradyn-recorded-rejection-locks-"),
+      );
+      let crash = true;
+      const repository = new KnowledgeRepository(root, {
+        lockRoot,
+        ids: createIdGenerator({
+          now: () => 1_700_000_000_000,
+          random: () => 0.305,
+        }),
+        now: () => "2026-07-16T02:30:00.000Z",
+        onAskerRejectionCheckpoint: (checkpoint) => {
+          if (checkpoint === "after-record-update" && crash) {
+            crash = false;
+            throw new Error("simulated crash after rejection record");
+          }
+        },
+      });
+      await repository.initialize();
+      const created = await repository.createQuestion({
+        title: "Can completed rejection recovery survive later revisions?",
+        verbatimQuestion:
+          "Can completed rejection recovery survive later revisions?",
+        goals: ["implementation"],
+        asker: { id: "max", acceptance: "pending" },
+        origin: { kind: "raw" },
+      });
+      let current = await repository.transition(created.id, {
+        to: "in-answer",
+        expectedRevision: created.revision,
+        by: "answerer:max",
+      });
+      current = await repository.transition(created.id, {
+        to: "integrating",
+        expectedRevision: current.revision,
+        by: "integrator",
+      });
+      current = await repository.transition(created.id, {
+        to: "merged",
+        expectedRevision: current.revision,
+        by: "maintainer:max",
+      });
+      const input = {
+        askerId: "max",
+        reason: "The answer omits restart after the canonical record write.",
+        by: "asker:max",
+      };
+      await expect(repository.rejectAsker(created.id, input)).rejects.toThrow(
+        /simulated crash after rejection record/i,
+      );
+      const reopened = await repository.getQuestion(created.id);
+      expect(reopened).toMatchObject({
+        state: "reopened",
+        revision: current.revision + 1,
+      });
+      return { root, lockRoot, created, input, reopened };
+    }
+
+    const completed = await crashAfterRejectionRecord();
+    const restarted = new KnowledgeRepository(completed.root, {
+      lockRoot: completed.lockRoot,
+      now: () => "2026-07-16T02:31:00.000Z",
+    });
+    const later = await restarted.transition(completed.created.id, {
+      to: "in-answer",
+      expectedRevision: completed.reopened.revision,
+      by: "answerer:max",
+    });
+    const [repositoryOperations] = await readdir(
+      join(completed.lockRoot, "operations"),
+    );
+    expect(repositoryOperations).toBeDefined();
+    expect(
+      await readdir(
+        join(completed.lockRoot, "operations", repositoryOperations!),
+      ),
+    ).toEqual([]);
+    await expect(
+      new KnowledgeRepository(completed.root, {
+        lockRoot: completed.lockRoot,
+        now: () => "2026-07-16T02:32:00.000Z",
+      }).rejectAsker(completed.created.id, completed.input),
+    ).rejects.toThrow(/merged/i);
+    const retried = await restarted.getQuestion(completed.created.id);
+    expect(retried).toEqual(later);
+    expect(
+      retried.provenance.filter(
+        (event) =>
+          event.type === "rejected" && event.details?.askerId === "max",
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await restarted.listRawArtifacts(completed.created.id)).filter(
+        (artifact) => artifact.kind === "rejection",
+      ),
+    ).toHaveLength(1);
+    const tamperedProvenance = await crashAfterRejectionRecord();
+    const questionPath = join(
+      tamperedProvenance.root,
+      "questions",
+      "active",
+      tamperedProvenance.created.id,
+      "question.md",
+    );
+    const questionFile = await readFile(questionPath, "utf8");
+    expect(questionFile).toContain("type: rejected");
+    await writeFile(
+      questionPath,
+      questionFile.replace("type: rejected", "type: accepted"),
+    );
+    await expect(
+      new KnowledgeRepository(tamperedProvenance.root, {
+        lockRoot: tamperedProvenance.lockRoot,
+      }).rejectAsker(tamperedProvenance.created.id, tamperedProvenance.input),
+    ).rejects.toThrow(/integrity|incomplete|provenance/i);
+
+    const tamperedArtifact = await crashAfterRejectionRecord();
+    const [rejectionArtifact] = (
+      await new KnowledgeRepository(tamperedArtifact.root, {
+        lockRoot: tamperedArtifact.lockRoot,
+      }).listRawArtifacts(tamperedArtifact.created.id)
+    ).filter((artifact) => artifact.kind === "rejection");
+    expect(rejectionArtifact).toBeDefined();
+    const rejectionPath = join(
+      tamperedArtifact.root,
+      "questions",
+      "active",
+      tamperedArtifact.created.id,
+      rejectionArtifact!.path,
+    );
+    await chmod(rejectionPath, 0o600);
+    await writeFile(rejectionPath, "forged rejection bytes\n");
+    await expect(
+      new KnowledgeRepository(tamperedArtifact.root, {
+        lockRoot: tamperedArtifact.lockRoot,
+      }).rejectAsker(tamperedArtifact.created.id, tamperedArtifact.input),
+    ).rejects.toThrow(/integrity|hash|bytes|modified/i);
+
+    const tamperedAuthors = await crashAfterRejectionRecord();
+    const authorQuestionPath = join(
+      tamperedAuthors.root,
+      "questions",
+      "active",
+      tamperedAuthors.created.id,
+      "question.md",
+    );
+    let authorQuestionFile = await readFile(authorQuestionPath, "utf8");
+    for (const eventType of [
+      "raw-artifact-appended",
+      "rejected",
+      "state-transitioned",
+    ]) {
+      const before = authorQuestionFile;
+      authorQuestionFile = authorQuestionFile.replace(
+        new RegExp(`(type: ${eventType}\\r?\\n\\s+by:) asker:max`, "u"),
+        "$1 attacker:forged",
+      );
+      expect(authorQuestionFile).not.toBe(before);
+    }
+    await writeFile(authorQuestionPath, authorQuestionFile);
+    await expect(
+      new KnowledgeRepository(tamperedAuthors.root, {
+        lockRoot: tamperedAuthors.lockRoot,
+      }).transition(tamperedAuthors.created.id, {
+        to: "in-answer",
+        expectedRevision: tamperedAuthors.reopened.revision,
+        by: "answerer:max",
+      }),
+    ).rejects.toThrow(/integrity|incomplete|provenance|author/i);
+  });
+
+  it("cleans a verified crash-after-record journal before a later transition and scopes an identical second rejection to its revision", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "ultradyn-rejection-revision-scope-"),
+    );
+    const lockRoot = await mkdtemp(
+      join(tmpdir(), "ultradyn-rejection-revision-scope-locks-"),
+    );
+    let crash = true;
+    const crashing = new KnowledgeRepository(root, {
+      lockRoot,
+      ids: createIdGenerator({
+        now: () => 1_700_000_000_000,
+        random: () => 0.307,
+      }),
+      now: () => "2026-07-16T02:45:00.000Z",
+      onAskerRejectionCheckpoint: (checkpoint) => {
+        if (checkpoint === "after-record-update" && crash) {
+          crash = false;
+          throw new Error("simulated crash after first rejection record");
+        }
+      },
+    });
+    await crashing.initialize();
+    const created = await crashing.createQuestion({
+      title: "Can the same rejection recur after another answer?",
+      verbatimQuestion:
+        "Does an identical later rejection get its own revision-scoped provenance?",
+      goals: ["implementation"],
+      asker: { id: "max", acceptance: "pending" },
+      origin: { kind: "raw" },
+    });
+    let current = await crashing.transition(created.id, {
+      to: "in-answer",
+      expectedRevision: created.revision,
+      by: "answerer:max",
+    });
+    current = await crashing.transition(created.id, {
+      to: "integrating",
+      expectedRevision: current.revision,
+      by: "integrator",
+    });
+    const firstMerged = await crashing.transition(created.id, {
+      to: "merged",
+      expectedRevision: current.revision,
+      by: "maintainer:max",
+    });
+    const input = {
+      askerId: "max",
+      reason: "The answer still omits the interrupted-publication case.",
+      by: "asker:max",
+    };
+
+    await expect(crashing.rejectAsker(created.id, input)).rejects.toThrow(
+      /simulated crash after first rejection record/i,
+    );
+    const firstReopened = await crashing.getQuestion(created.id);
+    const [repositoryOperations] = await readdir(join(lockRoot, "operations"));
+    expect(repositoryOperations).toBeDefined();
+    expect(
+      await readdir(join(lockRoot, "operations", repositoryOperations!)),
+    ).toHaveLength(1);
+
+    const restarted = new KnowledgeRepository(root, {
+      lockRoot,
+      now: () => "2026-07-16T02:46:00.000Z",
+    });
+    current = await restarted.transition(created.id, {
+      to: "in-answer",
+      expectedRevision: firstReopened.revision,
+      by: "answerer:max",
+    });
+    expect(
+      await readdir(join(lockRoot, "operations", repositoryOperations!)),
+    ).toEqual([]);
+    current = await restarted.transition(created.id, {
+      to: "integrating",
+      expectedRevision: current.revision,
+      by: "integrator",
+    });
+    const secondMerged = await restarted.transition(created.id, {
+      to: "merged",
+      expectedRevision: current.revision,
+      by: "maintainer:max",
+    });
+    const secondReopened = await restarted.rejectAsker(created.id, input);
+
+    expect(secondReopened).toMatchObject({
+      state: "reopened",
+      revision: secondMerged.revision + 1,
+    });
+    const rejectionEvents = secondReopened.provenance.filter(
+      (event) => event.type === "rejected" && event.details?.askerId === "max",
+    );
+    expect(rejectionEvents).toHaveLength(2);
+    expect(rejectionEvents.map((event) => event.details?.baseRevision)).toEqual(
+      [firstMerged.revision, secondMerged.revision],
+    );
+    expect(
+      new Set(rejectionEvents.map((event) => event.details?.operationId)).size,
+    ).toBe(2);
+    expect(
+      new Set(rejectionEvents.map((event) => event.details?.rawReason)).size,
+    ).toBe(2);
+    expect(
+      (await restarted.listRawArtifacts(created.id)).filter(
+        (artifact) => artifact.kind === "rejection",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("recovers an identical rejection exactly once on a later merged attempt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-rejection-attempt-"));
+    const repository = new KnowledgeRepository(root, {
+      ids: createIdGenerator({
+        now: () => 1_700_000_000_000,
+        random: () => 0.31,
+      }),
+      now: () => "2026-07-16T03:00:00.000Z",
+    });
+    await repository.initialize();
+    const created = await repository.createQuestion({
+      title: "Can the same concern recur?",
+      verbatimQuestion: "Can the same concern recur on a later answer attempt?",
+      goals: ["implementation"],
+      asker: { id: "max", acceptance: "pending" },
+      origin: { kind: "raw" },
+    });
+    let current = await repository.transition(created.id, {
+      to: "in-answer",
+      expectedRevision: created.revision,
+      by: "answerer:max",
+    });
+    current = await repository.transition(created.id, {
+      to: "integrating",
+      expectedRevision: current.revision,
+      by: "integrator",
+    });
+    await repository.transition(created.id, {
+      to: "merged",
+      expectedRevision: current.revision,
+      by: "maintainer:max",
+    });
+    const input = {
+      askerId: "max",
+      reason: "The answer still omits the interrupted-publication case.",
+      by: "asker:max",
+    };
+    current = await repository.rejectAsker(created.id, input);
+    current = await repository.transition(created.id, {
+      to: "in-answer",
+      expectedRevision: current.revision,
+      by: "answerer:max",
+    });
+    current = await repository.transition(created.id, {
+      to: "integrating",
+      expectedRevision: current.revision,
+      by: "integrator",
+    });
+    const secondMerged = await repository.transition(created.id, {
+      to: "merged",
+      expectedRevision: current.revision,
+      by: "maintainer:max",
+    });
+
+    let crash = true;
+    const crashing = new KnowledgeRepository(root, {
+      now: () => "2026-07-16T03:01:00.000Z",
+      onAskerRejectionCheckpoint: (checkpoint) => {
+        if (checkpoint === "after-artifact" && crash) {
+          crash = false;
+          throw new Error("simulated later rejection decision failure");
+        }
+      },
+    });
+    await expect(crashing.rejectAsker(created.id, input)).rejects.toThrow(
+      /simulated later rejection decision failure/i,
+    );
+    await expect(crashing.getQuestion(created.id)).resolves.toEqual(
+      secondMerged,
+    );
+
+    const restarted = new KnowledgeRepository(root, {
+      now: () => "2026-07-16T03:02:00.000Z",
+    });
+    const recovered = await restarted.rejectAsker(created.id, input);
+    const rejectionEvents = recovered.provenance.filter(
+      (event) => event.type === "rejected" && event.details?.askerId === "max",
+    );
+    expect(rejectionEvents).toHaveLength(2);
+    expect(
+      new Set(rejectionEvents.map((event) => event.details?.operationId)).size,
+    ).toBe(2);
+    expect(
+      (await restarted.listRawArtifacts(created.id)).filter(
+        (artifact) => artifact.kind === "rejection",
+      ),
+    ).toHaveLength(2);
   });
 
   it("persists and merges portable project settings with machine-local personal settings", async () => {

@@ -1,0 +1,203 @@
+{
+  "base": {
+    "schemaVersion": 1,
+    "artifacts": [
+      {
+        "path": "questions/active/q-01J00000000000000000000000/raw/question-001.md",
+        "kind": "question",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "bytes": 42,
+        "createdAt": "2026-07-16T00:00:00.000Z"
+      }
+    ]
+  },
+  "cases": [
+    { "name": "valid raw artifact manifest", "valid": true, "overrides": {} },
+    {
+      "name": "empty raw artifact path",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 42,
+            "createdAt": "2026-07-16T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown manifest schema version",
+      "valid": false,
+      "overrides": { "schemaVersion": 2 }
+    },
+    {
+      "name": "empty artifact inventory",
+      "valid": true,
+      "overrides": { "artifacts": [] }
+    },
+    {
+      "name": "non-array artifact inventory",
+      "valid": false,
+      "overrides": { "artifacts": {} }
+    },
+    {
+      "name": "unknown raw artifact kind",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "unknown",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 42,
+            "createdAt": "2026-07-16T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "uppercase raw artifact digest",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            "bytes": 42,
+            "createdAt": "2026-07-16T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw artifact bytes at maximum safe integer",
+      "valid": true,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 9007199254740991,
+            "createdAt": "2026-07-16T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw artifact bytes above maximum safe integer",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 9007199254740992,
+            "createdAt": "2026-07-16T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "negative raw artifact byte count",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": -1,
+            "createdAt": "2026-07-16T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fractional raw artifact byte count",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 1.5,
+            "createdAt": "2026-07-16T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "date-only raw artifact timestamp",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 42,
+            "createdAt": "2026-07-16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw artifact timestamp without seconds",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 42,
+            "createdAt": "2026-07-16T10:20Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw artifact timestamp with explicit offset",
+      "valid": true,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 42,
+            "createdAt": "2026-07-16T10:20:30.123456-04:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unexpected manifest property",
+      "valid": false,
+      "overrides": { "unexpected": true }
+    },
+    {
+      "name": "unexpected artifact entry property",
+      "valid": false,
+      "overrides": {
+        "artifacts": [
+          {
+            "path": "questions/raw.md",
+            "kind": "question",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "bytes": 42,
+            "createdAt": "2026-07-16T00:00:00.000Z",
+            "unexpected": true
+          }
+        ]
+      }
+    }
+  ]
+}

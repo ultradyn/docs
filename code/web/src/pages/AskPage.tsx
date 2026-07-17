@@ -350,7 +350,7 @@ export function AskPage() {
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={onComposerKeyDown}
-            placeholder="Ask a specific question…"
+            placeholder="Fill in your goals then ask a specific question…"
             disabled={busy}
           />
           <div className="composer-actions">

@@ -1,12 +1,20 @@
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
   ActorHandleSchema,
   PersonalSettingsSchema,
+  ProvenanceEventSchema,
   QuestionRecordSchema,
+  RawArtifactManifestSchema,
   applyQuestionTransition,
   assignPriority,
   createIdGenerator,
+  createPortableSchemaValidator,
   mergeSettings,
   queueForState,
 } from "./index.js";
@@ -155,5 +163,70 @@ describe("domain public seam", () => {
     expect(merged.personal.consent["codex-cli:model"]?.decision).toBe(
       "granted",
     );
+  });
+
+  it("keeps every shipped portable JSON Schema in parity with canonical Zod", async () => {
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    const schemas = existsSync(join(root, "scaffold", "schemas"))
+      ? join(root, "scaffold", "schemas")
+      : join(root, "schemas");
+    const specifications = [
+      {
+        name: "questionRecord",
+        schemaFile: "question-record.schema.json",
+        corpusFile: "question-record.corpus.json",
+        canonical: QuestionRecordSchema,
+      },
+      {
+        name: "provenanceEvent",
+        schemaFile: "provenance-event.schema.json",
+        corpusFile: "provenance-event.corpus.json",
+        canonical: ProvenanceEventSchema,
+      },
+      {
+        name: "rawArtifactManifest",
+        schemaFile: "raw-artifact-manifest.schema.json",
+        corpusFile: "raw-artifact-manifest.corpus.json",
+        canonical: RawArtifactManifestSchema,
+      },
+    ] as const;
+    type SchemaName = (typeof specifications)[number]["name"];
+    const documents = Object.fromEntries(
+      await Promise.all(
+        specifications.map(async (specification) => [
+          specification.name,
+          JSON.parse(
+            await readFile(join(schemas, specification.schemaFile), "utf8"),
+          ) as object,
+        ]),
+      ),
+    ) as Record<SchemaName, object>;
+    const validatePortable = createPortableSchemaValidator({
+      schemas: documents,
+    });
+
+    for (const specification of specifications) {
+      const corpus = JSON.parse(
+        await readFile(join(schemas, specification.corpusFile), "utf8"),
+      ) as {
+        base: Record<string, unknown>;
+        cases: Array<{
+          name: string;
+          valid: boolean;
+          overrides: Record<string, unknown>;
+        }>;
+      };
+      for (const testCase of corpus.cases) {
+        const candidate = { ...corpus.base, ...testCase.overrides };
+        expect(
+          specification.canonical.safeParse(candidate).success,
+          `${specification.name}/${testCase.name}: Zod`,
+        ).toBe(testCase.valid);
+        expect(
+          validatePortable(specification.name, candidate).valid,
+          `${specification.name}/${testCase.name}: portable validator`,
+        ).toBe(testCase.valid);
+      }
+    }
   });
 });

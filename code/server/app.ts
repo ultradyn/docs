@@ -30,7 +30,12 @@ export interface BuildServerOptions {
 
 const askSchema = z.object({
   question: z.string().trim().min(1).max(20_000),
-  goals: z.array(z.string().trim().min(1)).default(["documentation"]),
+  goals: z
+    .array(z.string().trim().min(1))
+    .refine((goals) => new Set(goals).size === goals.length, {
+      message: "Ask goals must be unique.",
+    })
+    .default(["documentation"]),
   asker: z.string().trim().min(1),
   chat: z.string().max(100_000).optional(),
 });
@@ -182,7 +187,52 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       return reply.redirect("/");
     }
 
+    if (requestUrl.pathname === "/api/browser-session") {
+      if (
+        request.method !== "POST" ||
+        request.headers["x-ultradyn-browser-session"] !== "1" ||
+        !origin ||
+        !sameOriginRequest(origin, hostHeader, allowedHostnames)
+      ) {
+        return reply.status(403).send({
+          error: {
+            code: "browser_session_rejected",
+            message: "The browser session bootstrap was rejected.",
+          },
+        });
+      }
+      if (options.sessionAuth) {
+        reply.header(
+          "Set-Cookie",
+          `ultradyn_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict`,
+        );
+      }
+      reply.header("Cache-Control", "no-store");
+      return reply.send({ status: "ok" });
+    }
+
     if (!options.sessionAuth) return;
+    const hasFetchMetadata =
+      request.headers["sec-fetch-mode"] !== undefined ||
+      request.headers["sec-fetch-dest"] !== undefined;
+    const hasDocumentNavigationHeaders = hasFetchMetadata
+      ? request.headers["sec-fetch-mode"] === "navigate" &&
+        request.headers["sec-fetch-dest"] === "document"
+      : request.headers["upgrade-insecure-requests"] === "1" &&
+        request.headers.accept?.includes("text/html");
+    const isExplicitBrowserConnection =
+      requestUrl.searchParams.get("ultradyn_connect") === "1" &&
+      request.method === "GET" &&
+      !requestUrl.pathname.startsWith("/api/") &&
+      hasDocumentNavigationHeaders;
+    if (isExplicitBrowserConnection) {
+      reply.header(
+        "Set-Cookie",
+        `ultradyn_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict`,
+      );
+      reply.header("Cache-Control", "no-store");
+      return reply.redirect("/#/settings");
+    }
     const isNavigation =
       request.method === "GET" &&
       !requestUrl.pathname.startsWith("/api/") &&

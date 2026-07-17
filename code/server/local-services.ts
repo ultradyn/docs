@@ -293,7 +293,15 @@ async function detail(
   const evaluation = evaluationText
     ? (JSON.parse(evaluationText) as QuestionDetail["evaluation"])
     : undefined;
-  const changeRequest = await changeRequests?.getForQuestion(record.id);
+  const activeChangeRequest = await changeRequests?.getActiveForQuestion(
+    record.id,
+  );
+  const changeRequest =
+    activeChangeRequest ??
+    (changeRequests &&
+    (record.state === "merged" || record.state === "accepted")
+      ? await changeRequests.getForQuestion(record.id)
+      : undefined);
   const mappedChangeRequest = changeRequestInfo(changeRequest);
   return {
     ...summary(record),
@@ -1263,6 +1271,7 @@ export async function createLocalServices(
       questionId: key,
       title: `Agent-Smith: ${name}`,
       question: input.request,
+      verbatimChat: "",
       goals: ["agent-maintenance"],
       structuredAnswer: `Agent-Smith proposes ${files.length} reviewed files for ${name}.`,
       summary: `${input.mode === "create" ? "Creates" : "Updates"} ${name} with source, a strict schema, and golden fixtures.`,
@@ -1459,8 +1468,15 @@ export async function createLocalServices(
             );
           }
           const runtime = await selectedAgentRuntime();
+          if (!runtime) {
+            throw new ServiceError(
+              "The deterministic fake model is available for demos and tests, but cannot authorize a Critic evaluation. Select a production model provider.",
+              409,
+              "llm_unavailable",
+            );
+          }
           let evaluation: NonNullable<QuestionDetail["evaluation"]>;
-          if (runtime) {
+          {
             const output = CriticOutputSchema.parse(
               await runtime.invoke("critic", {
                 question: record.question,
@@ -1492,18 +1508,6 @@ export async function createLocalServices(
               deferredChildren.map(summary),
               record.goals,
             );
-          } else {
-            evaluation = {
-              done: true,
-              goalResults: record.goals.map((goal) => ({
-                goal,
-                status: "satisfied",
-                rationale:
-                  "The deterministic local critic found a direct answer in the supplied transcript.",
-              })),
-              contradictions: [],
-              deferredChildren: [],
-            };
           }
           const updated = await repository.writeDerived(
             id,
@@ -1547,10 +1551,28 @@ export async function createLocalServices(
             );
           }
           const runtime = await selectedAgentRuntime();
-          let changeRequest = await changeRequests.getForQuestion(id);
-          if (!changeRequest) {
-            let files: Array<{ path: string; content: string }> | undefined;
-            let integrationSummary: string | undefined;
+          const activeChangeRequest =
+            await changeRequests.getActiveForQuestion(id);
+          const artifacts = await repository.listRawArtifacts(id);
+          const chatArtifacts = artifacts.filter(
+            (artifact) => artifact.kind === "chatlog",
+          );
+          const verbatimChat = (
+            await Promise.all(
+              chatArtifacts.map((artifact) =>
+                repository.readRawArtifact(id, artifact.path),
+              ),
+            )
+          ).join("\n");
+          let files =
+            activeChangeRequest?.evaluationInputState === "complete"
+              ? (activeChangeRequest.proposedFiles ?? undefined)
+              : undefined;
+          let integrationSummary = activeChangeRequest?.summary;
+          if (
+            !activeChangeRequest ||
+            activeChangeRequest.evaluationInputState !== "complete"
+          ) {
             if (runtime) {
               const plan = IntegratorOutputSchema.parse(
                 await runtime.invoke("integrator", {
@@ -1579,17 +1601,17 @@ export async function createLocalServices(
               }
               integrationSummary = plan.rationale;
             }
-            changeRequest = await changeRequests.create({
-              questionId: id,
-              title: record.title,
-              question: record.question,
-              goals: [...record.goals],
-              structuredAnswer: structured,
-              ...(files ? { files } : {}),
-              ...(integrationSummary ? { summary: integrationSummary } : {}),
-              ...(runtime ? { requiresActualDiffChecks: true } : {}),
-            });
           }
+          let changeRequest = await changeRequests.ensureCurrent({
+            questionId: id,
+            title: record.title,
+            question: record.question,
+            verbatimChat,
+            goals: [...record.goals],
+            structuredAnswer: structured,
+            ...(files ? { files } : {}),
+            ...(integrationSummary ? { summary: integrationSummary } : {}),
+          });
           if (!changeRequest) {
             throw new ServiceError(
               "The change request was not created.",
@@ -1625,11 +1647,18 @@ export async function createLocalServices(
                   "llm_unavailable",
                 );
               }
+              if (reviewTarget.structuredAnswer === undefined) {
+                throw new ServiceError(
+                  "The change request does not contain its stored structured-answer input; recreate it before review.",
+                  409,
+                  "change_request_input_missing",
+                );
+              }
               const reviewer = ReviewerOutputSchema.parse(
                 await reviewerRuntime.invoke("reviewer", {
-                  question: record.question,
-                  goals: record.goals,
-                  structuredAnswer: structured,
+                  question: reviewTarget.verbatimQuestion,
+                  goals: reviewTarget.goals,
+                  structuredAnswer: reviewTarget.structuredAnswer,
                   diff: reviewTarget.diff,
                 }),
               );
@@ -1638,22 +1667,11 @@ export async function createLocalServices(
                   diff: reviewTarget.diff,
                 }),
               );
-              const artifacts = await repository.listRawArtifacts(id);
-              const chatArtifact = artifacts.find(
-                (artifact) => artifact.kind === "chatlog",
-              );
               const simulatedAsker = SimulatedAskerOutputSchema.parse(
                 await simulatedAskerRuntime.invoke("simulated-asker", {
-                  verbatimQuestion: record.question,
-                  ...(chatArtifact
-                    ? {
-                        verbatimChat: await repository.readRawArtifact(
-                          id,
-                          chatArtifact.path,
-                        ),
-                      }
-                    : {}),
-                  goals: record.goals,
+                  verbatimQuestion: reviewTarget.verbatimQuestion,
+                  verbatimChat: reviewTarget.verbatimChat,
+                  goals: reviewTarget.goals,
                   postDiffDocumentation:
                     await changeRequests.readPostDiffDocumentation(
                       reviewTarget.id,
@@ -1693,7 +1711,7 @@ export async function createLocalServices(
       },
       approveChangeRequest: async (id, input) => {
         try {
-          const request = await changeRequests.getForQuestion(id);
+          const request = await changeRequests.getActiveForQuestion(id);
           if (!request) {
             throw new ServiceError(
               `Question ${id} has no change request.`,
@@ -1712,7 +1730,7 @@ export async function createLocalServices(
       },
       mergeChangeRequest: async (id, by) => {
         try {
-          const request = await changeRequests.getForQuestion(id);
+          const request = await changeRequests.getActiveForQuestion(id);
           if (!request) {
             throw new ServiceError(
               `Question ${id} has no change request.`,
@@ -1768,28 +1786,27 @@ export async function createLocalServices(
       },
       reject: async (id, asker, reason) => {
         try {
-          await getRecord(id);
           const askerId = humanIdentity(asker).id;
-          const artifact = await repository.appendRawArtifact(id, {
-            kind: "rejection",
-            content: reason,
-          });
-          const current = await getRecord(id);
-          const decided = await repository.decideAsker(id, {
+          const updated = await repository.rejectAsker(id, {
             askerId,
-            decision: "rejected",
-            rawReason: artifact.path,
-            expectedRevision: current.revision,
+            reason,
             by: `asker:${askerId}`,
-          });
-          const updated = await repository.transition(id, {
-            to: "reopened",
-            expectedRevision: decided.revision,
-            by: `asker:${askerId}`,
-            details: { rawReason: artifact.path },
           });
           return detail(repository, updated, changeRequests);
         } catch (error) {
+          if (
+            error instanceof Error &&
+            (/only an attached asker may reject a merged answer/i.test(
+              error.message,
+            ) ||
+              /only pending askers may decide/i.test(error.message))
+          ) {
+            throw new ServiceError(
+              error.message,
+              409,
+              "asker_decision_unavailable",
+            );
+          }
           return serviceError(error);
         }
       },

@@ -1,15 +1,20 @@
 import {
   mkdtemp,
   mkdir,
+  open,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +28,7 @@ import {
 } from "./index.js";
 
 const temporaryDirectories: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   await Promise.all(
@@ -70,6 +76,10 @@ async function fixture(): Promise<{ packageRoot: string; root: string }> {
   await writeFile(
     path.join(packageRoot, "scaffold", "questions", "index.jsonl"),
     "",
+  );
+  await writeFile(
+    path.join(packageRoot, "scaffold", ".gitignore.template"),
+    ".ultradyn/staging/\n",
   );
   await writeFile(
     path.join(packageRoot, "AGENTS.md"),
@@ -178,6 +188,40 @@ describe("scaffold filesystem", () => {
     });
   });
 
+  it("generates a repository whose question staging area is ignored by Git", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "ignored-staging-docs");
+    await initializeDocumentationRepository({
+      destination,
+      packageRoot,
+      packageVersion: "1.2.3",
+      fileSystem: createNodeFileSystem(),
+      git: createNativeGitClient(),
+      transactionId: () => "test",
+    });
+    const staged = path.join(destination, ".ultradyn", "staging", "probe");
+    await mkdir(path.dirname(staged), { recursive: true });
+    await writeFile(staged, "transient raw-question staging\n");
+
+    const { stdout } = await execFileAsync("git", [
+      "-C",
+      destination,
+      "check-ignore",
+      ".ultradyn/staging/probe",
+    ]);
+    expect(stdout.trim()).toBe(".ultradyn/staging/probe");
+    const shippedTemplate = path.join(
+      process.cwd(),
+      "scaffold",
+      ".gitignore.template",
+    );
+    if (existsSync(shippedTemplate)) {
+      await expect(readFile(shippedTemplate, "utf8")).resolves.toBe(
+        await readFile(path.join(process.cwd(), ".gitignore"), "utf8"),
+      );
+    }
+  });
+
   it("retains required source roots even while one is empty", async () => {
     const { packageRoot, root } = await fixture();
     await rm(path.join(packageRoot, "tauri-app"), { recursive: true });
@@ -267,6 +311,606 @@ describe("scaffold filesystem", () => {
     ).resolves.toBe("export {};\n");
   });
 
+  it("merges the staging ignore rule into existing repositories exactly once", async () => {
+    const { packageRoot, root } = await fixture();
+    const missingRule = path.join(root, "existing-ignore-missing");
+    await mkdir(missingRule);
+    const originalMissingRule = "node_modules/\r\n# keep this comment";
+    await writeFile(path.join(missingRule, ".gitignore"), originalMissingRule);
+    const options = {
+      packageRoot,
+      packageVersion: "1.2.3",
+      fileSystem: createNodeFileSystem(),
+      git: fakeGit(true),
+      transactionId: () => "test",
+    };
+
+    await initializeDocumentationRepository({
+      ...options,
+      destination: missingRule,
+    });
+    const merged = await readFile(path.join(missingRule, ".gitignore"), "utf8");
+    expect(merged).toMatch(
+      /^node_modules\/\r\n# keep this comment\r\n# >>> ultradyn-docs managed staging ignore [0-9a-f-]{36}\r\n\.ultradyn\/staging\/\r\n# <<< ultradyn-docs managed staging ignore [0-9a-f-]{36}\r\n$/u,
+    );
+    const recoveryNames = (await readdir(missingRule)).filter((name) =>
+      name.startsWith("gitignore.ultradyn-recovery-"),
+    );
+    expect(recoveryNames).toHaveLength(1);
+    await expect(
+      readFile(path.join(missingRule, recoveryNames[0]!), "utf8"),
+    ).resolves.toBe(originalMissingRule);
+    await initializeDocumentationRepository({
+      ...options,
+      destination: missingRule,
+    });
+    await expect(
+      readFile(path.join(missingRule, ".gitignore"), "utf8"),
+    ).resolves.toBe(merged);
+    expect(
+      (await readdir(missingRule)).filter((name) =>
+        name.startsWith("gitignore.ultradyn-recovery-"),
+      ),
+    ).toEqual(recoveryNames);
+
+    const existingRule = path.join(root, "existing-ignore-present");
+    await mkdir(existingRule);
+    const original = "node_modules/\n.ultradyn/staging/\n";
+    await writeFile(path.join(existingRule, ".gitignore"), original);
+    await initializeDocumentationRepository({
+      ...options,
+      destination: existingRule,
+    });
+    await expect(
+      readFile(path.join(existingRule, ".gitignore"), "utf8"),
+    ).resolves.toBe(original);
+  });
+
+  it("retries the .gitignore merge without overwriting an owner edit made after its read", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-race");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(
+      gitignorePath,
+      "node_modules/\r\n# keep without a final newline",
+    );
+    const base = createNodeFileSystem();
+    let raced = false;
+    const racingFileSystem: InstallerFileSystem = {
+      ...base,
+      async readFile(target) {
+        const contents = await base.readFile(target);
+        if (target === gitignorePath && !raced) {
+          raced = true;
+          await writeFile(target, `${contents}\r\nconcurrent-owner/`);
+        }
+        return contents;
+      },
+    };
+
+    await initializeDocumentationRepository({
+      destination,
+      packageRoot,
+      packageVersion: "1.2.3",
+      fileSystem: racingFileSystem,
+      git: fakeGit(true),
+      transactionId: () => "test",
+    });
+
+    await expect(readFile(gitignorePath, "utf8")).resolves.toMatch(
+      /^node_modules\/\r\n# keep without a final newline\r\nconcurrent-owner\/\r\n# >>> ultradyn-docs managed staging ignore [0-9a-f-]{36}\r\n\.ultradyn\/staging\/\r\n# <<< ultradyn-docs managed staging ignore [0-9a-f-]{36}\r\n$/u,
+    );
+  });
+
+  it("preserves an owner replacement detected in the last precommit window", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-last-window");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n# owner baseline\n");
+    let injected = false;
+    const fileSystem = createNodeFileSystem({
+      async beforeCompareAndSwapCommit(context) {
+        if (context.filePath !== gitignorePath || injected) return;
+        injected = true;
+        const ownerReplacement = `${gitignorePath}.owner-replacement`;
+        await writeFile(
+          ownerReplacement,
+          `${context.expectedContents}last-window-owner/\n`,
+        );
+        await rename(ownerReplacement, gitignorePath);
+      },
+    });
+
+    await initializeDocumentationRepository({
+      destination,
+      packageRoot,
+      packageVersion: "1.2.3",
+      fileSystem,
+      git: fakeGit(true),
+      transactionId: () => "test",
+    });
+
+    const installed = await readFile(gitignorePath, "utf8");
+    expect(injected).toBe(true);
+    expect(installed).toContain("last-window-owner/\n");
+    expect(installed).toContain(".ultradyn/staging/\n");
+    const preservedPaths = (await readdir(destination))
+      .filter((name) => name.startsWith("gitignore.ultradyn-preserved-"))
+      .map((name) => path.join(destination, name));
+    expect(preservedPaths).toHaveLength(1);
+    await expect(readFile(preservedPaths[0]!, "utf8")).resolves.toContain(
+      "last-window-owner/\n",
+    );
+  });
+
+  it("restores and visibly preserves bytes written through the displaced inode", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-displaced-inode");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n# owner baseline\n");
+    const ownerHandle = await open(gitignorePath, "r+");
+    let wroteThroughDisplacedInode = false;
+    const fileSystem = createNodeFileSystem({
+      async afterCompareAndSwapReplacementLink(context) {
+        if (context.filePath !== gitignorePath || wroteThroughDisplacedInode)
+          return;
+        wroteThroughDisplacedInode = true;
+        await ownerHandle.truncate(0);
+        await ownerHandle.writeFile(
+          `${context.expectedContents}fd-held-owner/\n`,
+        );
+        await ownerHandle.sync();
+      },
+    });
+
+    try {
+      await initializeDocumentationRepository({
+        destination,
+        packageRoot,
+        packageVersion: "1.2.3",
+        fileSystem,
+        git: fakeGit(true),
+        transactionId: () => "test",
+      });
+    } finally {
+      await ownerHandle.close();
+    }
+
+    expect(wroteThroughDisplacedInode).toBe(true);
+    const installed = await readFile(gitignorePath, "utf8");
+    expect(installed).toContain("fd-held-owner/\n");
+    expect(installed).toContain(".ultradyn/staging/\n");
+    const preservedPaths = (await readdir(destination))
+      .filter((name) => name.startsWith("gitignore.ultradyn-preserved-"))
+      .map((name) => path.join(destination, name));
+    expect(preservedPaths).toHaveLength(1);
+    await expect(readFile(preservedPaths[0]!, "utf8")).resolves.toContain(
+      "fd-held-owner/\n",
+    );
+  });
+
+  it("keeps late displaced-inode bytes visibly recoverable after a successful install", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-final-cleanup-race");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n# owner baseline\n");
+    const displacedOwner = await open(gitignorePath, "r+");
+    let expectedContents = "";
+    let wroteBeforeCleanup = false;
+    const fileSystem = createNodeFileSystem({
+      async afterCompareAndSwapFinalDisplacedRead(context) {
+        if (context.filePath !== gitignorePath || wroteBeforeCleanup) return;
+        expectedContents = context.expectedContents;
+        await displacedOwner.truncate(0);
+        await displacedOwner.writeFile(
+          `${context.expectedContents}before-cleanup-owner/\n`,
+        );
+        await displacedOwner.sync();
+        wroteBeforeCleanup = true;
+      },
+    });
+
+    let result;
+    try {
+      result = await initializeDocumentationRepository({
+        destination,
+        packageRoot,
+        packageVersion: "1.2.3",
+        fileSystem,
+        git: fakeGit(true),
+        transactionId: () => "test",
+      });
+      await displacedOwner.truncate(0);
+      await displacedOwner.writeFile(
+        `${expectedContents}after-success-owner/\n`,
+      );
+      await displacedOwner.sync();
+    } finally {
+      await displacedOwner.close();
+    }
+
+    expect(result.destination).toBe(destination);
+    expect(wroteBeforeCleanup).toBe(true);
+    await expect(readFile(gitignorePath, "utf8")).resolves.toContain(
+      ".ultradyn/staging/\n",
+    );
+    const recoveryPaths = (await readdir(destination))
+      .filter((name) => name.startsWith("gitignore.ultradyn-recovery-"))
+      .map((name) => path.join(destination, name));
+    expect(recoveryPaths).toHaveLength(1);
+    await expect(readFile(recoveryPaths[0]!, "utf8")).resolves.toContain(
+      "after-success-owner/\n",
+    );
+  });
+
+  it("fails closed without losing either owner when the displaced inode and visible path both change", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-two-owners");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n# owner baseline\n");
+    const displacedOwner = await open(gitignorePath, "r+");
+    let injected = false;
+    const fileSystem = createNodeFileSystem({
+      async afterCompareAndSwapReplacementLink(context) {
+        if (context.filePath !== gitignorePath || injected) return;
+        injected = true;
+        const atomicOwnerPath = `${gitignorePath}.atomic-owner`;
+        await writeFile(
+          atomicOwnerPath,
+          `${context.expectedContents}atomic-owner/\n`,
+        );
+        await Promise.all([
+          (async () => {
+            await displacedOwner.truncate(0);
+            await displacedOwner.writeFile(
+              `${context.expectedContents}fd-held-owner/\n`,
+            );
+            await displacedOwner.sync();
+          })(),
+          rename(atomicOwnerPath, gitignorePath),
+        ]);
+      },
+    });
+
+    try {
+      await expect(
+        initializeDocumentationRepository({
+          destination,
+          packageRoot,
+          packageVersion: "1.2.3",
+          fileSystem,
+          git: fakeGit(true),
+          transactionId: () => "test",
+        }),
+      ).rejects.toThrow(/both owner versions were preserved/i);
+    } finally {
+      await displacedOwner.close();
+    }
+
+    expect(injected).toBe(true);
+    await expect(readFile(gitignorePath, "utf8")).resolves.toContain(
+      "atomic-owner/\n",
+    );
+    const preservedPaths = (await readdir(destination))
+      .filter((name) => name.startsWith("gitignore.ultradyn-preserved-"))
+      .map((name) => path.join(destination, name));
+    expect(preservedPaths).toHaveLength(1);
+    await expect(readFile(preservedPaths[0]!, "utf8")).resolves.toContain(
+      "fd-held-owner/\n",
+    );
+  });
+
+  it("preserves both owners when a held inode changes across repeated displacement", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(
+      root,
+      "existing-ignore-repeated-displacement",
+    );
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n# owner baseline\n");
+    const displacedOwner = await open(gitignorePath, "r+");
+    let displacementAttempts = 0;
+    let restoreAttempts = 0;
+    const fileSystem = createNodeFileSystem({
+      async afterCompareAndSwapReplacementLink(context) {
+        if (context.filePath !== gitignorePath) return;
+        displacementAttempts += 1;
+        await displacedOwner.truncate(0);
+        await displacedOwner.writeFile(
+          `${context.expectedContents}fd-held-owner-${displacementAttempts}/\n`,
+        );
+        await displacedOwner.sync();
+      },
+      async beforeCompareAndSwapDisplacedRestore(context) {
+        if (context.filePath !== gitignorePath) return;
+        restoreAttempts += 1;
+        if (restoreAttempts !== 2) return;
+        const atomicOwnerPath = `${gitignorePath}.atomic-owner`;
+        await writeFile(
+          atomicOwnerPath,
+          `${context.expectedContents}atomic-owner/\n`,
+        );
+        await rename(atomicOwnerPath, gitignorePath);
+      },
+    });
+
+    try {
+      await expect(
+        initializeDocumentationRepository({
+          destination,
+          packageRoot,
+          packageVersion: "1.2.3",
+          fileSystem,
+          git: fakeGit(true),
+          transactionId: () => "test",
+        }),
+      ).rejects.toThrow(/both owner versions were preserved/i);
+    } finally {
+      await displacedOwner.close();
+    }
+
+    expect(displacementAttempts).toBe(2);
+    expect(restoreAttempts).toBe(2);
+    await expect(readFile(gitignorePath, "utf8")).resolves.toContain(
+      "atomic-owner/\n",
+    );
+    const preservedPaths = (await readdir(destination))
+      .filter((name) => name.startsWith("gitignore.ultradyn-preserved-"))
+      .map((name) => path.join(destination, name));
+    expect(preservedPaths).toHaveLength(3);
+    const preservedContents = await Promise.all(
+      preservedPaths.map((preservedPath) => readFile(preservedPath, "utf8")),
+    );
+    expect(
+      preservedContents.some((contents) =>
+        contents.includes("fd-held-owner-2/\n"),
+      ),
+    ).toBe(true);
+    expect(
+      preservedContents.some((contents) =>
+        contents.includes("atomic-owner/\n"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not unlink the only held-inode bytes after another owner replaces the restored path", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-restore-cleanup-race");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n# owner baseline\n");
+    const displacedOwner = await open(gitignorePath, "r+");
+    let changedDisplacedOwner = false;
+    let replacedRestoredPath = false;
+    const fileSystem = createNodeFileSystem({
+      async beforeCompareAndSwapCommit(context) {
+        if (context.filePath !== gitignorePath || changedDisplacedOwner) return;
+        changedDisplacedOwner = true;
+        await displacedOwner.truncate(0);
+        await displacedOwner.writeFile(
+          `${context.expectedContents}fd-held-owner/\n`,
+        );
+        await displacedOwner.sync();
+      },
+      async afterCompareAndSwapDisplacedIdentity(context) {
+        if (context.filePath !== gitignorePath || replacedRestoredPath) return;
+        replacedRestoredPath = true;
+        const atomicOwnerPath = `${gitignorePath}.atomic-owner`;
+        await writeFile(
+          atomicOwnerPath,
+          `${context.expectedContents}atomic-owner/\n`,
+        );
+        await rename(atomicOwnerPath, gitignorePath);
+      },
+    });
+
+    try {
+      await expect(
+        initializeDocumentationRepository({
+          destination,
+          packageRoot,
+          packageVersion: "1.2.3",
+          fileSystem,
+          git: fakeGit(true),
+          transactionId: () => "test",
+        }),
+      ).rejects.toThrow(/both owner versions were preserved/i);
+    } finally {
+      await displacedOwner.close();
+    }
+
+    expect(changedDisplacedOwner).toBe(true);
+    expect(replacedRestoredPath).toBe(true);
+    await expect(readFile(gitignorePath, "utf8")).resolves.toContain(
+      "atomic-owner/\n",
+    );
+    const preservedPaths = (await readdir(destination))
+      .filter((name) => name.startsWith("gitignore.ultradyn-preserved-"))
+      .map((name) => path.join(destination, name));
+    expect(preservedPaths).toHaveLength(1);
+    await expect(readFile(preservedPaths[0]!, "utf8")).resolves.toContain(
+      "fd-held-owner/\n",
+    );
+  });
+
+  it("rolls back only its staging rule while preserving a later owner edit", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-rollback-race");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(
+      gitignorePath,
+      "node_modules/\r\n# keep without a final newline",
+    );
+    const base = createNodeFileSystem();
+    const failingFileSystem: InstallerFileSystem = {
+      ...base,
+      async writeFile(target, contents) {
+        if (target.endsWith(path.join(".ultradyn", "manifest.json"))) {
+          const installedContents = await base.readFile(gitignorePath);
+          await writeFile(
+            gitignorePath,
+            `concurrent-before/\r\n${installedContents}concurrent-after/\r\n`,
+          );
+          throw new Error("later manifest failure");
+        }
+        await base.writeFile(target, contents);
+      },
+    };
+
+    await expect(
+      initializeDocumentationRepository({
+        destination,
+        packageRoot,
+        packageVersion: "1.2.3",
+        fileSystem: failingFileSystem,
+        git: fakeGit(true),
+        transactionId: () => "test",
+      }),
+    ).rejects.toThrow("later manifest failure");
+
+    await expect(readFile(gitignorePath, "utf8")).resolves.toBe(
+      "concurrent-before/\r\nnode_modules/\r\n# keep without a final newline\r\nconcurrent-after/\r\n",
+    );
+  });
+
+  it("rolls back its UUID marker block after owner newline normalization and marker reformatting", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-normalized-rollback");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n");
+    const base = createNodeFileSystem();
+    const failingFileSystem: InstallerFileSystem = {
+      ...base,
+      async writeFile(target, contents) {
+        if (target.endsWith(path.join(".ultradyn", "manifest.json"))) {
+          const installed = await base.readFile(gitignorePath);
+          const normalized = installed
+            .replace(/\r\n|\r|\n/gu, "\r\n")
+            .replace(
+              /^(# (?:>>>|<<<) ultradyn-docs managed staging ignore [0-9a-f-]+)$/gmu,
+              "  $1  ",
+            );
+          await writeFile(gitignorePath, normalized);
+          throw new Error("later failure after owner normalization");
+        }
+        await base.writeFile(target, contents);
+      },
+    };
+
+    await expect(
+      initializeDocumentationRepository({
+        destination,
+        packageRoot,
+        packageVersion: "1.2.3",
+        fileSystem: failingFileSystem,
+        git: fakeGit(true),
+        transactionId: () => "test",
+      }),
+    ).rejects.toThrow("later failure after owner normalization");
+
+    await expect(readFile(gitignorePath, "utf8")).resolves.toBe(
+      "node_modules/\r\n",
+    );
+  });
+
+  it("aggregates a managed-block rollback failure with the installation failure", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-rollback-failure");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n");
+    const base = createNodeFileSystem();
+    const failingFileSystem: InstallerFileSystem = {
+      ...base,
+      async writeFile(target, contents) {
+        if (target.endsWith(path.join(".ultradyn", "manifest.json")))
+          throw new Error("primary installation failure");
+        await base.writeFile(target, contents);
+      },
+      async compareAndSwapFile(target, expected, replacement) {
+        if (
+          target === gitignorePath &&
+          expected.includes("ultradyn-docs managed") &&
+          !replacement.includes("ultradyn-docs managed")
+        )
+          throw new Error("managed block rollback failure");
+        return base.compareAndSwapFile(target, expected, replacement);
+      },
+    };
+
+    let caught: unknown;
+    try {
+      await initializeDocumentationRepository({
+        destination,
+        packageRoot,
+        packageVersion: "1.2.3",
+        fileSystem: failingFileSystem,
+        git: fakeGit(true),
+        transactionId: () => "test",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect(
+      (caught as AggregateError).errors.map((error) =>
+        error instanceof Error ? error.message : String(error),
+      ),
+    ).toEqual([
+      "primary installation failure",
+      "managed block rollback failure",
+    ]);
+  });
+
+  it("removes only its managed ignore block while preserving reordered owner duplicates", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-owned-rollback");
+    const gitignorePath = path.join(destination, ".gitignore");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n");
+    const base = createNodeFileSystem();
+    const failingFileSystem: InstallerFileSystem = {
+      ...base,
+      async writeFile(target, contents) {
+        if (target.endsWith(path.join(".ultradyn", "manifest.json"))) {
+          const installed = await base.readFile(gitignorePath);
+          await writeFile(
+            gitignorePath,
+            `owner-before/\n.ultradyn/staging/\n${installed}owner-after/\n.ultradyn/staging/\n`,
+          );
+          throw new Error("later manifest failure after owner reorder");
+        }
+        await base.writeFile(target, contents);
+      },
+    };
+
+    await expect(
+      initializeDocumentationRepository({
+        destination,
+        packageRoot,
+        packageVersion: "1.2.3",
+        fileSystem: failingFileSystem,
+        git: fakeGit(true),
+        transactionId: () => "test",
+      }),
+    ).rejects.toThrow("later manifest failure after owner reorder");
+
+    const rolledBack = await readFile(gitignorePath, "utf8");
+    expect(rolledBack).toBe(
+      "owner-before/\n.ultradyn/staging/\nnode_modules/\nowner-after/\n.ultradyn/staging/\n",
+    );
+    expect(rolledBack).not.toContain("ultradyn-docs managed");
+  });
+
   it("does not overwrite a file created after merge planning", async () => {
     const { packageRoot, root } = await fixture();
     const destination = path.join(root, "existing-docs");
@@ -337,16 +981,24 @@ describe("scaffold filesystem", () => {
       },
     };
 
-    await expect(
-      initializeDocumentationRepository({
+    let caught: unknown;
+    try {
+      await initializeDocumentationRepository({
         destination,
         packageRoot,
         packageVersion: "1.2.3",
         fileSystem: racingFileSystem,
         git: fakeGit(),
         transactionId: () => "test",
-      }),
-    ).rejects.toThrow("later disk failure");
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors[0]).toMatchObject({
+      message: "later disk failure",
+    });
 
     await expect(
       readFile(path.join(destination, racedRelativePath), "utf8"),

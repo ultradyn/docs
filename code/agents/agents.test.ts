@@ -131,6 +131,37 @@ describe("agent runtime public seam", () => {
     ]);
   });
 
+  it("requires Simulated Asker callers to declare verbatim chat even when it is empty", async () => {
+    const provider = new FakeLlmProvider({
+      outputs: [
+        {
+          satisfied: true,
+          reason: "The post-diff view answers the ask.",
+          goalResults: [
+            {
+              goal: "implementation",
+              satisfied: true,
+              rationale: "The required steps are present.",
+            },
+          ],
+        },
+      ],
+    });
+    const runtime = new AgentRuntime({
+      definitionsRoot: shippedAgentsRoot,
+      provider,
+    });
+
+    await expect(
+      runtime.invoke("simulated-asker", {
+        verbatimQuestion: "How do I rebuild it?",
+        goals: ["implementation"],
+        postDiffDocumentation: "Run the rebuild command.",
+      }),
+    ).rejects.toThrow(/verbatimChat/);
+    expect(provider.requests).toHaveLength(0);
+  });
+
   it("rejects schema-invalid model output after a bounded fresh retry", async () => {
     const root = shippedAgentsRoot;
     const provider = new FakeLlmProvider({

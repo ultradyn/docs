@@ -1,5 +1,6 @@
 {
   "verbatimQuestion": "How init?",
+  "verbatimChat": "",
   "goals": ["implementation"],
   "postDiffDocumentation": "Run init."
 }

@@ -1,5 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile, rm, stat } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  rm,
+  stat,
+  type FileHandle,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import lockfile from "proper-lockfile";
@@ -129,6 +138,135 @@ async function durableExclusiveWrite(
   }
 }
 
+async function readDescriptorBytes(
+  file: FileHandle,
+  expectedSize: number,
+): Promise<Buffer> {
+  const bytes = Buffer.alloc(expectedSize);
+  let offset = 0;
+  while (offset < expectedSize) {
+    const result = await file.read(
+      bytes,
+      offset,
+      expectedSize - offset,
+      offset,
+    );
+    if (result.bytesRead === 0) break;
+    offset += result.bytesRead;
+  }
+  const afterRead = await file.stat();
+  if (offset !== expectedSize || afterRead.size !== expectedSize) {
+    throw new Error(
+      "Existing audio chunk changed while recovery was reading it.",
+    );
+  }
+  return bytes;
+}
+
+async function openStableRegularFileNoFollow(
+  path: string,
+  onOpened?: (path: string) => void | Promise<void>,
+): Promise<{
+  bytes: Buffer;
+  verifyPathAndBytes: () => Promise<void>;
+  close: () => Promise<void>;
+}> {
+  let file;
+  try {
+    file = await open(
+      path,
+      fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | fsConstants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+      throw new Error("Existing audio chunk recovery refuses symbolic links.", {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+  try {
+    const opened = await file.stat();
+    if (!opened.isFile()) {
+      throw new Error("Existing audio chunk recovery requires a regular file.");
+    }
+    await onOpened?.(path);
+    const beforeRead = await lstat(path);
+    if (
+      !beforeRead.isFile() ||
+      beforeRead.dev !== opened.dev ||
+      beforeRead.ino !== opened.ino
+    ) {
+      throw new Error(
+        "Existing audio chunk changed while recovery was opening it.",
+      );
+    }
+    const bytes = await readDescriptorBytes(file, opened.size);
+    const afterRead = await lstat(path);
+    if (
+      !afterRead.isFile() ||
+      afterRead.dev !== opened.dev ||
+      afterRead.ino !== opened.ino
+    ) {
+      throw new Error(
+        "Existing audio chunk changed while recovery was reading it.",
+      );
+    }
+    return {
+      bytes,
+      async verifyPathAndBytes() {
+        const [visible, descriptor] = await Promise.all([
+          lstat(path),
+          file.stat(),
+        ]);
+        if (
+          !visible.isFile() ||
+          visible.dev !== opened.dev ||
+          visible.ino !== opened.ino ||
+          visible.size !== bytes.byteLength ||
+          descriptor.dev !== opened.dev ||
+          descriptor.ino !== opened.ino ||
+          descriptor.size !== bytes.byteLength
+        ) {
+          throw new Error(
+            "Existing audio chunk pathname was replaced during metadata publication.",
+          );
+        }
+        const finalBytes = await readDescriptorBytes(file, bytes.byteLength);
+        if (!finalBytes.equals(bytes)) {
+          throw new Error(
+            "Existing audio chunk bytes changed during metadata publication.",
+          );
+        }
+        const [finalVisible, finalDescriptor] = await Promise.all([
+          lstat(path),
+          file.stat(),
+        ]);
+        if (
+          !finalVisible.isFile() ||
+          finalVisible.dev !== opened.dev ||
+          finalVisible.ino !== opened.ino ||
+          finalVisible.size !== bytes.byteLength ||
+          !finalDescriptor.isFile() ||
+          finalDescriptor.dev !== opened.dev ||
+          finalDescriptor.ino !== opened.ino ||
+          finalDescriptor.size !== bytes.byteLength
+        ) {
+          throw new Error(
+            "Existing audio chunk pathname was replaced during the final recovery read.",
+          );
+        }
+      },
+      async close() {
+        await file.close();
+      },
+    };
+  } catch (error) {
+    await file.close();
+    throw error;
+  }
+}
+
 const defaultMetadataWriter: AudioSessionMetadataWriter = async (
   path,
   contents,
@@ -145,6 +283,8 @@ export class FileAudioSessionStore {
   readonly #maxSessionBytes: number;
   readonly #maxChunksPerSession: number;
   readonly #metadataWriter: AudioSessionMetadataWriter;
+  readonly #onExistingChunkOpened:
+    ((path: string) => void | Promise<void>) | undefined;
 
   constructor(
     root: string,
@@ -152,6 +292,7 @@ export class FileAudioSessionStore {
       maxChunksPerSession?: number;
       maxSessionBytes?: number;
       metadataWriter?: AudioSessionMetadataWriter;
+      onExistingChunkOpened?: (path: string) => void | Promise<void>;
       now?: () => string;
     } = {},
   ) {
@@ -166,6 +307,7 @@ export class FileAudioSessionStore {
       "maxChunksPerSession",
     );
     this.#metadataWriter = options.metadataWriter ?? defaultMetadataWriter;
+    this.#onExistingChunkOpened = options.onExistingChunkOpened;
   }
 
   async start(input: {
@@ -265,28 +407,60 @@ export class FileAudioSessionStore {
         );
       }
       const relativePath = `chunks/${String(input.sequence).padStart(6, "0")}.part`;
-      await durableExclusiveWrite(join(directory, relativePath), input.bytes);
-      const at = this.#now();
-      const chunk = {
-        sequence: input.sequence,
-        path: relativePath,
-        mimeType: input.mimeType,
-        bytes: input.bytes.byteLength,
-        sha256: digest,
-        acknowledgedAt: at,
-      };
-      await this.#write(directory, {
-        ...record,
-        updatedAt: at,
-        nextSequence: record.nextSequence + 1,
-        chunks: [...record.chunks, chunk],
-      });
-      return {
-        sequence: chunk.sequence,
-        bytes: chunk.bytes,
-        sha256: chunk.sha256,
-        durable: true,
-      };
+      const chunkPath = join(directory, relativePath);
+      let recoveredExisting = false;
+      try {
+        await durableExclusiveWrite(chunkPath, input.bytes);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        recoveredExisting = true;
+      }
+      const opened = await openStableRegularFileNoFollow(
+        chunkPath,
+        recoveredExisting ? this.#onExistingChunkOpened : undefined,
+      );
+      try {
+        if (!opened.bytes.equals(Buffer.from(input.bytes))) {
+          throw new RawAudioChunkConflictError(input.sequence);
+        }
+        const at = this.#now();
+        const chunk = {
+          sequence: input.sequence,
+          path: relativePath,
+          mimeType: input.mimeType,
+          bytes: input.bytes.byteLength,
+          sha256: digest,
+          acknowledgedAt: at,
+        };
+        await this.#write(directory, {
+          ...record,
+          updatedAt: at,
+          nextSequence: record.nextSequence + 1,
+          chunks: [...record.chunks, chunk],
+        });
+        try {
+          await opened.verifyPathAndBytes();
+        } catch (error) {
+          try {
+            await this.#write(directory, record);
+          } catch (rollbackError) {
+            throw new AggregateError(
+              [error, rollbackError],
+              "Audio chunk metadata publication raced with pathname replacement and acknowledgement rollback also failed.",
+              { cause: rollbackError },
+            );
+          }
+          throw error;
+        }
+        return {
+          sequence: chunk.sequence,
+          bytes: chunk.bytes,
+          sha256: chunk.sha256,
+          durable: true,
+        };
+      } finally {
+        await opened.close();
+      }
     });
   }
 
