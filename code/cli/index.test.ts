@@ -1,4 +1,5 @@
 import {
+  lstat,
   mkdtemp,
   mkdir,
   open,
@@ -545,6 +546,205 @@ describe("scaffold filesystem", () => {
     await expect(readFile(recoveryPaths[0]!, "utf8")).resolves.toContain(
       "after-success-owner/\n",
     );
+  });
+
+  it("claims a visible recovery path before publish despite multiple symlink collisions", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-recovery-collisions");
+    const gitignorePath = path.join(destination, ".gitignore");
+    const collisionTarget = path.join(destination, "collision-owner.txt");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n# owner baseline\n");
+    await writeFile(collisionTarget, "collision owner must remain untouched\n");
+    const originalIdentity = await lstat(gitignorePath);
+    const ownerHandle = await open(gitignorePath, "r+");
+    let collisionsCreated = 0;
+    let lateOwnerWrite = false;
+    const fileSystem = createNodeFileSystem({
+      async beforeCompareAndSwapCommit(context) {
+        if (context.filePath !== gitignorePath || collisionsCreated > 0) return;
+        const replacementName = (await readdir(destination)).find((name) =>
+          /^\.\.gitignore\.ultradyn-cas-.+\.replacement$/u.test(name),
+        );
+        expect(replacementName).toBeDefined();
+        const token = replacementName!.slice(
+          "..gitignore.ultradyn-cas-".length,
+          -".replacement".length,
+        );
+        const recoveryBase = path.join(
+          destination,
+          `gitignore.ultradyn-recovery-${originalIdentity.dev.toString(16)}-${originalIdentity.ino.toString(16)}`,
+        );
+        const conflictBase = `${recoveryBase}-conflict-${token}`;
+        for (const collisionPath of [
+          recoveryBase,
+          conflictBase,
+          `${conflictBase}-2`,
+          `${conflictBase}-3`,
+        ]) {
+          await symlink(collisionTarget, collisionPath);
+          collisionsCreated += 1;
+        }
+      },
+      async afterCompareAndSwapFinalDisplacedRead(context) {
+        if (context.filePath !== gitignorePath || lateOwnerWrite) return;
+        await ownerHandle.truncate(0);
+        await ownerHandle.writeFile(
+          `${context.expectedContents}late-fd-owner/\n`,
+        );
+        await ownerHandle.sync();
+        lateOwnerWrite = true;
+      },
+    });
+
+    try {
+      await expect(
+        initializeDocumentationRepository({
+          destination,
+          packageRoot,
+          packageVersion: "1.2.3",
+          fileSystem,
+          git: fakeGit(true),
+          transactionId: () => "test",
+        }),
+      ).resolves.toMatchObject({ destination });
+    } finally {
+      await ownerHandle.close();
+    }
+
+    expect(collisionsCreated).toBe(4);
+    expect(lateOwnerWrite).toBe(true);
+    await expect(readFile(gitignorePath, "utf8")).resolves.toMatch(
+      /ultradyn-docs managed staging ignore[\s\S]*\.ultradyn\/staging\//u,
+    );
+    const recoveryPaths = (await readdir(destination))
+      .filter((name) => name.startsWith("gitignore.ultradyn-recovery-"))
+      .map((name) => path.join(destination, name));
+    const recoveryIdentities = await Promise.all(
+      recoveryPaths.map(async (recoveryPath) => ({
+        path: recoveryPath,
+        identity: await lstat(recoveryPath),
+      })),
+    );
+    const ownerRecovery = recoveryIdentities.find(
+      ({ identity }) =>
+        identity.dev === originalIdentity.dev &&
+        identity.ino === originalIdentity.ino,
+    );
+    expect(ownerRecovery?.path).toMatch(/gitignore\.ultradyn-recovery-/u);
+    await expect(readFile(ownerRecovery!.path, "utf8")).resolves.toContain(
+      "late-fd-owner/\n",
+    );
+    await expect(readFile(collisionTarget, "utf8")).resolves.toBe(
+      "collision owner must remain untouched\n",
+    );
+    expect(
+      (await readdir(destination)).some((name) =>
+        /^\.\.gitignore\.ultradyn-cas-.+\.previous$/u.test(name),
+      ),
+    ).toBe(false);
+  });
+
+  it("recovers visibly when the recovery claim is removed after publication fails", async () => {
+    const { packageRoot, root } = await fixture();
+    const destination = path.join(root, "existing-ignore-publish-failure");
+    const gitignorePath = path.join(destination, ".gitignore");
+    const collisionTarget = path.join(destination, "collision-owner.txt");
+    await mkdir(destination);
+    await writeFile(gitignorePath, "node_modules/\n# owner baseline\n");
+    await writeFile(collisionTarget, "collision owner must remain untouched\n");
+    const originalIdentity = await lstat(gitignorePath);
+    const ownerHandle = await open(gitignorePath, "r+");
+    let injected = false;
+    const fileSystem = createNodeFileSystem({
+      async afterCompareAndSwapReplacementLink(context) {
+        if (context.filePath !== gitignorePath || injected) return;
+        injected = true;
+        const names = await readdir(destination);
+        const replacementName = names.find((name) =>
+          /^\.\.gitignore\.ultradyn-cas-.+\.replacement$/u.test(name),
+        );
+        expect(replacementName).toBeDefined();
+        const token = replacementName!.slice(
+          "..gitignore.ultradyn-cas-".length,
+          -".replacement".length,
+        );
+        const recoveryBase = path.join(
+          destination,
+          `gitignore.ultradyn-recovery-${originalIdentity.dev.toString(16)}-${originalIdentity.ino.toString(16)}`,
+        );
+        const claimedRecovery = names.find((name) =>
+          name.startsWith("gitignore.ultradyn-recovery-"),
+        );
+        expect(claimedRecovery).toBeDefined();
+        await rm(path.join(destination, claimedRecovery!));
+        const conflictBase = `${recoveryBase}-conflict-${token}`;
+        for (const collisionPath of [
+          recoveryBase,
+          conflictBase,
+          `${conflictBase}-2`,
+          `${conflictBase}-3`,
+        ]) {
+          await symlink(collisionTarget, collisionPath);
+        }
+        const concurrentOwner = `${gitignorePath}.concurrent-owner`;
+        await writeFile(concurrentOwner, "concurrent-owner/\n");
+        await rename(concurrentOwner, gitignorePath);
+        await ownerHandle.truncate(0);
+        await ownerHandle.writeFile(
+          `${context.expectedContents}late-fd-owner/\n`,
+        );
+        await ownerHandle.sync();
+        throw new Error("injected failure after replacement publication");
+      },
+    });
+
+    try {
+      await expect(
+        initializeDocumentationRepository({
+          destination,
+          packageRoot,
+          packageVersion: "1.2.3",
+          fileSystem,
+          git: fakeGit(true),
+          transactionId: () => "test",
+        }),
+      ).rejects.toThrow(/failure after replacement publication/i);
+    } finally {
+      await ownerHandle.close();
+    }
+
+    expect(injected).toBe(true);
+    await expect(readFile(gitignorePath, "utf8")).resolves.toBe(
+      "concurrent-owner/\n",
+    );
+    const recoveryPaths = (await readdir(destination))
+      .filter((name) => name.startsWith("gitignore.ultradyn-recovery-"))
+      .map((name) => path.join(destination, name));
+    const ownerRecovery = (
+      await Promise.all(
+        recoveryPaths.map(async (recoveryPath) => ({
+          path: recoveryPath,
+          identity: await lstat(recoveryPath),
+        })),
+      )
+    ).find(
+      ({ identity }) =>
+        identity.dev === originalIdentity.dev &&
+        identity.ino === originalIdentity.ino,
+    );
+    expect(ownerRecovery?.path).toMatch(/-conflict-.+-4$/u);
+    await expect(readFile(ownerRecovery!.path, "utf8")).resolves.toContain(
+      "late-fd-owner/\n",
+    );
+    await expect(readFile(collisionTarget, "utf8")).resolves.toBe(
+      "collision owner must remain untouched\n",
+    );
+    expect(
+      (await readdir(destination)).filter((name) =>
+        /^\.\.gitignore\.ultradyn-cas-/u.test(name),
+      ),
+    ).toEqual([]);
   });
 
   it("fails closed without losing either owner when the displaced inode and visible path both change", async () => {

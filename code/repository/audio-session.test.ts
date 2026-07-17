@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   lstat,
@@ -7,6 +8,7 @@ import {
   open,
   readFile,
   rename,
+  rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -125,6 +127,202 @@ describe("audio session public seam", () => {
     expect((await store.get(sessionId)).nextSequence).toBe(1);
   });
 
+  it("migrates a schema-v1 active session only after validating its raw chunk", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-audio-v1-active-"));
+    const directory = join(root, questionId, sessionId);
+    const chunkPath = join(directory, "chunks", "000000.part");
+    const bytes = Buffer.from([1, 2, 3]);
+    await mkdir(join(directory, "chunks"), { recursive: true });
+    await writeFile(chunkPath, bytes);
+    const legacy = {
+      schemaVersion: 1,
+      id: sessionId,
+      questionId,
+      state: "recording",
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:00:00.000Z",
+      nextSequence: 1,
+      chunks: [
+        {
+          sequence: 0,
+          path: "chunks/000000.part",
+          mimeType: "audio/webm",
+          bytes: bytes.byteLength,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          acknowledgedAt: "2026-07-16T00:00:00.000Z",
+        },
+      ],
+      rawRetained: true,
+    };
+    await writeFile(
+      join(directory, "session.json"),
+      `${JSON.stringify(legacy, null, 2)}\n`,
+    );
+
+    const migrated = await new FileAudioSessionStore(root).get(sessionId);
+
+    expect(migrated).toMatchObject({
+      schemaVersion: 2,
+      state: "recording",
+      nextSequence: 1,
+      chunks: [
+        {
+          sequence: 0,
+          fileIdentity: {
+            device: expect.any(Number),
+            inode: expect.any(Number),
+          },
+        },
+      ],
+    });
+    await expect(
+      readFile(join(directory, "session.json"), "utf8"),
+    ).resolves.toContain('"schemaVersion": 2');
+  });
+
+  it("migrates pre-cycle finalized and cleaned session records", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-audio-v1-history-"));
+    const finalizedId = "aud-01J00000000000000000000001";
+    const cleanedId = "aud-01J00000000000000000000002";
+    const bytes = Buffer.from([4, 5, 6]);
+    const chunk = {
+      sequence: 0,
+      path: "chunks/000000.part",
+      mimeType: "audio/webm",
+      bytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      acknowledgedAt: "2026-07-16T00:00:00.000Z",
+    };
+    const base = {
+      schemaVersion: 1,
+      questionId,
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:01:00.000Z",
+      nextSequence: 1,
+      chunks: [chunk],
+    };
+    const finalizedDirectory = join(root, questionId, finalizedId);
+    await mkdir(join(finalizedDirectory, "chunks"), { recursive: true });
+    await writeFile(join(finalizedDirectory, chunk.path), bytes);
+    await writeFile(
+      join(finalizedDirectory, "session.json"),
+      `${JSON.stringify(
+        {
+          ...base,
+          id: finalizedId,
+          state: "finalizing",
+          rawRetained: true,
+          output: {
+            path: join(finalizedDirectory, "audio.ogg"),
+            format: "ogg",
+            mimeType: "audio/ogg",
+            bytes: 3,
+            sha256: "0".repeat(64),
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const cleanedDirectory = join(root, questionId, cleanedId);
+    await mkdir(cleanedDirectory, { recursive: true });
+    await writeFile(
+      join(cleanedDirectory, "session.json"),
+      `${JSON.stringify(
+        {
+          ...base,
+          id: cleanedId,
+          state: "complete",
+          rawRetained: false,
+          output: {
+            path: join(cleanedDirectory, "audio.ogg"),
+            format: "ogg",
+            mimeType: "audio/ogg",
+            bytes: 3,
+            sha256: "0".repeat(64),
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const store = new FileAudioSessionStore(root);
+
+    await expect(store.get(finalizedId)).resolves.toMatchObject({
+      schemaVersion: 2,
+      state: "finalizing",
+      rawRetained: true,
+      chunks: [{ fileIdentity: expect.any(Object) }],
+    });
+    const cleaned = await store.get(cleanedId);
+    expect(cleaned).toMatchObject({
+      schemaVersion: 2,
+      state: "complete",
+      rawRetained: false,
+      chunks: [{ sequence: 0 }],
+    });
+    expect(cleaned.chunks[0]).not.toHaveProperty("fileIdentity");
+  });
+
+  it.each(["tampered", "symlink"] as const)(
+    "refuses schema-v1 raw migration through a %s chunk",
+    async (adversary) => {
+      const root = await mkdtemp(
+        join(tmpdir(), `ultradyn-audio-v1-${adversary}-`),
+      );
+      const externalRoot = await mkdtemp(
+        join(tmpdir(), `ultradyn-audio-v1-${adversary}-external-`),
+      );
+      const directory = join(root, questionId, sessionId);
+      const chunkPath = join(directory, "chunks", "000000.part");
+      const expectedBytes = Buffer.from([1, 2, 3]);
+      await mkdir(join(directory, "chunks"), { recursive: true });
+      if (adversary === "tampered") {
+        await writeFile(chunkPath, new Uint8Array([9, 9, 9]));
+      } else {
+        const externalChunk = join(externalRoot, "owner.part");
+        await writeFile(externalChunk, expectedBytes);
+        await symlink(externalChunk, chunkPath);
+      }
+      await writeFile(
+        join(directory, "session.json"),
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            id: sessionId,
+            questionId,
+            state: "recording",
+            createdAt: "2026-07-16T00:00:00.000Z",
+            updatedAt: "2026-07-16T00:00:00.000Z",
+            nextSequence: 1,
+            chunks: [
+              {
+                sequence: 0,
+                path: "chunks/000000.part",
+                mimeType: "audio/webm",
+                bytes: expectedBytes.byteLength,
+                sha256: createHash("sha256")
+                  .update(expectedBytes)
+                  .digest("hex"),
+                acknowledgedAt: "2026-07-16T00:00:00.000Z",
+              },
+            ],
+            rawRetained: true,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      await expect(
+        new FileAudioSessionStore(root).get(sessionId),
+      ).rejects.toThrow(/legacy audio chunk|digest|symbolic link|migration/i);
+      await expect(
+        readFile(join(directory, "session.json"), "utf8"),
+      ).resolves.toContain('"schemaVersion": 1');
+    },
+  );
+
   it("adopts a byte-identical unmanifested chunk after metadata failure and rejects conflicting retry bytes", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-audio-append-retry-"));
     let failChunkMetadata = true;
@@ -175,6 +373,184 @@ describe("audio session public seam", () => {
       nextSequence: 1,
       chunks: [{ sequence: 0, bytes: 3 }],
     });
+  });
+
+  it("fails closed after a crash publishes chunk metadata before validation", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "ultradyn-audio-published-crash-"),
+    );
+    let crashAfterPublication = true;
+    const crashing = new FileAudioSessionStore(root, {
+      metadataWriter: async (path, contents) => {
+        await writeFile(path, contents, { encoding: "utf8", mode: 0o600 });
+        const snapshot = JSON.parse(contents) as { chunks: unknown[] };
+        if (snapshot.chunks.length === 1 && crashAfterPublication) {
+          crashAfterPublication = false;
+          throw new Error("simulated crash after chunk metadata publication");
+        }
+      },
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    await crashing.start({ sessionId, questionId });
+    await expect(
+      crashing.appendChunk(sessionId, {
+        sequence: 0,
+        bytes: new Uint8Array([1, 2, 3]),
+        mimeType: "audio/webm",
+      }),
+    ).rejects.toThrow(/crash after chunk metadata publication/i);
+
+    const chunkPath = join(
+      root,
+      questionId,
+      sessionId,
+      "chunks",
+      "000000.part",
+    );
+    await writeFile(chunkPath, new Uint8Array([9, 9, 9]));
+    const restarted = new FileAudioSessionStore(root, {
+      now: () => "2026-07-17T00:01:00.000Z",
+    });
+
+    await expect(restarted.get(sessionId)).rejects.toThrow(
+      /audio chunk|changed|conflict|digest|integrity/i,
+    );
+    await expect(
+      restarted.appendChunk(sessionId, {
+        sequence: 0,
+        bytes: new Uint8Array([1, 2, 3]),
+        mimeType: "audio/webm",
+      }),
+    ).rejects.toThrow(/audio chunk|changed|conflict|digest|integrity/i);
+    const rawRecord = JSON.parse(
+      await readFile(join(root, questionId, sessionId, "session.json"), "utf8"),
+    ) as { chunks: unknown[]; nextSequence: number };
+    expect(rawRecord).toMatchObject({ nextSequence: 0, chunks: [] });
+  });
+
+  it("does not expose pending append metadata without its matching journal", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-audio-lost-intent-"));
+    let crashAfterPublication = true;
+    const crashing = new FileAudioSessionStore(root, {
+      metadataWriter: async (path, contents) => {
+        await writeFile(path, contents, { encoding: "utf8", mode: 0o600 });
+        const snapshot = JSON.parse(contents) as {
+          pendingAppend?: unknown;
+        };
+        if (snapshot.pendingAppend && crashAfterPublication) {
+          crashAfterPublication = false;
+          throw new Error("simulated crash with pending append metadata");
+        }
+      },
+    });
+    await crashing.start({ sessionId, questionId });
+    await expect(
+      crashing.appendChunk(sessionId, {
+        sequence: 0,
+        bytes: new Uint8Array([1, 2, 3]),
+        mimeType: "audio/webm",
+      }),
+    ).rejects.toThrow(/pending append metadata/i);
+    await rm(join(root, questionId, sessionId, "append-intent.json"));
+
+    await expect(
+      new FileAudioSessionStore(root).get(sessionId),
+    ).rejects.toThrow(/pending append|matching journal/i);
+  });
+
+  it("refuses to read an append-intent journal through a symbolic link", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-audio-intent-link-"));
+    const externalRoot = await mkdtemp(
+      join(tmpdir(), "ultradyn-audio-intent-link-external-"),
+    );
+    const store = new FileAudioSessionStore(root, {
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    await store.start({ sessionId, questionId });
+    const externalJournal = join(externalRoot, "append-intent.json");
+    await writeFile(externalJournal, "{}\n");
+    await symlink(
+      externalJournal,
+      join(root, questionId, sessionId, "append-intent.json"),
+    );
+
+    await expect(store.get(sessionId)).rejects.toThrow(
+      /symbolic link|no-follow/i,
+    );
+    await expect(readFile(externalJournal, "utf8")).resolves.toBe("{}\n");
+  });
+
+  it("does not let a forged post-ack journal roll back committed chunk metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-audio-forged-intent-"));
+    const externalRoot = await mkdtemp(
+      join(tmpdir(), "ultradyn-audio-forged-intent-external-"),
+    );
+    const store = new FileAudioSessionStore(root, {
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    const prior = await store.start({ sessionId, questionId });
+    await store.appendChunk(sessionId, {
+      sequence: 0,
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "audio/webm",
+    });
+    const published = await store.get(sessionId);
+    const directory = join(root, questionId, sessionId);
+    const chunkPath = join(directory, "chunks", "000000.part");
+    const externalChunk = join(externalRoot, "owner.part");
+    await writeFile(externalChunk, new Uint8Array([1, 2, 3]));
+    await rename(chunkPath, `${chunkPath}.committed`);
+    await symlink(externalChunk, chunkPath);
+    const operationId = createHash("sha256")
+      .update(
+        JSON.stringify({
+          schemaVersion: 2,
+          sessionId,
+          prior,
+          chunk: published.chunks.at(-1),
+        }),
+        "utf8",
+      )
+      .digest("hex");
+    const forgedPublished = {
+      ...published,
+      pendingAppend: { operationId },
+    };
+    const forgedIntentBody = {
+      schemaVersion: 2,
+      operationId,
+      sessionId,
+      prior,
+      published: forgedPublished,
+      committed: published,
+    };
+    await writeFile(
+      join(directory, "append-intent.json"),
+      `${JSON.stringify(
+        {
+          ...forgedIntentBody,
+          integritySha256: createHash("sha256")
+            .update(JSON.stringify(forgedIntentBody), "utf8")
+            .digest("hex"),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    await expect(store.get(sessionId)).rejects.toThrow(
+      /audio chunk|symbolic link|integrity/i,
+    );
+    const durableRecord = JSON.parse(
+      await readFile(join(directory, "session.json"), "utf8"),
+    ) as { nextSequence: number; chunks: unknown[] };
+    expect(durableRecord).toMatchObject({
+      nextSequence: 1,
+      chunks: [expect.any(Object)],
+    });
+    expect((await readFile(externalChunk)).equals(Buffer.from([1, 2, 3]))).toBe(
+      true,
+    );
   });
 
   it("refuses to adopt a byte-identical unmanifested chunk through a symlink", async () => {
@@ -412,11 +788,15 @@ describe("audio session public seam", () => {
       read: typeof probe.read;
     };
     const originalRead = prototype.read;
+    const invokeOriginalRead = originalRead as unknown as (
+      this: typeof probe,
+      ...args: unknown[]
+    ) => Promise<unknown>;
     await probe.close();
     let matchingReads = 0;
     let swappedAfterFinalRead = false;
-    prototype.read = async function (...args: Parameters<typeof probe.read>) {
-      const result = await originalRead.apply(this, args);
+    prototype.read = async function (this: typeof probe, ...args: unknown[]) {
+      const result = await invokeOriginalRead.apply(this, args);
       if (args[2] === inspectedBytes.byteLength) {
         matchingReads += 1;
         if (matchingReads === 2) {
@@ -426,7 +806,7 @@ describe("audio session public seam", () => {
         }
       }
       return result;
-    };
+    } as typeof probe.read;
 
     try {
       await expect(
@@ -445,8 +825,74 @@ describe("audio session public seam", () => {
       nextSequence: 0,
       chunks: [],
     });
-    await expect(readFile(displacedPath)).resolves.toEqual(inspectedBytes);
-    await expect(readFile(chunkPath)).resolves.toEqual(replacementBytes);
+    expect((await readFile(displacedPath)).equals(inspectedBytes)).toBe(true);
+    expect((await readFile(chunkPath)).equals(replacementBytes)).toBe(true);
+  });
+
+  it("makes the final pathname observation after the fifth descriptor stat", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-audio-fifth-stat-"));
+    const chunksRoot = join(root, questionId, sessionId, "chunks");
+    const chunkPath = join(chunksRoot, "000000.part");
+    const displacedPath = `${chunkPath}.inspected`;
+    const replacementPath = `${chunkPath}.replacement`;
+    const inspectedBytes = Buffer.from([1, 2, 3]);
+    const replacementBytes = Buffer.from([9, 9, 9]);
+    const store = new FileAudioSessionStore(root, {
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    await store.start({ sessionId, questionId });
+    await mkdir(chunksRoot);
+    await writeFile(chunkPath, inspectedBytes);
+    await writeFile(replacementPath, replacementBytes);
+    const inspectedIdentity = await lstat(chunkPath);
+
+    const probe = await open(chunkPath, "r");
+    const prototype = Object.getPrototypeOf(probe) as {
+      stat: typeof probe.stat;
+    };
+    const originalStat = prototype.stat;
+    const invokeOriginalStat = originalStat as unknown as (
+      this: typeof probe,
+      ...args: unknown[]
+    ) => Promise<Awaited<ReturnType<typeof probe.stat>>>;
+    await probe.close();
+    let matchingStats = 0;
+    let swappedAtFifthStat = false;
+    prototype.stat = async function (this: typeof probe, ...args: unknown[]) {
+      const result = await invokeOriginalStat.apply(this, args);
+      if (
+        result.dev === inspectedIdentity.dev &&
+        result.ino === inspectedIdentity.ino
+      ) {
+        matchingStats += 1;
+        if (matchingStats === 5) {
+          await rename(chunkPath, displacedPath);
+          await rename(replacementPath, chunkPath);
+          swappedAtFifthStat = true;
+        }
+      }
+      return result;
+    } as typeof probe.stat;
+
+    try {
+      await expect(
+        store.appendChunk(sessionId, {
+          sequence: 0,
+          bytes: inspectedBytes,
+          mimeType: "audio/webm",
+        }),
+      ).rejects.toThrow(/changed|replaced|pathname|inode/i);
+    } finally {
+      prototype.stat = originalStat;
+    }
+
+    expect(swappedAtFifthStat).toBe(true);
+    expect(await store.get(sessionId)).toMatchObject({
+      nextSequence: 0,
+      chunks: [],
+    });
+    expect((await readFile(displacedPath)).equals(inspectedBytes)).toBe(true);
+    expect((await readFile(chunkPath)).equals(replacementBytes)).toBe(true);
   });
 
   it("verifies conversion before deleting raw chunks", async () => {

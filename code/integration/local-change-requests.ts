@@ -27,6 +27,7 @@ const approvalSchema = z.object({
 const mergeIntentSchema = z.object({
   baseHeadSha: z.string().min(1),
   branchHeadSha: z.string().min(1),
+  expectedResultTreeSha: z.string().regex(/^[0-9a-f]{40,64}$/u),
   by: z.string().min(1),
   startedAt: z.string().datetime({ offset: true }),
   authorizationSha256: z.string().regex(/^[0-9a-f]{64}$/u),
@@ -134,7 +135,21 @@ function parseChangeRequest(candidate: unknown): LocalChangeRequest {
       inputFingerprint: null,
     });
   }
-  return changeRequestSchema.parse(candidate);
+  try {
+    return changeRequestSchema.parse(candidate);
+  } catch (error) {
+    if (
+      typeof candidate === "object" &&
+      candidate !== null &&
+      "mergeIntent" in candidate &&
+      (candidate as { mergeIntent?: unknown }).mergeIntent !== undefined
+    ) {
+      throw new ChangeRequestBlockedError(
+        `Change-request metadata contains a merge intent that is invalid or not bound to its exact approved authorization snapshot: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    throw error;
+  }
 }
 
 function requireHistoricEvaluationInput(
@@ -308,13 +323,17 @@ function mergeAuthorizationSha256(
   record: EvaluableLocalChangeRequest,
   intent: Pick<
     z.infer<typeof mergeIntentSchema>,
-    "baseHeadSha" | "branchHeadSha" | "by" | "startedAt"
+    | "baseHeadSha"
+    | "branchHeadSha"
+    | "expectedResultTreeSha"
+    | "by"
+    | "startedAt"
   >,
 ): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         authorizedState: "approved",
         recordId: record.id,
         questionId: record.questionId,
@@ -328,6 +347,7 @@ function mergeAuthorizationSha256(
         approvals: record.approvals,
         mergeBaseHeadSha: intent.baseHeadSha,
         requestedBranchHeadSha: intent.branchHeadSha,
+        expectedResultTreeSha: intent.expectedResultTreeSha,
         mergedBy: intent.by,
         startedAt: intent.startedAt,
       }),
@@ -1626,10 +1646,31 @@ export class LocalChangeRequestManager {
       );
     }
     const baseHeadSha = (await git.revparse(["HEAD"])).trim();
+    let expectedResultTreeSha: string;
+    try {
+      expectedResultTreeSha = (
+        await git.raw([
+          "merge-tree",
+          "--write-tree",
+          baseHeadSha,
+          record.headSha,
+        ])
+      ).trim();
+    } catch (error) {
+      throw new ChangeRequestBlockedError(
+        `The reviewed commits do not produce a clean deterministic merge result: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!/^[0-9a-f]{40,64}$/u.test(expectedResultTreeSha)) {
+      throw new ChangeRequestBlockedError(
+        "Git did not return one canonical result tree for the reviewed merge.",
+      );
+    }
     const startedAt = this.#now();
     const intent = {
       baseHeadSha,
       branchHeadSha: record.headSha,
+      expectedResultTreeSha,
       by: input.by,
       startedAt,
     };
@@ -1651,16 +1692,17 @@ export class LocalChangeRequestManager {
     const intent = record.mergeIntent;
     if (!intent) return record;
     assertMergeIntentIntegrity(requireHistoricEvaluationInput(record));
-    await this.#assertBranchHead(record);
     const git = simpleGit(this.repoRoot);
-    const status = await git.status();
-    if (status.current !== record.baseBranch) {
-      throw new ChangeRequestBlockedError(
-        `Check out ${record.baseBranch} before reconciling this local change request.`,
-      );
-    }
     let currentHead = (await git.revparse(["HEAD"])).trim();
-    if (currentHead === intent.baseHeadSha) {
+    if (currentHead !== intent.baseHeadSha) {
+      await this.#assertExactMergeCommit(intent, currentHead);
+    } else {
+      const status = await git.status();
+      if (status.current !== record.baseBranch) {
+        throw new ChangeRequestBlockedError(
+          `Check out ${record.baseBranch} before reconciling this local change request.`,
+        );
+      }
       const trackedChanges = [
         ...status.staged,
         ...status.modified,
@@ -1676,6 +1718,11 @@ export class LocalChangeRequestManager {
         );
       }
       await this.#assertBranchHead(record);
+      if ((await git.revparse(["HEAD"])).trim() !== intent.baseHeadSha) {
+        throw new ChangeRequestBlockedError(
+          "The base branch moved after merge preparation; automatic reconciliation is unsafe.",
+        );
+      }
       try {
         await git.raw([
           "-c",
@@ -1689,7 +1736,15 @@ export class LocalChangeRequestManager {
           `Merge ${record.title} (approved by ${intent.by})`,
         ]);
       } catch (error) {
-        await git.merge(["--abort"]).catch(() => undefined);
+        try {
+          await this.#restoreBaseAfterFailedMerge(git, intent);
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            "The local merge failed and its exact reviewed merge commit could not be restored to the authorized base HEAD.",
+            { cause: rollbackError },
+          );
+        }
         throw new ChangeRequestBlockedError(
           `The local merge did not apply cleanly: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -1744,6 +1799,31 @@ export class LocalChangeRequestManager {
     ) {
       throw new ChangeRequestBlockedError(
         "HEAD is not the exact reviewed merge described by the durable merge intent.",
+      );
+    }
+    const resultTreeSha = (
+      await simpleGit(this.repoRoot).raw(["show", "-s", "--format=%T", headSha])
+    ).trim();
+    if (resultTreeSha !== intent.expectedResultTreeSha) {
+      throw new ChangeRequestBlockedError(
+        "HEAD has the authorized merge parents but not the independently reviewed result tree.",
+      );
+    }
+  }
+
+  async #restoreBaseAfterFailedMerge(
+    git: ReturnType<typeof simpleGit>,
+    intent: z.infer<typeof mergeIntentSchema>,
+  ): Promise<void> {
+    await git.merge(["--abort"]).catch(() => undefined);
+    const failedHead = (await git.revparse(["HEAD"])).trim();
+    if (failedHead === intent.baseHeadSha) return;
+    await this.#assertExactMergeCommit(intent, failedHead);
+    await git.raw(["reset", "--merge", intent.baseHeadSha]);
+    const restoredHead = (await git.revparse(["HEAD"])).trim();
+    if (restoredHead !== intent.baseHeadSha) {
+      throw new ChangeRequestBlockedError(
+        "The failed reviewed merge did not restore the exact authorized base HEAD.",
       );
     }
   }

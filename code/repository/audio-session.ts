@@ -24,11 +24,21 @@ const chunkSchema = z.object({
   mimeType: z.string().min(1),
   bytes: z.number().int().nonnegative(),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  fileIdentity: z
+    .object({
+      device: z.number().int().nonnegative(),
+      inode: z.number().int().nonnegative(),
+    })
+    .optional(),
   acknowledgedAt: z.string().datetime({ offset: true }),
 });
 
+const pendingAppendSchema = z.object({
+  operationId: z.string().regex(/^[0-9a-f]{64}$/u),
+});
+
 const audioSessionSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   id: IdSchemas.audioSession,
   questionId: IdSchemas.question,
   state: z.enum(["recording", "finalizing", "complete", "failed"]),
@@ -37,6 +47,7 @@ const audioSessionSchema = z.object({
   nextSequence: z.number().int().nonnegative(),
   chunks: z.array(chunkSchema),
   rawRetained: z.boolean(),
+  pendingAppend: pendingAppendSchema.optional(),
   output: z
     .object({
       path: z.string().min(1),
@@ -53,6 +64,24 @@ const audioSessionSchema = z.object({
       at: z.string().datetime({ offset: true }),
     })
     .optional(),
+});
+
+const legacyAudioSessionSchema = audioSessionSchema.extend({
+  schemaVersion: z.literal(1),
+  pendingAppend: z.undefined().optional(),
+});
+
+const appendIntentBodySchema = z.object({
+  schemaVersion: z.literal(2),
+  operationId: z.string().regex(/^[0-9a-f]{64}$/u),
+  sessionId: IdSchemas.audioSession,
+  prior: audioSessionSchema,
+  published: audioSessionSchema,
+  committed: audioSessionSchema,
+});
+
+const appendIntentSchema = appendIntentBodySchema.extend({
+  integritySha256: z.string().regex(/^[0-9a-f]{64}$/u),
 });
 
 export type AudioSessionRecord = z.infer<typeof audioSessionSchema>;
@@ -124,6 +153,27 @@ function checksum(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function appendOperationId(
+  sessionId: string,
+  prior: AudioSessionRecord,
+  chunk: AudioSessionRecord["chunks"][number],
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({ schemaVersion: 2, sessionId, prior, chunk }),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+function appendIntentIntegrity(
+  intent: z.infer<typeof appendIntentBodySchema>,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify(intent), "utf8")
+    .digest("hex");
+}
+
 async function durableExclusiveWrite(
   path: string,
   bytes: Uint8Array,
@@ -168,7 +218,9 @@ async function openStableRegularFileNoFollow(
   onOpened?: (path: string) => void | Promise<void>,
 ): Promise<{
   bytes: Buffer;
+  identity: { device: number; inode: number };
   verifyPathAndBytes: () => Promise<void>;
+  verifyFinalPath: () => Promise<void>;
   close: () => Promise<void>;
 }> {
   let file;
@@ -212,8 +264,33 @@ async function openStableRegularFileNoFollow(
         "Existing audio chunk changed while recovery was reading it.",
       );
     }
+    const verifyFinalPath = async () => {
+      const finalDescriptor = await file.stat();
+      if (
+        !finalDescriptor.isFile() ||
+        finalDescriptor.dev !== opened.dev ||
+        finalDescriptor.ino !== opened.ino ||
+        finalDescriptor.size !== bytes.byteLength
+      ) {
+        throw new Error(
+          "Existing audio chunk pathname was replaced during the final recovery read.",
+        );
+      }
+      const finalVisible = await lstat(path);
+      if (
+        !finalVisible.isFile() ||
+        finalVisible.dev !== opened.dev ||
+        finalVisible.ino !== opened.ino ||
+        finalVisible.size !== bytes.byteLength
+      ) {
+        throw new Error(
+          "Existing audio chunk pathname was replaced during the final recovery read.",
+        );
+      }
+    };
     return {
       bytes,
+      identity: { device: opened.dev, inode: opened.ino },
       async verifyPathAndBytes() {
         const [visible, descriptor] = await Promise.all([
           lstat(path),
@@ -238,25 +315,9 @@ async function openStableRegularFileNoFollow(
             "Existing audio chunk bytes changed during metadata publication.",
           );
         }
-        const [finalVisible, finalDescriptor] = await Promise.all([
-          lstat(path),
-          file.stat(),
-        ]);
-        if (
-          !finalVisible.isFile() ||
-          finalVisible.dev !== opened.dev ||
-          finalVisible.ino !== opened.ino ||
-          finalVisible.size !== bytes.byteLength ||
-          !finalDescriptor.isFile() ||
-          finalDescriptor.dev !== opened.dev ||
-          finalDescriptor.ino !== opened.ino ||
-          finalDescriptor.size !== bytes.byteLength
-        ) {
-          throw new Error(
-            "Existing audio chunk pathname was replaced during the final recovery read.",
-          );
-        }
+        await verifyFinalPath();
       },
+      verifyFinalPath,
       async close() {
         await file.close();
       },
@@ -320,7 +381,7 @@ export class FileAudioSessionStore {
     await mkdir(directory, { recursive: true });
     const at = this.#now();
     const record = audioSessionSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       id,
       questionId,
       state: "recording",
@@ -354,7 +415,14 @@ export class FileAudioSessionStore {
   async get(sessionId: string): Promise<AudioSessionRecord> {
     const id = IdSchemas.audioSession.parse(sessionId);
     const directory = await this.#findDirectory(id);
-    return this.#read(directory, id);
+    return this.#locked(directory, async () => {
+      await this.#reconcileAppendIntent(directory, id);
+      const record = await this.#read(directory, id);
+      if (record.rawRetained) {
+        await this.#verifyChunks(directory, record);
+      }
+      return record;
+    });
   }
 
   async appendChunk(
@@ -364,6 +432,7 @@ export class FileAudioSessionStore {
     const id = IdSchemas.audioSession.parse(sessionId);
     const directory = await this.#findDirectory(id);
     return this.#locked(directory, async () => {
+      await this.#reconcileAppendIntent(directory, id);
       const record = await this.#read(directory, id);
       if (record.state !== "recording")
         throw new AudioSessionStateError(record.state, "append to");
@@ -377,6 +446,7 @@ export class FileAudioSessionStore {
           prior.sha256 === digest &&
           prior.bytes === input.bytes.byteLength
         ) {
+          await this.#verifyChunk(directory, prior);
           return {
             sequence: prior.sequence,
             bytes: prior.bytes,
@@ -430,19 +500,48 @@ export class FileAudioSessionStore {
           mimeType: input.mimeType,
           bytes: input.bytes.byteLength,
           sha256: digest,
+          fileIdentity: opened.identity,
           acknowledgedAt: at,
         };
-        await this.#write(directory, {
+        const operationId = appendOperationId(id, record, chunk);
+        const published = audioSessionSchema.parse({
           ...record,
           updatedAt: at,
           nextSequence: record.nextSequence + 1,
           chunks: [...record.chunks, chunk],
+          pendingAppend: { operationId },
         });
+        const committed = audioSessionSchema.parse({
+          ...published,
+          pendingAppend: undefined,
+        });
+        const intentBody = appendIntentBodySchema.parse({
+          schemaVersion: 2,
+          operationId,
+          sessionId: id,
+          prior: record,
+          published,
+          committed,
+        });
+        const intent = appendIntentSchema.parse({
+          ...intentBody,
+          integritySha256: appendIntentIntegrity(intentBody),
+        });
+        const intentPath = join(directory, "append-intent.json");
+        await durableExclusiveWrite(
+          intentPath,
+          new TextEncoder().encode(`${JSON.stringify(intent, null, 2)}\n`),
+        );
+        await this.#write(directory, published);
         try {
           await opened.verifyPathAndBytes();
+          await this.#write(directory, committed);
+          await rm(intentPath);
+          await opened.verifyFinalPath();
         } catch (error) {
           try {
             await this.#write(directory, record);
+            await rm(intentPath, { force: true });
           } catch (rollbackError) {
             throw new AggregateError(
               [error, rollbackError],
@@ -471,6 +570,7 @@ export class FileAudioSessionStore {
     const id = IdSchemas.audioSession.parse(sessionId);
     const directory = await this.#findDirectory(id);
     return this.#locked(directory, async () => {
+      await this.#reconcileAppendIntent(directory, id);
       let record = await this.#read(directory, id);
       if (record.state === "complete") return record;
       if (
@@ -608,28 +708,208 @@ export class FileAudioSessionStore {
     record: AudioSessionRecord,
   ): Promise<void> {
     for (const chunk of record.chunks) {
-      const bytes = await readFile(join(directory, chunk.path));
+      await this.#verifyChunk(directory, chunk);
+    }
+  }
+
+  async #verifyChunk(
+    directory: string,
+    chunk: AudioSessionRecord["chunks"][number],
+  ): Promise<void> {
+    const opened = await openStableRegularFileNoFollow(
+      join(directory, chunk.path),
+    );
+    try {
       if (
-        bytes.byteLength !== chunk.bytes ||
-        checksum(bytes) !== chunk.sha256
+        !chunk.fileIdentity ||
+        opened.identity.device !== chunk.fileIdentity.device ||
+        opened.identity.inode !== chunk.fileIdentity.inode ||
+        opened.bytes.byteLength !== chunk.bytes ||
+        checksum(opened.bytes) !== chunk.sha256
       ) {
         throw new Error(
-          `Audio chunk ${chunk.sequence} failed integrity verification.`,
+          `Audio chunk ${chunk.sequence} failed pathname, inode, or digest integrity verification.`,
         );
       }
+      await opened.verifyPathAndBytes();
+    } finally {
+      await opened.close();
     }
+  }
+
+  async #reconcileAppendIntent(
+    directory: string,
+    expectedId: string,
+  ): Promise<void> {
+    const intentPath = join(directory, "append-intent.json");
+    let journal;
+    try {
+      journal = await openStableRegularFileNoFollow(intentPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    let rawIntent: string;
+    try {
+      await journal.verifyPathAndBytes();
+      rawIntent = journal.bytes.toString("utf8");
+    } finally {
+      await journal.close();
+    }
+    const intent = appendIntentSchema.parse(JSON.parse(rawIntent));
+    const { integritySha256, ...intentBodyCandidate } = intent;
+    const intentBody = appendIntentBodySchema.parse(intentBodyCandidate);
+    const expectedCommitted = audioSessionSchema.parse({
+      ...intent.published,
+      pendingAppend: undefined,
+    });
+    const publishedChunk = intent.published.chunks.at(-1);
+    if (
+      !publishedChunk ||
+      integritySha256 !== appendIntentIntegrity(intentBody) ||
+      intent.sessionId !== expectedId ||
+      intent.operationId !== intent.published.pendingAppend?.operationId ||
+      intent.operationId !==
+        appendOperationId(expectedId, intent.prior, publishedChunk) ||
+      intent.prior.id !== expectedId ||
+      intent.published.id !== expectedId ||
+      intent.committed.id !== expectedId ||
+      intent.prior.state !== "recording" ||
+      intent.published.state !== "recording" ||
+      intent.committed.state !== "recording" ||
+      intent.prior.pendingAppend !== undefined ||
+      intent.committed.pendingAppend !== undefined ||
+      intent.published.nextSequence !== intent.prior.nextSequence + 1 ||
+      intent.published.chunks.length !== intent.prior.chunks.length + 1 ||
+      JSON.stringify(intent.published.chunks.slice(0, -1)) !==
+        JSON.stringify(intent.prior.chunks) ||
+      JSON.stringify(intent.committed) !== JSON.stringify(expectedCommitted)
+    ) {
+      throw new Error(
+        `Audio append intent for ${expectedId} has an invalid publication relationship.`,
+      );
+    }
+    const current = await this.#read(directory, expectedId, {
+      allowPendingAppend: true,
+    });
+    if (JSON.stringify(current) === JSON.stringify(intent.prior)) {
+      await rm(intentPath);
+      return;
+    }
+    if (JSON.stringify(current) === JSON.stringify(intent.committed)) {
+      await rm(intentPath);
+      return;
+    }
+    if (JSON.stringify(current) !== JSON.stringify(intent.published)) {
+      throw new Error(
+        `Audio append intent for ${expectedId} does not match current metadata.`,
+      );
+    }
+    try {
+      await this.#verifyChunk(directory, publishedChunk);
+      await this.#write(directory, intent.committed);
+    } catch (error) {
+      await this.#write(directory, intent.prior);
+      await rm(intentPath);
+      throw new Error(
+        `Audio chunk ${publishedChunk.sequence} failed recovery integrity validation; its published acknowledgement was rolled back.`,
+        { cause: error },
+      );
+    }
+    await rm(intentPath);
   }
 
   async #read(
     directory: string,
     expectedId?: string,
+    options: { allowPendingAppend?: boolean } = {},
   ): Promise<AudioSessionRecord> {
-    const record = audioSessionSchema.parse(
-      JSON.parse(await readFile(join(directory, "session.json"), "utf8")),
-    );
+    const metadataPath = join(directory, "session.json");
+    const candidate = JSON.parse(await readFile(metadataPath, "utf8")) as {
+      schemaVersion?: unknown;
+    };
+    if (candidate.schemaVersion === 1) {
+      const legacy = legacyAudioSessionSchema.parse(candidate);
+      if (expectedId && legacy.id !== expectedId) {
+        throw new Error(
+          `Audio session record ${legacy.id} does not match requested ID ${expectedId}.`,
+        );
+      }
+      const openedChunks: Array<
+        Awaited<ReturnType<typeof openStableRegularFileNoFollow>>
+      > = [];
+      try {
+        const chunks = [];
+        for (const chunk of legacy.chunks) {
+          if (!legacy.rawRetained) {
+            chunks.push(chunk);
+            continue;
+          }
+          const opened = await openStableRegularFileNoFollow(
+            join(directory, chunk.path),
+          );
+          openedChunks.push(opened);
+          if (
+            opened.bytes.byteLength !== chunk.bytes ||
+            checksum(opened.bytes) !== chunk.sha256
+          ) {
+            throw new Error(
+              `Legacy audio chunk ${chunk.sequence} failed size or digest validation during schema migration.`,
+            );
+          }
+          await opened.verifyPathAndBytes();
+          chunks.push({ ...chunk, fileIdentity: opened.identity });
+        }
+        const migrated = audioSessionSchema.parse({
+          ...legacy,
+          schemaVersion: 2,
+          chunks,
+        });
+        await this.#metadataWriter(
+          metadataPath,
+          `${JSON.stringify(migrated, null, 2)}\n`,
+        );
+        try {
+          for (const opened of openedChunks) {
+            await opened.verifyPathAndBytes();
+          }
+        } catch (error) {
+          try {
+            await this.#metadataWriter(
+              metadataPath,
+              `${JSON.stringify(legacy, null, 2)}\n`,
+            );
+          } catch (rollbackError) {
+            throw new AggregateError(
+              [error, rollbackError],
+              "Legacy audio migration validation raced with pathname replacement and metadata rollback also failed.",
+              { cause: rollbackError },
+            );
+          }
+          throw error;
+        }
+        return migrated;
+      } finally {
+        await Promise.all(openedChunks.map((opened) => opened.close()));
+      }
+    }
+    const record = audioSessionSchema.parse(candidate);
     if (expectedId && record.id !== expectedId) {
       throw new Error(
         `Audio session record ${record.id} does not match requested ID ${expectedId}.`,
+      );
+    }
+    if (
+      record.rawRetained &&
+      record.chunks.some((chunk) => chunk.fileIdentity === undefined)
+    ) {
+      throw new Error(
+        `Audio session ${record.id} retains raw chunks without stable file identities.`,
+      );
+    }
+    if (record.pendingAppend && options.allowPendingAppend !== true) {
+      throw new Error(
+        `Audio session ${record.id} has pending append metadata without a matching recoverable journal.`,
       );
     }
     return record;

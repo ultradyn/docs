@@ -190,6 +190,176 @@ const IGNORED_SOURCE_DIRECTORIES = new Set([
   "target",
   "test-results",
 ]);
+const MAX_VISIBLE_RECOVERY_CLAIMS = 64;
+
+async function claimVisibleRecoveryPath(input: {
+  sourcePath: string;
+  directory: string;
+  name: string;
+  identity: { dev: number; ino: number };
+  token: string;
+}): Promise<string> {
+  const recoveryBase = path.join(
+    input.directory,
+    `${input.name.replace(/^\./u, "")}.ultradyn-recovery-${input.identity.dev.toString(16)}-${input.identity.ino.toString(16)}`,
+  );
+  for (let attempt = 0; attempt < MAX_VISIBLE_RECOVERY_CLAIMS; attempt += 1) {
+    const candidate =
+      attempt === 0
+        ? recoveryBase
+        : `${recoveryBase}-conflict-${input.token}${attempt === 1 ? "" : `-${attempt}`}`;
+    try {
+      await link(input.sourcePath, candidate);
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
+      try {
+        const existing = await lstat(candidate);
+        if (
+          existing.dev === input.identity.dev &&
+          existing.ino === input.identity.ino
+        ) {
+          return candidate;
+        }
+      } catch (inspectionError) {
+        if (
+          !isNodeError(inspectionError) ||
+          inspectionError.code !== "ENOENT"
+        ) {
+          throw inspectionError;
+        }
+      }
+      continue;
+    }
+    const claimed = await lstat(candidate);
+    if (
+      claimed.dev === input.identity.dev &&
+      claimed.ino === input.identity.ino
+    ) {
+      return candidate;
+    }
+  }
+  throw new Error(
+    `The installer could not claim a visible recovery path after ${MAX_VISIBLE_RECOVERY_CLAIMS} exclusive attempts; the owner file remains unchanged at ${input.sourcePath}.`,
+  );
+}
+
+async function recoverDisplacedOwnerAfterFailure(input: {
+  filePath: string;
+  previousPath: string;
+  replacementPath: string;
+  directory: string;
+  name: string;
+  identity: { dev: number; ino: number };
+  replacementIdentity: { dev: number; ino: number };
+  token: string;
+}): Promise<void> {
+  const displaced = await lstat(input.previousPath);
+  if (
+    displaced.dev !== input.identity.dev ||
+    displaced.ino !== input.identity.ino
+  ) {
+    throw new Error(
+      "The hidden displaced file no longer owns the inode selected for failure recovery.",
+    );
+  }
+  let ownerVisiblePath: string | undefined;
+  let visible: Awaited<ReturnType<typeof lstat>> | undefined;
+  try {
+    visible = await lstat(input.filePath);
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+  }
+  if (
+    visible?.dev === input.identity.dev &&
+    visible.ino === input.identity.ino
+  ) {
+    ownerVisiblePath = input.filePath;
+  } else if (
+    visible?.dev === input.replacementIdentity.dev &&
+    visible.ino === input.replacementIdentity.ino
+  ) {
+    const observedPath = path.join(
+      input.directory,
+      `.${input.name}.ultradyn-cas-${input.token}.failure-observed`,
+    );
+    await rename(input.filePath, observedPath);
+    const observed = await lstat(observedPath);
+    if (
+      observed.dev === input.replacementIdentity.dev &&
+      observed.ino === input.replacementIdentity.ino
+    ) {
+      try {
+        await link(input.previousPath, input.filePath);
+        ownerVisiblePath = input.filePath;
+      } catch (error) {
+        if (!isNodeError(error) || error.code !== "EEXIST") {
+          ownerVisiblePath = await claimVisibleRecoveryPath({
+            sourcePath: input.previousPath,
+            directory: input.directory,
+            name: input.name,
+            identity: input.identity,
+            token: input.token,
+          });
+        }
+      } finally {
+        await rm(observedPath, { force: true });
+      }
+    } else {
+      try {
+        await rename(observedPath, input.filePath);
+      } catch (error) {
+        const preserved = await claimVisibleRecoveryPath({
+          sourcePath: observedPath,
+          directory: input.directory,
+          name: `${input.name.replace(/^\./u, "")}.ultradyn-preserved-${input.token}`,
+          identity: observed,
+          token: input.token,
+        });
+        const displacedPreserved = await claimVisibleRecoveryPath({
+          sourcePath: input.previousPath,
+          directory: input.directory,
+          name: input.name,
+          identity: input.identity,
+          token: input.token,
+        });
+        await rm(input.previousPath);
+        await rm(input.replacementPath, { force: true });
+        await rm(observedPath);
+        throw new Error(
+          `A concurrent owner replaced the published installer file and remains visible at ${input.filePath} or ${preserved}; the displaced owner remains visible at ${displacedPreserved}.`,
+          { cause: error },
+        );
+      }
+    }
+  } else if (!visible) {
+    try {
+      await link(input.previousPath, input.filePath);
+      ownerVisiblePath = input.filePath;
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
+    }
+  }
+  if (!ownerVisiblePath) {
+    ownerVisiblePath = await claimVisibleRecoveryPath({
+      sourcePath: input.previousPath,
+      directory: input.directory,
+      name: input.name,
+      identity: input.identity,
+      token: input.token,
+    });
+  }
+  const visibleOwner = await lstat(ownerVisiblePath);
+  if (
+    visibleOwner.dev !== input.identity.dev ||
+    visibleOwner.ino !== input.identity.ino
+  ) {
+    throw new Error(
+      `The displaced owner inode could not be proved at visible path ${ownerVisiblePath}.`,
+    );
+  }
+  await rm(input.previousPath);
+  await rm(input.replacementPath, { force: true });
+}
 
 export function createNodeFileSystem(
   options: NodeFileSystemOptions = {},
@@ -279,12 +449,23 @@ export function createNodeFileSystem(
           flag: "wx",
           mode,
         });
+        const replacementIdentity = await lstat(replacementPath);
         let replacementLinked = false;
+        let displacedOwnerIdentity: { dev: number; ino: number } | undefined;
         try {
           await options.beforeCompareAndSwapCommit?.({
             filePath,
             expectedContents,
             replacementContents,
+          });
+          const preDisplacementIdentity = await lstat(filePath);
+          displacedOwnerIdentity = preDisplacementIdentity;
+          let recoveryPath = await claimVisibleRecoveryPath({
+            sourcePath: filePath,
+            directory,
+            name,
+            identity: preDisplacementIdentity,
+            token,
           });
           try {
             await rename(filePath, previousPath);
@@ -474,67 +655,67 @@ export function createNodeFileSystem(
             );
           }
           const displacedIdentity = await lstat(previousPath);
-          const recoveryPath = path.join(
+          recoveryPath = await claimVisibleRecoveryPath({
+            sourcePath: previousPath,
             directory,
-            `${name.replace(/^\./u, "")}.ultradyn-recovery-${displacedIdentity.dev.toString(16)}-${displacedIdentity.ino.toString(16)}`,
-          );
-          try {
-            await link(previousPath, recoveryPath);
-          } catch (error) {
-            if (isNodeError(error) && error.code === "EEXIST") {
-              const existingRecovery = await lstat(recoveryPath);
-              if (
-                existingRecovery.dev !== displacedIdentity.dev ||
-                existingRecovery.ino !== displacedIdentity.ino
-              ) {
-                const conflictRecoveryPath = `${recoveryPath}-conflict-${token}`;
-                await link(previousPath, conflictRecoveryPath);
-                const conflictRecovery = await lstat(conflictRecoveryPath);
-                if (
-                  conflictRecovery.dev !== displacedIdentity.dev ||
-                  conflictRecovery.ino !== displacedIdentity.ino
-                ) {
-                  throw new Error(
-                    `The installer could not bind displaced bytes to the visible conflict recovery path ${conflictRecoveryPath}.`,
-                    { cause: error },
-                  );
-                }
-                await rm(previousPath);
-                await rm(replacementPath);
-                replacementLinked = false;
-                throw new Error(
-                  `The deterministic installer recovery path was already owned by another inode; prior bytes remain visible at ${conflictRecoveryPath}.`,
-                  { cause: error },
-                );
-              }
-            } else {
-              throw error;
-            }
-          }
+            name,
+            identity: displacedIdentity,
+            token,
+          });
           const recoveryIdentity = await lstat(recoveryPath);
           if (
             recoveryIdentity.dev !== displacedIdentity.dev ||
             recoveryIdentity.ino !== displacedIdentity.ino
           ) {
-            const conflictRecoveryPath = `${recoveryPath}-conflict-${token}`;
-            await link(previousPath, conflictRecoveryPath);
-            const conflictRecovery = await lstat(conflictRecoveryPath);
-            if (
-              conflictRecovery.dev === displacedIdentity.dev &&
-              conflictRecovery.ino === displacedIdentity.ino
-            ) {
-              await rm(previousPath);
-              await rm(replacementPath);
-              replacementLinked = false;
-            }
             throw new Error(
-              `The installer could not retain displaced bytes at ${recoveryPath}; they remain visible at ${conflictRecoveryPath}.`,
+              `The installer could not retain displaced bytes at the visible recovery path ${recoveryPath}.`,
             );
           }
-          await rm(previousPath);
           await rm(replacementPath);
+          await rm(previousPath);
           replacementLinked = false;
           return true;
+        } catch (error) {
+          let recoveryError: unknown;
+          try {
+            let hiddenOwnerExists = false;
+            try {
+              await lstat(previousPath);
+              hiddenOwnerExists = true;
+            } catch (inspectionError) {
+              if (
+                !isNodeError(inspectionError) ||
+                inspectionError.code !== "ENOENT"
+              ) {
+                throw inspectionError;
+              }
+            }
+            if (hiddenOwnerExists && displacedOwnerIdentity) {
+              await recoverDisplacedOwnerAfterFailure({
+                filePath,
+                previousPath,
+                replacementPath,
+                directory,
+                name,
+                identity: displacedOwnerIdentity,
+                replacementIdentity,
+                token,
+              });
+            } else {
+              await rm(replacementPath, { force: true });
+            }
+            replacementLinked = false;
+          } catch (caughtRecoveryError) {
+            recoveryError = caughtRecoveryError;
+          }
+          if (recoveryError) {
+            throw new AggregateError(
+              [error, recoveryError],
+              "The installer operation failed and its displaced owner could not be made fully visible",
+              { cause: error },
+            );
+          }
+          throw error;
         } finally {
           if (!replacementLinked)
             await rm(replacementPath, { force: true }).catch(() => undefined);

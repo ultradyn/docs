@@ -1766,7 +1766,11 @@ describe("local change request public seam", () => {
         "if $is_merge && $has_no_ff; then",
         `  '${realGit}' -C '${root}' update-ref 'refs/heads/${created.branch}' '${unreviewedHead}' || exit 72`,
         "  for argument do",
-        `    [ "$argument" = '${created.headSha}' ] && exit 73`,
+        `    if [ "$argument" = '${created.headSha}' ]; then`,
+        `      '${realGit}' "$@" || exit $?`,
+        "      echo 'simulated failure after reviewed merge commit' >&2",
+        "      exit 73",
+        "    fi",
         "  done",
         "fi",
         `exec '${realGit}' "$@"`,
@@ -1790,8 +1794,9 @@ describe("local change request public seam", () => {
     }
 
     expect((await git.revparse(["HEAD"])).trim()).toBe(baseHead);
-    await expect(readFile(join(root, "docs", "answers", `${questionId}.md`), "utf8"))
-      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(join(root, "docs", "answers", `${questionId}.md`), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     expect((await git.revparse([created.branch])).trim()).toBe(unreviewedHead);
   });
 
@@ -1861,9 +1866,26 @@ describe("local change request public seam", () => {
       mergeIntent: {
         baseHeadSha: created.baseSha,
         branchHeadSha: created.headSha,
+        expectedResultTreeSha: expect.stringMatching(/^[0-9a-f]{40,64}$/u),
         authorizationSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
       },
     });
+
+    const worktreeGit = simpleGit(created.worktreePath);
+    await writeFile(
+      join(
+        created.worktreePath,
+        "docs",
+        "answers",
+        "q-01J00000000000000000000012.md",
+      ),
+      "UNREVIEWED DESCENDANT MUST NOT AFFECT COMPLETED MERGE RECOVERY\n",
+    );
+    await worktreeGit.add("docs/answers/q-01J00000000000000000000012.md");
+    await worktreeGit.commit("Move attempt branch after reviewed merge");
+    expect((await worktreeGit.revparse(["HEAD"])).trim()).not.toBe(
+      created.headSha,
+    );
 
     const restarted = new LocalChangeRequestManager({
       repoRoot: root,
@@ -1882,6 +1904,98 @@ describe("local change request public seam", () => {
         "utf8",
       ),
     ).resolves.toContain("durable merge intent");
+  });
+
+  it("rejects an authorized-parent merge commit with an unreviewed result tree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-merge-tree-forgery-"));
+    const dataRoot = await mkdtemp(
+      join(tmpdir(), "ultradyn-merge-tree-forgery-state-"),
+    );
+    await mkdir(join(root, "docs"), { recursive: true });
+    await writeFile(join(root, "docs", "_map.md"), "# Documentation map\n");
+    const git = simpleGit(root);
+    await git.init(["--initial-branch=main"]);
+    await git.addConfig("user.name", "Ultradyn Test");
+    await git.addConfig("user.email", "test@ultradyn.invalid");
+    await git.add("docs/_map.md");
+    await git.commit("Initial documentation");
+    let failMergedMetadata = true;
+    const manager = new LocalChangeRequestManager({
+      repoRoot: root,
+      dataRoot,
+      metadataWriter: async (path, contents) => {
+        const snapshot = JSON.parse(contents) as { state: string };
+        if (snapshot.state === "merged" && failMergedMetadata) {
+          failMergedMetadata = false;
+          throw new Error("simulated merged metadata failure");
+        }
+        await writeFile(path, contents, "utf8");
+      },
+    });
+    const created = await manager.create({
+      questionId: "q-01J00000000000000000000034",
+      title: "Which merge result was authorized?",
+      question:
+        "Can authorized parent commits conceal an unreviewed merge result tree?",
+      verbatimChat:
+        "The reviewed merge result must be bound before Git mutation.",
+      goals: ["security-review"],
+      structuredAnswer:
+        "Reconciliation verifies the independently calculated result tree as well as both authorized parents.",
+    });
+    await passActualDiffChecks(manager, created.id, created.goals);
+    await manager.approve(created.id, { by: "max", kind: "maintainer" });
+    await expect(manager.merge(created.id, { by: "max" })).rejects.toThrow(
+      /simulated merged metadata failure/i,
+    );
+
+    const intentRecord = await manager.get(created.id);
+    expect(intentRecord).toMatchObject({
+      state: "approved",
+      mergeIntent: {
+        baseHeadSha: created.baseSha,
+        branchHeadSha: created.headSha,
+      },
+    });
+    if (!intentRecord?.mergeIntent) {
+      throw new Error(
+        "Expected the failed merge to retain its durable intent.",
+      );
+    }
+    await writeFile(
+      join(root, "docs", "unreviewed-extra.md"),
+      "forged bytes\n",
+    );
+    await git.add("docs/unreviewed-extra.md");
+    const forgedTree = (await git.raw(["write-tree"])).trim();
+    await git.raw(["reset", "--mixed", "HEAD"]);
+    const forgedMerge = (
+      await git.raw([
+        "commit-tree",
+        forgedTree,
+        "-p",
+        intentRecord.mergeIntent.baseHeadSha,
+        "-p",
+        intentRecord.mergeIntent.branchHeadSha,
+        "-m",
+        "Forged merge with authorized parents",
+      ])
+    ).trim();
+    await git.raw(["update-ref", "refs/heads/main", forgedMerge]);
+
+    const restarted = new LocalChangeRequestManager({
+      repoRoot: root,
+      dataRoot,
+    });
+    await expect(restarted.merge(created.id, { by: "max" })).rejects.toThrow(
+      /tree|reviewed merge|exact/i,
+    );
+    await expect(restarted.get(created.id)).resolves.toMatchObject({
+      state: "approved",
+      mergeIntent: expect.any(Object),
+    });
+    await expect(access(created.worktreePath)).resolves.toBeUndefined();
+    expect((await git.revparse(["HEAD"])).trim()).toBe(forgedMerge);
   });
 
   it("resumes verified worktree cleanup after merged metadata is durable", async () => {
