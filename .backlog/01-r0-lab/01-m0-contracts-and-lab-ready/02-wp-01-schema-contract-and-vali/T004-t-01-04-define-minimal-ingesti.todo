@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-18T10:11:27Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-18T10:23:53Z"
 complexity: low
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P1.M1.E2.T003
+duration_minutes: 12.439403119916667
 estimate_hours: 2
 id: P1.M1.E2.T004
 priority: critical
 started_at: "2026-07-18T10:11:27Z"
-status: in_progress
+status: done
 tags: []
 title: T-01-04 — Define minimal ingestion policy-profile contract
-updated_at: "2026-07-18T10:11:27Z"
+updated_at: "2026-07-18T10:23:53Z"
 ---
 Bundle provenance: WP-01 / T-01-04
 

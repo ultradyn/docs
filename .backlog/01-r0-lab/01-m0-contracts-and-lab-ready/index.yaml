@@ -18,7 +18,7 @@ epics:
       locked: false
       name: WP-01 — Schema, contract, and validation toolchain
       path: 02-wp-01-schema-contract-and-vali
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-02. Create the test harness and labeled corpora before agent quality is optimized. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-02 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
