@@ -5,11 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
-import {
-  INGEST_ROLE_TOOL_ALLOWLIST,
-  type IngestAgentManifest,
-  validateIngestManifests,
-} from "./index.js";
+import { type IngestAgentManifest, validateIngestManifests } from "./index.js";
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -20,36 +16,42 @@ const validManifests = [
   {
     role: "researcher",
     outputSchema: "EvidencePacket",
-    tools: INGEST_ROLE_TOOL_ALLOWLIST.researcher,
-    freshContext: false,
+    tools: [
+      "source.exact",
+      "source.maps",
+      "source.lexical",
+      "source.open_unit",
+      "source.follow_links",
+    ],
+    freshContext: true,
     next: ["evidence-critic"],
   },
   {
     role: "evidence-critic",
     outputSchema: "EvidenceVerdict",
-    tools: INGEST_ROLE_TOOL_ALLOWLIST["evidence-critic"],
+    tools: ["source.open_reference", "source.open_reference_context"],
     freshContext: true,
     next: ["claim-extractor"],
   },
   {
     role: "claim-extractor",
     outputSchema: "Claim",
-    tools: INGEST_ROLE_TOOL_ALLOWLIST["claim-extractor"],
-    freshContext: false,
+    tools: ["source.open_reference"],
+    freshContext: true,
     next: ["claim-reviewer"],
   },
   {
     role: "claim-reviewer",
     outputSchema: "ClaimReview",
-    tools: INGEST_ROLE_TOOL_ALLOWLIST["claim-reviewer"],
+    tools: ["source.open_reference", "claim.find_candidates"],
     freshContext: true,
     next: ["answer-composer"],
   },
   {
     role: "answer-composer",
     outputSchema: "AnswerComposition",
-    tools: INGEST_ROLE_TOOL_ALLOWLIST["answer-composer"],
-    freshContext: false,
+    tools: [],
+    freshContext: true,
     next: [],
   },
 ] as const satisfies readonly IngestAgentManifest[];
@@ -102,6 +104,30 @@ describe("ingestion manifest validation public seam", () => {
       ok: false,
       code,
     });
+  });
+
+  it.each(["researcher", "claim-extractor", "answer-composer"] as const)(
+    "rejects false freshness for %s",
+    (role) => {
+      const current = validManifests.find((manifest) => manifest.role === role);
+      expect(current).toBeDefined();
+      expect(
+        validateIngestManifests(
+          replaceManifest(role, { ...current!, freshContext: false }),
+        ),
+      ).toMatchObject({ ok: false, code: "EVALUATOR_NOT_FRESH" });
+    },
+  );
+
+  it("rejects answer.format for Answer Composer", () => {
+    expect(
+      validateIngestManifests(
+        replaceManifest("answer-composer", {
+          ...validManifests[4],
+          tools: ["answer.format"],
+        }),
+      ),
+    ).toMatchObject({ ok: false, code: "TOOL_DENIED" });
   });
 
   it("accepts the exact ingestion roles when every successor reaches the terminal state", () => {

@@ -45,7 +45,7 @@ export const INGEST_ROLE_TOOL_ALLOWLIST = {
   "evidence-critic": ["source.open_reference", "source.open_reference_context"],
   "claim-extractor": ["source.open_reference"],
   "claim-reviewer": ["source.open_reference", "claim.find_candidates"],
-  "answer-composer": ["answer.format"],
+  "answer-composer": [],
 } as const satisfies Record<IngestAgentRole, readonly string[]>;
 
 const successorAllowlist = {
@@ -56,10 +56,6 @@ const successorAllowlist = {
   "answer-composer": [],
 } as const satisfies Record<IngestAgentRole, readonly IngestAgentRole[]>;
 
-const evaluatorRoles = new Set<IngestAgentRole>([
-  "evidence-critic",
-  "claim-reviewer",
-]);
 const terminalRole: IngestAgentRole = "answer-composer";
 
 const manifestInputSchema = z.array(
@@ -119,7 +115,7 @@ export function validateIngestManifests(
   }
 
   for (const manifest of manifests.values()) {
-    if (evaluatorRoles.has(manifest.role) && !manifest.freshContext) {
+    if (!manifest.freshContext) {
       return failure(
         "EVALUATOR_NOT_FRESH",
         `${manifest.role} must run with fresh context.`,

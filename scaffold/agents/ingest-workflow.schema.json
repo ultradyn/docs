@@ -100,7 +100,7 @@
               "const": "researcher"
             },
             "freshContext": {
-              "const": false
+              "const": true
             },
             "tools": {
               "items": {
@@ -169,7 +169,7 @@
               "const": "claim-extractor"
             },
             "freshContext": {
-              "const": false
+              "const": true
             },
             "tools": {
               "items": {
@@ -229,12 +229,10 @@
               "const": "answer-composer"
             },
             "freshContext": {
-              "const": false
+              "const": true
             },
             "tools": {
-              "items": {
-                "const": "answer.format"
-              },
+              "maxItems": 0,
               "type": "array"
             },
             "next": {
