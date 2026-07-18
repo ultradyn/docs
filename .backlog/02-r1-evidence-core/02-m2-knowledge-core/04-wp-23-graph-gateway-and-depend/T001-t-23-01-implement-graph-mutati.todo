@@ -2,7 +2,7 @@
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
-    - P2.M2.E1.T003
+    - P2.M2.E1.T004
     - P2.M2.E2.T003
     - P2.M2.E3.T003
 estimate_hours: 8
@@ -33,3 +33,21 @@ Test surfaces:
 - unit
 - integration
 - recovery
+
+WP-20 integration gate (binding):
+- Caller-supplied links, obligations, admitted questions, and lexical candidates are proposals/routing evidence only; they are never authoritative state.
+- The gateway reads authoritative existing question links, obligation history/current ownership, and admitted generated-question wording from repository seams inside the locked transaction before assessing admission.
+- Generated-question admission and creation is one expected-revision, idempotent transaction: validate the proposal; create the canonical generated QuestionRecord; create its IngestionQuestionLink; create exactly one self-owned unresolved CoverageObligation; append one graph commit. No generated question/link/obligation becomes visible unless the whole transaction commits.
+- Fabricated or omitted caller facts cannot bypass duplicate, novelty, trigger, ownership, or relation checks. Retries return the prior complete result; crashes reconcile the entire operation without partial visible state.
+- Lower-level Question repository, QuestionLinkService, CoverageObligationService, and assessQuestionProposal remain infrastructure/pure contracts, not an exposed automatic-branch creation API.
+
+Additional acceptance criteria:
+- A generated proposal rejected by authoritative admission writes no QuestionRecord, link, obligation, or graph event.
+- Two concurrent generated-create commands at one graph revision yield one complete commit and one stale/idempotent outcome, never a partial branch.
+- A proposal that omits an existing admitted duplicate or supplies a fabricated open obligation is rejected from authoritative repository state.
+- Human QuestionRecord creation remains outside this automatic generated-branch transaction and preserves the canonical lifecycle.
+
+Additional test surfaces:
+- authoritative integration
+- concurrency
+- crash recovery
