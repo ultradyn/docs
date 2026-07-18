@@ -33,6 +33,53 @@ async function reportWith(
   return validateIngestBundle(root);
 }
 
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function serialize(value: unknown) {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function currentSourceFileRecord() {
+  const logicalPath = "docs/readme.md";
+  const mediaType = "text/markdown";
+  const bytes = "x";
+  const fileSha256 = sha256(bytes);
+  const packageSha256 = sha256("integration source package");
+  const contentSha256 = sha256(
+    serialize({
+      schemaVersion: 1,
+      packageSha256,
+      policyId: "policy-01",
+      files: [
+        {
+          schemaVersion: 1,
+          logicalPath,
+          mediaType,
+          size: Buffer.byteLength(bytes),
+          sha256: fileSha256,
+        },
+      ],
+      exclusions: [],
+      qualified: true,
+    }),
+  );
+  const snapshotId = `snap-${contentSha256}`;
+  const identity = {
+    schemaVersion: 1 as const,
+    snapshotId,
+    logicalPath,
+    mediaType,
+    size: Buffer.byteLength(bytes),
+    sha256: fileSha256,
+  };
+  return {
+    ...identity,
+    id: `file-${sha256(serialize(identity))}`,
+  };
+}
+
 describe("curated ingestion bundle validation", () => {
   it("produces byte-identical reports from the committed clean fixture", async () => {
     const root = await fixture("valid");
@@ -181,19 +228,33 @@ describe("curated ingestion bundle validation", () => {
         {
           schemaName: "SourceFile",
           version: 1,
-          value: {
-            schemaVersion: 1,
-            id: "sf-01",
-            snapshotId: "snap-01",
-            logicalPath: "docs/readme.md",
-            mediaType: "text/markdown",
-            size: 1,
-            sha256: "a".repeat(64),
-          },
+          value: currentSourceFileRecord(),
         },
       ]),
     );
     expect(report).toMatchObject({ ok: true, schemaErrors: [] });
+  });
+
+  it.each([
+    ["source file", { id: "sf-01" }],
+    ["snapshot", { snapshotId: "snap-01" }],
+  ])("rejects a legacy placeholder %s ID", async (_, legacyId) => {
+    const report = await reportWith(
+      await emptyFixture(),
+      "records.json",
+      JSON.stringify([
+        {
+          schemaName: "SourceFile",
+          version: 1,
+          value: { ...currentSourceFileRecord(), ...legacyId },
+        },
+      ]),
+    );
+    expect(report.ok).toBe(false);
+    expect(report.schemaErrors.length).toBeGreaterThan(0);
+    expect(
+      report.schemaErrors.every((error) => error.startsWith("records.json[0]")),
+    ).toBe(true);
   });
 
   it("validates optional records with the curated record validator", async () => {

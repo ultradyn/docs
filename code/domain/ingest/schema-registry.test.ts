@@ -7,8 +7,8 @@ import {
 describe("ingestion schema registry", () => {
   const sourceFile = {
     schemaVersion: 1,
-    id: "sf-01",
-    snapshotId: "snap-01",
+    id: `file-${"d".repeat(64)}`,
+    snapshotId: `snap-${"c".repeat(64)}`,
     logicalPath: "docs/guide.md",
     mediaType: "text/markdown",
     size: 12,
@@ -31,10 +31,12 @@ describe("ingestion schema registry", () => {
   it("returns exact validation paths for malformed strict records", () => {
     const result = validateIngestRecord("SourceSnapshot", 1, {
       schemaVersion: 1,
-      id: "snap-01",
+      id: `snap-${"c".repeat(64)}`,
       packageSha256: "b".repeat(64),
+      contentSha256: "c".repeat(64),
       policyId: "policy-01",
       files: [{ ...sourceFile, sha256: "a".repeat(63) }],
+      exclusions: [],
       qualified: true,
       unexpected: true,
     });

@@ -4,17 +4,27 @@ import {
   type ReplayReceipt,
   type Sha256,
   type SnapshotId,
+  type SourceExclusion,
   type SourceFile,
   type SourceFileId,
+  SourceSnapshotSchema,
   type SourceSnapshot,
 } from "../../domain/ingest/index.js";
+import { z } from "zod";
 import type { PreflightManifest } from "./preflight.js";
 
-/** Append is atomic, append-only, and publishes no bytes when it rejects. */
+export type StageWriteOutcome = "written" | "identical" | "conflict";
+export type PublishOutcome = "published" | "conflict";
+
+/**
+ * Staging writes are append-only. publish atomically and exclusively exposes a
+ * fully-synced staged artifact at its final path.
+ */
 export interface RawArtifactStore {
   read(path: string): Promise<Uint8Array | undefined>;
-  append(path: string, bytes: Uint8Array): Promise<void>;
+  write(path: string, bytes: Uint8Array): Promise<StageWriteOutcome>;
   fsync(path: string): Promise<void>;
+  publish(source: string, finalPath: string): Promise<PublishOutcome>;
 }
 
 export interface HashService {
@@ -53,14 +63,30 @@ interface SnapshotIntent {
   idempotencyKey: Sha256;
   snapshotId: SnapshotId;
   packageSha256: Sha256;
+  contentSha256: Sha256;
   policyId: string;
   files: readonly SourceFile[];
+  exclusions: readonly SourceExclusion[];
 }
 
 class SnapshotConflictError extends Error {}
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
+const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+const sourceFileSchema = SourceSnapshotSchema.shape.files.element;
+const snapshotIntentSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    idempotencyKey: sha256Schema,
+    snapshotId: z.string().min(1),
+    packageSha256: sha256Schema,
+    contentSha256: sha256Schema,
+    policyId: z.string().min(1),
+    files: z.array(sourceFileSchema),
+    exclusions: SourceSnapshotSchema.shape.exclusions,
+  })
+  .strict();
 
 function manifestPath(id: SnapshotId): string {
   return `source-snapshots/${id}/manifest.json`;
@@ -72,6 +98,10 @@ function transactionRoot(idempotencyKey: Sha256): string {
 
 function intentPath(idempotencyKey: Sha256): string {
   return `${transactionRoot(idempotencyKey)}/intent.json`;
+}
+
+function stagedManifestPath(idempotencyKey: Sha256, attemptId: string): string {
+  return `${transactionRoot(idempotencyKey)}/attempts/${attemptId}/manifest.staged.json`;
 }
 
 function packagePath(idempotencyKey: Sha256): string {
@@ -99,47 +129,25 @@ function snapshotFromIntent(intent: SnapshotIntent): SourceSnapshot {
     schemaVersion: 1,
     id: intent.snapshotId,
     packageSha256: intent.packageSha256,
+    contentSha256: intent.contentSha256,
     policyId: intent.policyId,
     files: intent.files,
+    exclusions: intent.exclusions,
     qualified: true,
   };
 }
 
 function parseSnapshot(bytes: Uint8Array): SourceSnapshot {
-  const value = JSON.parse(decoder.decode(bytes)) as Record<string, unknown>;
-  const keys = Object.keys(value).sort().join(",");
-  if (
-    keys !== "files,id,packageSha256,policyId,qualified,schemaVersion" ||
-    value.schemaVersion !== 1 ||
-    typeof value.id !== "string" ||
-    !/^[a-f0-9]{64}$/.test(String(value.packageSha256)) ||
-    typeof value.policyId !== "string" ||
-    value.policyId.length === 0 ||
-    value.qualified !== true ||
-    !Array.isArray(value.files)
-  ) {
+  const parsed = SourceSnapshotSchema.safeParse(
+    JSON.parse(decoder.decode(bytes)),
+  );
+  if (!parsed.success) {
     throw new Error("qualified source snapshot manifest is invalid");
   }
-  for (const file of value.files) {
-    if (
-      typeof file !== "object" ||
-      file === null ||
-      Object.keys(file).sort().join(",") !==
-        "id,logicalPath,mediaType,sha256,size,snapshotId" ||
-      typeof file.id !== "string" ||
-      file.snapshotId !== value.id ||
-      typeof file.logicalPath !== "string" ||
-      file.logicalPath.length === 0 ||
-      typeof file.mediaType !== "string" ||
-      file.mediaType.length === 0 ||
-      !Number.isSafeInteger(file.size) ||
-      Number(file.size) < 0 ||
-      !/^[a-f0-9]{64}$/.test(String(file.sha256))
-    ) {
-      throw new Error("qualified source snapshot manifest has invalid files");
-    }
+  if (parsed.data.files.some((file) => file.snapshotId !== parsed.data.id)) {
+    throw new Error("qualified source snapshot manifest has invalid files");
   }
-  return value as unknown as SourceSnapshot;
+  return parsed.data as unknown as SourceSnapshot;
 }
 
 export class SourceSnapshotService {
@@ -150,6 +158,8 @@ export class SourceSnapshotService {
   constructor(dependencies: SourceSnapshotServiceDependencies) {
     this.#store = dependencies.store;
     this.#hashes = dependencies.hashes;
+    // IDs from this stream name only ephemeral publication attempts. Portable
+    // snapshot and file identities are derived exclusively from bound content.
     this.#ids = dependencies.ids;
   }
 
@@ -211,28 +221,63 @@ export class SourceSnapshotService {
     try {
       let intent = await this.#readIntent(idempotencyKey);
       if (intent === undefined) {
-        const snapshotId = this.#ids.next("artifact") as SnapshotId;
-        const proposed: SnapshotIntent = {
-          schemaVersion: 1,
-          idempotencyKey,
-          snapshotId,
+        const exclusions = input.preflight.entries
+          .filter((entry) => !entry.included)
+          .map(({ logicalPath, mediaType, size, reason }) => ({
+            logicalPath,
+            mediaType,
+            size,
+            reason,
+          }));
+        const contentSha256 = await this.#contentDigest({
           packageSha256: packageDigest,
           policyId: input.policyId,
-          files: verifiedFiles.map((file) => ({
-            id: this.#ids.next("artifact") as SourceFileId,
+          files: verifiedFiles,
+          exclusions,
+        });
+        const snapshotId = `snap-${contentSha256}` as SnapshotId;
+        const files: SourceFile[] = [];
+        for (const file of verifiedFiles) {
+          const identity = {
+            schemaVersion: 1 as const,
             snapshotId,
             logicalPath: file.logicalPath,
             mediaType: file.mediaType,
             size: file.size,
             sha256: file.sha256,
-          })),
+          };
+          const fileIdentitySha256 = await this.#hashes.sha256(
+            serialize(identity),
+          );
+          files.push({
+            schemaVersion: identity.schemaVersion,
+            id: `file-${fileIdentitySha256}` as SourceFileId,
+            snapshotId: identity.snapshotId,
+            logicalPath: identity.logicalPath,
+            mediaType: identity.mediaType,
+            size: identity.size,
+            sha256: identity.sha256,
+          });
+        }
+        const proposed: SnapshotIntent = {
+          schemaVersion: 1,
+          idempotencyKey,
+          snapshotId,
+          packageSha256: packageDigest,
+          contentSha256,
+          policyId: input.policyId,
+          files,
+          exclusions,
         };
         try {
           await this.#appendDurably(
             intentPath(idempotencyKey),
             serialize(proposed),
           );
-          intent = proposed;
+          intent = await this.#readIntent(idempotencyKey);
+          if (intent === undefined || !sameJson(intent, proposed)) {
+            throw new Error("persisted snapshot intent failed verification");
+          }
         } catch (error) {
           if (!(error instanceof SnapshotConflictError)) throw error;
           // A concurrent creator may have won the exclusive append. Adopt its
@@ -247,6 +292,14 @@ export class SourceSnapshotService {
           input.policyId,
           packageDigest,
           verifiedFiles,
+          input.preflight.entries
+            .filter((entry) => !entry.included)
+            .map(({ logicalPath, mediaType, size, reason }) => ({
+              logicalPath,
+              mediaType,
+              size,
+              reason,
+            })),
         )
       ) {
         throw new SnapshotConflictError(
@@ -265,7 +318,6 @@ export class SourceSnapshotService {
             "qualified snapshot manifest conflicts with its transaction intent",
           );
         }
-        await this.#store.fsync(manifestPath(snapshot.id));
         await this.verify(snapshot.id);
         return { ok: true, value: published };
       }
@@ -280,11 +332,60 @@ export class SourceSnapshotService {
           verifiedFiles[index]!.bytes,
         );
       }
+      await this.#verifyPersistedReplay(idempotencyKey, snapshot);
 
-      // The portable manifest is the sole qualification marker. It is appended
-      // only after every transaction byte has been hash-checked and fsynced.
-      await this.#appendDurably(manifestPath(snapshot.id), serialize(snapshot));
-      return { ok: true, value: snapshot };
+      // The portable manifest is the sole qualification marker. Its staged
+      // bytes are durable before one exclusive atomic publication exposes it.
+      const stagedManifest = stagedManifestPath(
+        idempotencyKey,
+        this.#ids.next("artifact"),
+      );
+      const manifestBytes = serialize(snapshot);
+      await this.#appendDurably(stagedManifest, manifestBytes);
+      const persistedManifest = await this.#store.read(stagedManifest);
+      if (
+        persistedManifest === undefined ||
+        (await this.#hashes.sha256(persistedManifest)) !==
+          (await this.#hashes.sha256(manifestBytes)) ||
+        !equalBytes(persistedManifest, manifestBytes) ||
+        !sameJson(parseSnapshot(persistedManifest), snapshot)
+      ) {
+        throw new Error("persisted source manifest failed verification");
+      }
+      let outcome: PublishOutcome;
+      try {
+        outcome = await this.#store.publish(
+          stagedManifest,
+          manifestPath(snapshot.id),
+        );
+      } catch (error) {
+        const publishedBytes = await this.#store.read(
+          manifestPath(snapshot.id),
+        );
+        if (publishedBytes === undefined) throw error;
+        const published = parseSnapshot(publishedBytes);
+        if (!sameJson(published, snapshot)) {
+          throw new SnapshotConflictError(
+            "qualified snapshot manifest conflicts after publication uncertainty",
+          );
+        }
+        await this.verify(snapshot.id);
+        return { ok: true, value: published };
+      }
+      const publishedBytes = await this.#store.read(manifestPath(snapshot.id));
+      if (publishedBytes === undefined) {
+        throw new Error("published snapshot manifest is not readable");
+      }
+      const published = parseSnapshot(publishedBytes);
+      if (!sameJson(published, snapshot)) {
+        throw new SnapshotConflictError(
+          outcome === "conflict"
+            ? "qualified snapshot manifest conflicts with staged snapshot"
+            : "published snapshot manifest conflicts with staged snapshot",
+        );
+      }
+      await this.verify(snapshot.id);
+      return { ok: true, value: published };
     } catch (error) {
       if (error instanceof SnapshotConflictError) {
         return {
@@ -322,6 +423,38 @@ export class SourceSnapshotService {
       !sameJson(snapshot, snapshotFromIntent(intent))
     ) {
       throw new Error(`source snapshot manifest is modified or unbound: ${id}`);
+    }
+    const contentSha256 = await this.#contentDigest({
+      packageSha256: snapshot.packageSha256,
+      policyId: snapshot.policyId,
+      files: snapshot.files,
+      exclusions: snapshot.exclusions,
+    });
+    if (
+      contentSha256 !== snapshot.contentSha256 ||
+      snapshot.id !== `snap-${contentSha256}`
+    ) {
+      throw new Error(`source snapshot content binding is invalid: ${id}`);
+    }
+    for (const file of snapshot.files) {
+      const fileIdentitySha256 = await this.#hashes.sha256(
+        serialize({
+          schemaVersion: file.schemaVersion,
+          snapshotId: snapshot.id,
+          logicalPath: file.logicalPath,
+          mediaType: file.mediaType,
+          size: file.size,
+          sha256: file.sha256,
+        }),
+      );
+      if (
+        file.snapshotId !== snapshot.id ||
+        file.id !== `file-${fileIdentitySha256}`
+      ) {
+        throw new Error(
+          `source snapshot file identity binding is invalid: ${file.logicalPath}`,
+        );
+      }
     }
 
     const packageBytes = await this.#store.read(packagePath(idempotencyKey));
@@ -362,18 +495,63 @@ export class SourceSnapshotService {
   ): Promise<SnapshotIntent | undefined> {
     const bytes = await this.#store.read(intentPath(idempotencyKey));
     if (bytes === undefined) return undefined;
-    const value = JSON.parse(decoder.decode(bytes)) as SnapshotIntent;
+    const parsed = snapshotIntentSchema.safeParse(
+      JSON.parse(decoder.decode(bytes)),
+    );
     if (
-      value.schemaVersion !== 1 ||
-      value.idempotencyKey !== idempotencyKey ||
-      typeof value.snapshotId !== "string" ||
-      typeof value.packageSha256 !== "string" ||
-      typeof value.policyId !== "string" ||
-      !Array.isArray(value.files)
+      !parsed.success ||
+      parsed.data.idempotencyKey !== idempotencyKey ||
+      parsed.data.files.some(
+        (file) => file.snapshotId !== parsed.data.snapshotId,
+      )
     ) {
       throw new SnapshotConflictError("snapshot transaction intent is invalid");
     }
+    const value = parsed.data as unknown as SnapshotIntent;
+    const contentSha256 = await this.#contentDigest({
+      packageSha256: value.packageSha256,
+      policyId: value.policyId,
+      files: value.files,
+      exclusions: value.exclusions,
+    });
+    if (
+      contentSha256 !== value.contentSha256 ||
+      value.snapshotId !== `snap-${contentSha256}`
+    ) {
+      throw new SnapshotConflictError(
+        "snapshot transaction intent has an invalid content binding",
+      );
+    }
     return value;
+  }
+
+  async #contentDigest(value: {
+    packageSha256: Sha256;
+    policyId: string;
+    files: readonly {
+      logicalPath: string;
+      mediaType: string;
+      size: number;
+      sha256: Sha256;
+    }[];
+    exclusions: readonly SourceExclusion[];
+  }): Promise<Sha256> {
+    return this.#hashes.sha256(
+      serialize({
+        schemaVersion: 1,
+        packageSha256: value.packageSha256,
+        policyId: value.policyId,
+        files: value.files.map(({ logicalPath, mediaType, size, sha256 }) => ({
+          schemaVersion: 1,
+          logicalPath,
+          mediaType,
+          size,
+          sha256,
+        })),
+        exclusions: value.exclusions,
+        qualified: true,
+      }),
+    );
   }
 
   #intentMatchesInput(
@@ -386,11 +564,13 @@ export class SourceSnapshotService {
       size: number;
       sha256: Sha256;
     }[],
+    exclusions: readonly SourceExclusion[],
   ): boolean {
     return (
       intent.policyId === policyId &&
       intent.packageSha256 === packageSha256 &&
       intent.files.length === files.length &&
+      sameJson(intent.exclusions, exclusions) &&
       intent.files.every((record, index) => {
         const source = files[index]!;
         return (
@@ -404,6 +584,31 @@ export class SourceSnapshotService {
     );
   }
 
+  async #verifyPersistedReplay(
+    idempotencyKey: Sha256,
+    snapshot: SourceSnapshot,
+  ): Promise<void> {
+    const packageBytes = await this.#store.read(packagePath(idempotencyKey));
+    if (
+      packageBytes === undefined ||
+      (await this.#hashes.sha256(packageBytes)) !== snapshot.packageSha256
+    ) {
+      throw new Error("persisted source package failed verification");
+    }
+    for (const file of snapshot.files) {
+      const bytes = await this.#store.read(filePath(idempotencyKey, file));
+      if (
+        bytes === undefined ||
+        bytes.byteLength !== file.size ||
+        (await this.#hashes.sha256(bytes)) !== file.sha256
+      ) {
+        throw new Error(
+          `persisted source file failed verification: ${file.logicalPath}`,
+        );
+      }
+    }
+  }
+
   async #appendDurably(path: string, bytes: Uint8Array): Promise<void> {
     const existing = await this.#store.read(path);
     if (existing !== undefined) {
@@ -413,7 +618,10 @@ export class SourceSnapshotService {
       await this.#store.fsync(path);
       return;
     }
-    await this.#store.append(path, bytes);
+    const outcome = await this.#store.write(path, bytes);
+    if (outcome === "conflict") {
+      throw new SnapshotConflictError(`append-only conflict at ${path}`);
+    }
     await this.#store.fsync(path);
   }
 }
