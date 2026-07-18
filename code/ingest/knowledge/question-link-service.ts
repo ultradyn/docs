@@ -84,12 +84,13 @@ export function createQuestionLinkService(options: {
 
       // The link records provenance beside the canonical question; it must
       // agree with — never replace — the record's own origin (N6). "reverse"
-      // links may target either kind: reverse-ingested roots are created as
+      // links target canonical raw records: reverse-ingested roots are created as
       // raw records by a system actor.
       const kind = record.origin.kind;
       if (
         (parsed.data.origin === "human" && kind !== "raw") ||
-        (parsed.data.origin === "ingestion-generated" && kind !== "generated")
+        (parsed.data.origin === "ingestion-generated" && kind !== "generated") ||
+        (parsed.data.origin === "reverse" && kind !== "raw")
       ) {
         return failure(
           "ORIGIN_MISMATCH",

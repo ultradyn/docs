@@ -211,6 +211,40 @@ describe("QuestionLinkService", () => {
     if (!result.ok) expect(result.code).toBe("INVALID_LINK");
   });
 
+  it("forbids source-unit provenance on human links", async () => {
+    const service = serviceWith([humanQuestion()]);
+    const result = await service.link({
+      ...humanLinkInput,
+      sourceUnitIds: ["unit-1"],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("INVALID_LINK");
+  });
+
+  it("maps reverse links to canonical raw records only", async () => {
+    const service = serviceWith([humanQuestion(), generatedQuestion()]);
+    const reverseLinkInput = {
+      questionId: HUMAN_QUESTION_ID,
+      snapshotId: "snap-1",
+      origin: "reverse",
+      systemActor: "reverse-ingestor",
+      rawArtifactId: "art-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      generation: 1,
+      sourceUnitIds: ["unit-1"],
+    } as const;
+
+    expect((await service.link(reverseLinkInput)).ok).toBe(true);
+
+    const reverseOnGenerated = await service.link({
+      ...reverseLinkInput,
+      questionId: GENERATED_QUESTION_ID,
+    });
+    expect(reverseOnGenerated.ok).toBe(false);
+    if (!reverseOnGenerated.ok) {
+      expect(reverseOnGenerated.code).toBe("ORIGIN_MISMATCH");
+    }
+  });
+
   it("never mutates the canonical question record", async () => {
     const record = humanQuestion();
     const before = structuredClone(record);

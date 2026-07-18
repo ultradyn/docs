@@ -53,6 +53,13 @@ function refineOrigin(
         message: "Human links are generation 0.",
       });
     }
+    if (link.sourceUnitIds.length > 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["sourceUnitIds"],
+        message: "Human links must not declare source-unit provenance.",
+      });
+    }
     return;
   }
   if (link.systemActor === undefined) {
