@@ -7,7 +7,7 @@ depends_on:
 estimate_hours: 5
 id: P2.M1.E1.T004
 priority: medium
-reason: 'C12 gate: requires the source-custody deletion ADR distinguishing authorised purge from portable append-only history before any deletion implementation starts.'
+reason: 'Destructive deletion gate: requires accepted ADR 0007, Max-ratified D9, and every authority/inventory/graph/invalidation/provider/signer capability with deterministic fakes; acceptance alone unlocks no work.'
 started_at: null
 status: blocked
 tags:
@@ -20,15 +20,16 @@ updated_at: "2026-07-18T08:25:00Z"
 ---
 SYNTHETIC split task (from bundle T-10-03 per DESIGN.md C12): the deletion/purge portion of replay-capsule lifecycle.
 
-Blocked until the C12 ADR (authorised source-custody purge vs portable append-only history) is accepted. No downstream task may depend on this task.
+Blocked as scoped: this task includes destructive implementation and a deletion drill. It may not start until ALL gates hold: ADR 0007 is accepted; Max ratifies D9 retention/legal-hold policy; and every required capability exists with deterministic fake failure cases — graph/validity gateway, invalidation path, provider adapters, certificate signer, DeletionAuthorityVerifier, and revisioned CustodyInventoryAuthority. Acceptance alone unlocks no work. Framework-only work requires a separately scoped non-destructive task. No downstream task may depend on this task.
 
 Deliverables:
-- Deletion receipts and dependency-closure calculation
+- Separate AuthorisedCustodyDeletion capability using PREPARE/EXECUTE/FINALISE durable journal; ordinary custody stores remain deletion-free
+- Versioned signed partial/complete certificate and protected evidence digest over complete expected custody inventory
 - Deletion drill
 
 Acceptance criteria:
-- Deletion requires the accepted C12 ADR and an authorised actor
-- Deletion drill invalidates dependent closure artifacts
+- Deletion requires accepted ADR 0007, ratified D9, verified current authority, complete revisioned custody inventory, and every capability gate; any missing/unknown/stale gate means no erasure
+- Deletion drill covers crash/retry, legal hold, stale revisions, incomplete/unknown inventory, provider uncertainty, residual distributed copies, signer/authority failures, and invalidates affected closure artifacts
 - Erasure honours the append-only portable-history boundary defined by the C12 ADR
 
 Test surfaces:
