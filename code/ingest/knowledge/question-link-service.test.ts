@@ -5,17 +5,19 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  applyQuestionTransition,
   QuestionRecordSchema,
   type QuestionRecord,
-} from "../../domain/schemas.js";
-import { applyQuestionTransition } from "../../domain/lifecycle.js";
-import { createFileQuestionLinkStore } from "../../repository/ingestion-question-link-store.js";
-import { KnowledgeRepository } from "../../repository/knowledge-repository.js";
+} from "../../domain/index.js";
+import {
+  createFileQuestionLinkStore,
+  KnowledgeRepository,
+} from "../../repository/index.js";
 import {
   createInMemoryQuestionLinkStore,
   createQuestionLinkService,
   type QuestionLinkService,
-} from "./question-link-service.js";
+} from "./index.js";
 
 const HUMAN_QUESTION_ID = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const GENERATED_QUESTION_ID = "q-01BX5ZZKBKACTAV9WEVGEMMVRZ";
@@ -109,6 +111,21 @@ const storedHumanLink = {
   ...humanLinkInput,
   createdRevision: 0,
 } as const;
+
+describe("public seams", () => {
+  it("exposes link services and stores through directory barrels", async () => {
+    const domainIngest = await import("../../domain/ingest/index.js");
+    const repository = await import("../../repository/index.js");
+    const knowledge = await import("./index.js");
+    expect(typeof repository.createFileQuestionLinkStore).toBe("function");
+    expect(typeof repository.QuestionNotFoundError).toBe("function");
+    expect(typeof repository.withRepositoryLock).toBe("function");
+    expect(typeof knowledge.createQuestionLinkService).toBe("function");
+    expect(typeof knowledge.createInMemoryQuestionLinkStore).toBe("function");
+    expect(domainIngest.IngestionQuestionLinkSchema).toBeDefined();
+    expect(domainIngest.QuestionLinkInputSchema).toBeDefined();
+  });
+});
 
 describe("filesystem QuestionLinkStore", () => {
   it("reloads a Git-portable link after restart", async () => {
@@ -399,6 +416,24 @@ describe("QuestionLinkService", () => {
     expect(result.ok).toBe(true);
     expect(readWhileLocked).toBe(true);
     expect(createdWhileLocked).toBe(true);
+  });
+
+  it("rejects malformed question and raw-artifact identifiers", async () => {
+    const service = serviceWith([humanQuestion()]);
+
+    const badQuestion = await service.link({
+      ...humanLinkInput,
+      questionId: "not-a-question-id",
+    });
+    expect(badQuestion.ok).toBe(false);
+    if (!badQuestion.ok) expect(badQuestion.code).toBe("INVALID_LINK");
+
+    const badArtifact = await service.link({
+      ...humanLinkInput,
+      rawArtifactId: "artifact-1",
+    });
+    expect(badArtifact.ok).toBe(false);
+    if (!badArtifact.ok) expect(badArtifact.code).toBe("INVALID_LINK");
   });
 
   it("never mutates the canonical question record", async () => {

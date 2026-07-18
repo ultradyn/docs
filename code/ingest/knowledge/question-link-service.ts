@@ -8,7 +8,7 @@ import {
 } from "../../domain/ingest/question-link.js";
 import type { IngestResult } from "../../domain/ingest/types.js";
 import type { QuestionRecord } from "../../domain/schemas.js";
-import { QuestionNotFoundError } from "../../repository/knowledge-repository.js";
+import { QuestionNotFoundError } from "../../repository/index.js";
 
 export type QuestionLinkError =
   | "INVALID_LINK"

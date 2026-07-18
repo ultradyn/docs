@@ -27,6 +27,15 @@ export interface QuestionLinkStore {
 
 const NonEmptyStringSchema = z.string().trim().min(1);
 
+// Mirrors IdSchemas in ../schemas.ts; duplicated locally because importing
+// ../schemas.js from here would close an ESM evaluation cycle (schemas.ts
+// re-exports this module's schema via ./ingest/index.js).
+const ULID_PATTERN = "[0-9A-HJKMNP-TV-Z]{26}";
+const QuestionIdSchema = z.string().regex(new RegExp(`^q-${ULID_PATTERN}$`));
+const RawArtifactIdSchema = z
+  .string()
+  .regex(new RegExp(`^art-${ULID_PATTERN}$`));
+
 // System-created links (N6): non-human origins must name the acting system and
 // carry source-unit provenance; human demand carries neither.
 function refineOrigin(
@@ -91,12 +100,17 @@ function refineOrigin(
   }
 }
 
+// snapshotId and sourceUnitIds are format-checked only: the snapshot and
+// source-unit repositories do not exist yet (WP-10/WP-12), so referential
+// existence is a documented deferred boundary owned by the graph/validity
+// gateway (T-30-01) once those planes land. questionId and rawArtifactId
+// reference records that DO exist today and must match their ID formats.
 const linkShape = {
-  questionId: NonEmptyStringSchema,
+  questionId: QuestionIdSchema,
   snapshotId: NonEmptyStringSchema,
   origin: z.enum(["human", "ingestion-generated", "reverse"]),
   systemActor: NonEmptyStringSchema.optional(),
-  rawArtifactId: NonEmptyStringSchema,
+  rawArtifactId: RawArtifactIdSchema,
   generation: z.number().int().nonnegative(),
   sourceUnitIds: z.array(NonEmptyStringSchema),
 };
