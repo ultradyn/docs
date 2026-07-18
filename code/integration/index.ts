@@ -1,4 +1,18 @@
 export {
+  createIngestFixtureResultStore,
+  INGEST_FIXTURE_KINDS,
+  runIngestFixture,
+  type IngestFixtureAdapter,
+  type IngestFixtureExecution,
+  type IngestFixtureInput,
+  type IngestFixtureKind,
+  type IngestFixtureRecord,
+  type IngestFixtureResult,
+  type IngestFixtureResultFileSystem,
+  type IngestFixtureResultStore,
+  type IngestFixtureVersions,
+} from "./ingest-fixture-runner.js";
+export {
   scoreIngestRun,
   type IngestMetricCounts,
   type IngestMetrics,

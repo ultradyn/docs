@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "corpus": "tiny",
+  "cacheEnabled": false,
+  "versions": {
+    "model": "deterministic-fake-v1",
+    "prompt": "r0-v1",
+    "tools": "r0-v1",
+    "index": "r0-v1",
+    "schemas": "ingest-v1"
+  },
+  "fixtures": {
+    "deterministic": {
+      "status": "complete",
+      "decisive": { "verdict": "accepted" }
+    },
+    "agent": {
+      "status": "complete",
+      "decisive": { "verdict": "accepted" }
+    },
+    "workflow": {
+      "status": "complete",
+      "decisive": { "verdict": "accepted" }
+    },
+    "retrieval": {
+      "status": "complete",
+      "decisive": { "verdict": "accepted" }
+    },
+    "claim": {
+      "status": "complete",
+      "decisive": { "verdict": "accepted" }
+    },
+    "navigation": {
+      "status": "complete",
+      "decisive": { "verdict": "accepted" }
+    }
+  }
+}
