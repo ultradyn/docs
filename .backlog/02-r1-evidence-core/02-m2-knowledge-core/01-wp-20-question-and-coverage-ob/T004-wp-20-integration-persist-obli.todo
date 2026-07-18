@@ -1,0 +1,41 @@
+---
+complexity: high
+created_at: "2026-07-18T18:56:50Z"
+depends_on:
+    - P2.M2.E1.T003
+estimate_hours: 6
+id: P2.M2.E1.T004
+priority: critical
+status: pending
+tags:
+    - wp-20
+    - integration-remediation
+    - ingest-v3
+title: WP-20 integration — persist obligations and close module invariants
+updated_at: "2026-07-18T18:56:50Z"
+---
+WP-20 epic integration remediation discovered by the mandatory post-epic review after T-20-03.
+
+Deliverables:
+- Git-portable, append-only CoverageObligationEventWriter repository adapter with locked/CAS/idempotent mutation and restart recovery tests
+- Concurrent same-idempotency-key create returns one logical obligation/result without consuming divergent IDs or reporting false version conflict
+- Cross-module obligation semantic refinement: impossible status/owner combinations (including open+owner) rejected consistently by schema, ledger replay, and admissibility
+- Runtime-immutable in-memory QuestionLinkStore parity with validated filesystem adapter
+- Canonical branded ID and public-barrel imports across WP-20 production surfaces
+
+Acceptance criteria:
+- Two concurrent create calls with one key produce one obligation and byte/logically identical success; key reuse with different payload fails typed
+- Fresh repository adapter instance replays portable events after restart; malformed/cross-stream histories fail closed; writes use expected version and an atomic lock
+- Admissibility accepts only obligation facts the ledger can produce; transferred/self-owned/terminal semantics remain canonical
+- Mutating any fake store input/output cannot mutate persisted fake state
+- Production imports use directory public surfaces and IDs retain canonical brands
+- Existing T-20-01/02/03 focused and integration suites pass
+
+Test surfaces:
+- unit
+- repository
+- concurrency
+- recovery
+- integration
+
+Scope boundary: authoritative automatic generated-question creation remains owned by T-23 graph gateway. This task does not add a competing question lifecycle or expose lower-level services as an automatic-branch entry point.

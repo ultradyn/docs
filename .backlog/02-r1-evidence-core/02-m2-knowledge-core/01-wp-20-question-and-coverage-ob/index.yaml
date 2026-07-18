@@ -42,3 +42,12 @@ tasks:
       status: done
       tags: []
       title: T-20-03 — Implement question admissibility and novelty gate
+    - complexity: high
+      depends_on:
+        - P2.M2.E1.T003
+      estimate_hours: 6
+      file: T004-wp-20-integration-persist-obli.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: WP-20 integration — persist obligations and close module invariants
