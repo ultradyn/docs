@@ -39,7 +39,8 @@ tasks:
       file: T003-t-01-03-implement-bundle-and-l.todo
       id: T003
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: T-01-03 — Implement bundle and link validator
     - complexity: low
       depends_on:

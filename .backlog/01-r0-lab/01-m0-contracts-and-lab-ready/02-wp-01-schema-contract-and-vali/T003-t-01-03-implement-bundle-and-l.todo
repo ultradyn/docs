@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-18T09:46:10Z"
+claimed_by: cli-user
+completed_at: null
 complexity: low
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
@@ -6,13 +9,11 @@ depends_on:
 estimate_hours: 2
 id: P1.M1.E2.T003
 priority: medium
-status: pending
-tags:
-    - wp-01
-    - t-01-03
-    - ingest-v3
+started_at: "2026-07-18T09:46:10Z"
+status: in_progress
+tags: []
 title: T-01-03 — Implement bundle and link validator
-updated_at: "2026-07-18T08:10:10Z"
+updated_at: "2026-07-18T09:46:10Z"
 ---
 Bundle provenance: WP-01 / T-01-03
 
