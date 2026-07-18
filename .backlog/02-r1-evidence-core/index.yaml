@@ -33,10 +33,10 @@ milestones:
       status: pending
 name: R1 Evidence core
 stats:
-    blocked: 0
+    blocked: 1
     done: 0
     in_progress: 0
     pending: 37
-    total_tasks: 37
+    total_tasks: 38
 status: pending
 weeks: 12

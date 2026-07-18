@@ -73,9 +73,9 @@ phases:
       weeks: 12
 project: ultradyn-docs
 stats:
-    blocked: 0
+    blocked: 1
     done: 0
     in_progress: 0
     pending: 47
-    total_tasks: 47
+    total_tasks: 48
 timeline_weeks: 52

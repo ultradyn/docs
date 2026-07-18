@@ -42,9 +42,9 @@ id: P2.M1
 locked: false
 name: M1 — Deterministic source plane
 stats:
-    blocked: 0
+    blocked: 1
     done: 0
     in_progress: 0
     pending: 13
-    total_tasks: 13
+    total_tasks: 14
 status: pending
