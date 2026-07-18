@@ -31,7 +31,8 @@ tasks:
       file: T002-t-10-02-create-immutable-sourc.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-10-02 — Create immutable source snapshot
     - complexity: high
       depends_on:
