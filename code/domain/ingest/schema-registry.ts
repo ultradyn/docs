@@ -14,6 +14,7 @@ import {
   SearchReceiptSchema,
   SealedClaimPackSchema,
   SourceFileSchema,
+  SourceRepresentationSchema,
   SourceSnapshotSchema,
   SourceUnitSchema,
 } from "./schemas.js";
@@ -22,6 +23,7 @@ const schemas = {
   PolicyProfile: PolicyProfileSchema,
   SourceSnapshot: SourceSnapshotSchema,
   SourceFile: SourceFileSchema,
+  SourceRepresentation: SourceRepresentationSchema,
   SourceUnit: SourceUnitSchema,
   SearchReceipt: SearchReceiptSchema,
   IngestionQuestionLink: IngestionQuestionLinkSchema,

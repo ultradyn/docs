@@ -4,3 +4,5 @@
 *.ps1 text eol=crlf
 code/cli/test/tmux/snapshots/**/*.ansi text eol=lf
 questions/**/raw/*.md text eol=lf
+code/ingest/source/fixtures/extraction/markdown-crlf.md binary
+code/ingest/source/fixtures/extraction/quoted-multiline.csv binary

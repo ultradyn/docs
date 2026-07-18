@@ -55,6 +55,55 @@ describe("ingestion schema registry", () => {
     ).toEqual(complete);
   });
 
+  it("registers the canonical strict SourceRepresentation schema without a placeholder", () => {
+    const valid = {
+      schemaVersion: 1,
+      id: "representation-derived-by-injected-service",
+      sourceFileId: `file-${"a".repeat(64)}`,
+      version: 1,
+      kind: "text",
+      normalizedText: "line\n",
+      locatorMap: [
+        {
+          kind: "line",
+          normalized: {
+            utf16Start: 0,
+            utf16End: 4,
+            lineStart: 1,
+            lineEnd: 1,
+            columnStart: 1,
+            columnEnd: 5,
+          },
+          original: {
+            byteStart: 0,
+            byteEnd: 4,
+            lineStart: 1,
+            columnStart: 1,
+            lineEnd: 1,
+            columnEnd: 5,
+          },
+        },
+      ],
+      warnings: [],
+    };
+
+    expect(
+      ingestSchemaRegistry.get("SourceRepresentation", 1).parse(valid),
+    ).toEqual(valid);
+    expect(
+      ingestSchemaRegistry.get("SourceRepresentation", 1).safeParse({
+        schemaVersion: 1,
+        id: valid.id,
+      }).success,
+    ).toBe(false);
+    expect(
+      ingestSchemaRegistry.get("SourceRepresentation", 1).safeParse({
+        ...valid,
+        locatorMap: [{ schemaVersion: 1, id: "placeholder-shaped" }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("fails unknown versions explicitly", () => {
     expect(() => ingestSchemaRegistry.get("SourceFile", 2 as 1)).toThrowError(
       /UNKNOWN_SCHEMA.*SourceFile.*2/,

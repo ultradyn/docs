@@ -42,6 +42,62 @@ export const SourceSnapshotSchema = z
   })
   .strict();
 
+const OriginalLocationSchema = z
+  .object({
+    byteStart: z.number().int().nonnegative(),
+    byteEnd: z.number().int().nonnegative(),
+    lineStart: z.number().int().positive(),
+    columnStart: z.number().int().positive(),
+    lineEnd: z.number().int().positive(),
+    columnEnd: z.number().int().positive(),
+  })
+  .strict();
+
+const LocatorSpanSchema = z
+  .object({
+    kind: z.enum(["line", "cell", "span"]),
+    normalized: z
+      .object({
+        utf16Start: z.number().int().nonnegative(),
+        utf16End: z.number().int().nonnegative(),
+        lineStart: z.number().int().positive(),
+        columnStart: z.number().int().positive(),
+        lineEnd: z.number().int().positive(),
+        columnEnd: z.number().int().positive(),
+      })
+      .strict(),
+    original: OriginalLocationSchema,
+    cell: z
+      .object({
+        row: z.number().int().positive(),
+        column: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const SourceRepresentationSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: z.string().min(1),
+    sourceFileId: SourceFileIdSchema,
+    version: z.number().int().positive(),
+    kind: z.enum(["markdown", "text", "code", "json", "yaml", "csv"]),
+    normalizedText: z.string(),
+    locatorMap: z.array(LocatorSpanSchema),
+    warnings: z.array(
+      z
+        .object({
+          code: z.string().min(1),
+          message: z.string().min(1),
+          location: OriginalLocationSchema,
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
 export const SourceUnitSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();

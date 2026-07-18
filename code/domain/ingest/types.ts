@@ -4,6 +4,7 @@ export type Brand<Value, Name extends string> = Value & {
 
 export type SnapshotId = Brand<string, "SnapshotId">;
 export type SourceFileId = Brand<string, "SourceFileId">;
+export type SourceRepresentationId = Brand<string, "SourceRepresentationId">;
 export type SourceUnitId = Brand<string, "SourceUnitId">;
 export type QuestionId = Brand<string, "QuestionId">;
 export type ObligationId = Brand<string, "ObligationId">;
