@@ -13,6 +13,7 @@ export default tseslint.config(
       "tauri-app/src-tauri/target/**",
       ".plan/**",
       ".codex/skills/**",
+      ".worktrees/**",
     ],
   },
   eslint.configs.recommended,
