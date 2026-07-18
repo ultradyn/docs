@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-18T09:06:46Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-18T09:45:58Z"
 complexity: medium
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P1.M1.E2.T001
+duration_minutes: 39.2019602072
 estimate_hours: 5
 id: P1.M1.E2.T002
 priority: high
 started_at: "2026-07-18T09:06:46Z"
-status: in_progress
+status: done
 tags: []
 title: T-01-02 — Implement agent and workflow manifest validation
-updated_at: "2026-07-18T09:06:46Z"
+updated_at: "2026-07-18T09:45:58Z"
 ---
 Bundle provenance: WP-01 / T-01-02
 

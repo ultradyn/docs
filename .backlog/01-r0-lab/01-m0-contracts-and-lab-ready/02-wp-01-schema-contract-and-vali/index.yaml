@@ -29,7 +29,7 @@ tasks:
       file: T002-t-01-02-implement-agent-and-wo.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: T-01-02 — Implement agent and workflow manifest validation
     - complexity: low
