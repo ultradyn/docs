@@ -1,40 +1,54 @@
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
-import { type IngestAgentManifest, validateIngestManifests } from "./index.js";
+import {
+  INGEST_ROLE_TOOL_ALLOWLIST,
+  type IngestAgentManifest,
+  validateIngestManifests,
+} from "./index.js";
+
+const repositoryRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 
 const validManifests = [
   {
     role: "researcher",
     outputSchema: "EvidencePacket",
-    tools: ["source.search", "source.read"],
+    tools: INGEST_ROLE_TOOL_ALLOWLIST.researcher,
     freshContext: false,
     next: ["evidence-critic"],
   },
   {
     role: "evidence-critic",
     outputSchema: "EvidenceVerdict",
-    tools: [],
+    tools: INGEST_ROLE_TOOL_ALLOWLIST["evidence-critic"],
     freshContext: true,
     next: ["claim-extractor"],
   },
   {
     role: "claim-extractor",
     outputSchema: "Claim",
-    tools: [],
+    tools: INGEST_ROLE_TOOL_ALLOWLIST["claim-extractor"],
     freshContext: false,
     next: ["claim-reviewer"],
   },
   {
     role: "claim-reviewer",
     outputSchema: "ClaimReview",
-    tools: [],
+    tools: INGEST_ROLE_TOOL_ALLOWLIST["claim-reviewer"],
     freshContext: true,
     next: ["answer-composer"],
   },
   {
     role: "answer-composer",
     outputSchema: "AnswerComposition",
-    tools: [],
+    tools: INGEST_ROLE_TOOL_ALLOWLIST["answer-composer"],
     freshContext: false,
     next: [],
   },
@@ -97,14 +111,22 @@ describe("ingestion manifest validation public seam", () => {
     });
   });
 
-  it("allows Answer Composer non-retrieval tools", () => {
-    const manifests = replaceManifest("answer-composer", {
-      ...validManifests[4],
-      tools: ["answer.format"],
+  it.each([
+    ["researcher", "shell.exec"],
+    ["evidence-critic", "source.search"],
+    ["claim-extractor", "web.search"],
+    ["claim-reviewer", "source.exact"],
+    ["answer-composer", "source.search"],
+  ] as const)("rejects arbitrary tool %s for %s", (role, tool) => {
+    const current = validManifests.find((manifest) => manifest.role === role);
+    expect(current).toBeDefined();
+    const manifests = replaceManifest(role, {
+      ...current!,
+      tools: [...current!.tools, tool],
     });
-    expect(validateIngestManifests(manifests)).toEqual({
-      ok: true,
-      value: true,
+    expect(validateIngestManifests(manifests)).toMatchObject({
+      ok: false,
+      code: "TOOL_DENIED",
     });
   });
 
@@ -138,14 +160,73 @@ describe("ingestion manifest validation public seam", () => {
     });
   });
 
-  it("rejects cycles that cannot reach Answer Composer", () => {
-    const cyclic = replaceManifest("claim-reviewer", {
-      ...validManifests[3],
-      next: ["claim-extractor"],
-    });
-    expect(validateIngestManifests(cyclic)).toMatchObject({
-      ok: false,
-      code: "UNREACHABLE_STATE",
-    });
+  it.each([
+    ["researcher", ["claim-extractor"]],
+    ["evidence-critic", ["answer-composer"]],
+    ["claim-extractor", ["evidence-critic"]],
+    ["claim-reviewer", ["claim-extractor"]],
+    ["answer-composer", ["researcher"]],
+  ] as const)("rejects invalid successor edges from %s", (role, next) => {
+    const current = validManifests.find((manifest) => manifest.role === role);
+    expect(current).toBeDefined();
+    expect(
+      validateIngestManifests(
+        replaceManifest(role, { ...current!, next: [...next] }),
+      ),
+    ).toMatchObject({ ok: false, code: "UNREACHABLE_STATE" });
+  });
+
+  it("accepts the Evidence Critic refinement edge back to Researcher", () => {
+    expect(
+      validateIngestManifests(
+        replaceManifest("evidence-critic", {
+          ...validManifests[1],
+          next: ["researcher", "claim-extractor"],
+        }),
+      ),
+    ).toEqual({ ok: true, value: true });
+  });
+
+  it("returns an IngestResult for malformed runtime input", () => {
+    expect(
+      validateIngestManifests([
+        { role: null, tools: "shell.exec" },
+      ] as unknown as readonly IngestAgentManifest[]),
+    ).toMatchObject({ ok: false, code: "DANGLING_REFERENCE" });
+  });
+
+  it("enforces the Draft 2020-12 structural workflow boundary", async () => {
+    const schema = JSON.parse(
+      await readFile(
+        resolve(repositoryRoot, "scaffold/agents/ingest-workflow.schema.json"),
+        "utf8",
+      ),
+    ) as object;
+    const validate = new Ajv2020({ strict: true }).compile(schema);
+
+    expect(validate(validManifests)).toBe(true);
+    expect(
+      validate([
+        validManifests[0],
+        validManifests[0],
+        ...validManifests.slice(2),
+      ]),
+    ).toBe(false);
+    expect(
+      validate(
+        replaceManifest("evidence-critic", {
+          ...validManifests[1],
+          freshContext: false,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      validate(
+        replaceManifest("answer-composer", {
+          ...validManifests[4],
+          tools: ["web.search"],
+        }),
+      ),
+    ).toBe(false);
   });
 });

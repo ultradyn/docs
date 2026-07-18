@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   ingestSchemaRegistry,
   type IngestResult,
@@ -32,13 +34,43 @@ const roles = [
   "answer-composer",
 ] as const satisfies readonly IngestAgentRole[];
 
-const roleSet = new Set<string>(roles);
+export const INGEST_ROLE_TOOL_ALLOWLIST = {
+  researcher: [
+    "source.exact",
+    "source.maps",
+    "source.lexical",
+    "source.open_unit",
+    "source.follow_links",
+  ],
+  "evidence-critic": ["source.open_reference", "source.open_reference_context"],
+  "claim-extractor": ["source.open_reference"],
+  "claim-reviewer": ["source.open_reference", "claim.find_candidates"],
+  "answer-composer": ["answer.format"],
+} as const satisfies Record<IngestAgentRole, readonly string[]>;
+
+const successorAllowlist = {
+  researcher: ["evidence-critic"],
+  "evidence-critic": ["researcher", "claim-extractor"],
+  "claim-extractor": ["claim-reviewer"],
+  "claim-reviewer": ["answer-composer"],
+  "answer-composer": [],
+} as const satisfies Record<IngestAgentRole, readonly IngestAgentRole[]>;
+
 const evaluatorRoles = new Set<IngestAgentRole>([
   "evidence-critic",
   "claim-reviewer",
 ]);
 const terminalRole: IngestAgentRole = "answer-composer";
-const retrievalTools = new Set(["source.search", "source.read"]);
+
+const manifestInputSchema = z.array(
+  z.object({
+    role: z.enum(roles),
+    outputSchema: z.string(),
+    tools: z.array(z.string()),
+    freshContext: z.boolean(),
+    next: z.array(z.string()),
+  }),
+);
 
 function failure(
   code: ManifestError,
@@ -50,16 +82,18 @@ function failure(
 export function validateIngestManifests(
   input: readonly IngestAgentManifest[],
 ): IngestResult<true, ManifestError> {
+  const parsed = manifestInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return failure(
+      "DANGLING_REFERENCE",
+      `Malformed ingestion manifest: ${parsed.error.issues.map((issue) => issue.message).join("; ")}.`,
+    );
+  }
+
   const schemas = new Set<string>(ingestSchemaRegistry.names());
   const manifests = new Map<IngestAgentRole, IngestAgentManifest>();
 
-  for (const manifest of input) {
-    if (!roleSet.has(manifest.role)) {
-      return failure(
-        "DANGLING_REFERENCE",
-        `Unknown ingestion agent role: ${String(manifest.role)}.`,
-      );
-    }
+  for (const manifest of parsed.data) {
     if (manifests.has(manifest.role)) {
       return failure(
         "DANGLING_REFERENCE",
@@ -91,22 +125,38 @@ export function validateIngestManifests(
         `${manifest.role} must run with fresh context.`,
       );
     }
-    const deniedRetrievalTool = manifest.tools.find((tool) =>
-      retrievalTools.has(tool),
+
+    const allowedTools = new Set<string>(
+      INGEST_ROLE_TOOL_ALLOWLIST[manifest.role],
     );
-    if (manifest.role === terminalRole && deniedRetrievalTool) {
+    const deniedTool = manifest.tools.find((tool) => !allowedTools.has(tool));
+    if (deniedTool) {
       return failure(
         "TOOL_DENIED",
-        `answer-composer cannot use retrieval tool ${deniedRetrievalTool}.`,
+        `${manifest.role} cannot use tool ${deniedTool}.`,
       );
     }
-    for (const successor of manifest.next) {
-      if (!manifests.has(successor as IngestAgentRole)) {
-        return failure(
-          "DANGLING_REFERENCE",
-          `${manifest.role} references unknown successor ${successor}.`,
-        );
-      }
+
+    const allowedSuccessors = new Set<string>(
+      successorAllowlist[manifest.role],
+    );
+    const danglingSuccessor = manifest.next.find(
+      (successor) => !manifests.has(successor as IngestAgentRole),
+    );
+    if (danglingSuccessor) {
+      return failure(
+        "DANGLING_REFERENCE",
+        `${manifest.role} references unknown successor ${danglingSuccessor}.`,
+      );
+    }
+    const deniedSuccessor = manifest.next.find(
+      (successor) => !allowedSuccessors.has(successor),
+    );
+    if (deniedSuccessor) {
+      return failure(
+        "UNREACHABLE_STATE",
+        `${manifest.role} cannot transition to ${deniedSuccessor}.`,
+      );
     }
   }
 
@@ -127,25 +177,10 @@ export function validateIngestManifests(
       if (role === terminalRole) return true;
       visited.add(role);
       const manifest = manifests.get(role);
-      if (manifest) {
-        pending.push(...(manifest.next as readonly IngestAgentRole[]));
-      }
+      if (manifest) pending.push(...(manifest.next as IngestAgentRole[]));
     }
     return false;
   };
-
-  for (const role of roles) {
-    const manifest = manifests.get(role);
-    if (
-      role !== terminalRole &&
-      (manifest?.next.length === 0 || !reachesTerminal(role))
-    ) {
-      return failure(
-        "UNREACHABLE_STATE",
-        `${role} has no path to terminal state ${terminalRole}.`,
-      );
-    }
-  }
 
   const reachableFromEntry = new Set<IngestAgentRole>();
   const pendingFromEntry: IngestAgentRole[] = ["researcher"];
@@ -154,16 +189,22 @@ export function validateIngestManifests(
     if (!role || reachableFromEntry.has(role)) continue;
     reachableFromEntry.add(role);
     const manifest = manifests.get(role);
-    if (manifest) {
-      pendingFromEntry.push(...(manifest.next as readonly IngestAgentRole[]));
-    }
+    if (manifest)
+      pendingFromEntry.push(...(manifest.next as IngestAgentRole[]));
   }
-  const unreachableRole = roles.find((role) => !reachableFromEntry.has(role));
-  if (unreachableRole) {
-    return failure(
-      "UNREACHABLE_STATE",
-      `${unreachableRole} is unreachable from workflow entry researcher.`,
-    );
+
+  for (const role of roles) {
+    const manifest = manifests.get(role);
+    if (
+      (role !== terminalRole && manifest?.next.length === 0) ||
+      !reachesTerminal(role) ||
+      !reachableFromEntry.has(role)
+    ) {
+      return failure(
+        "UNREACHABLE_STATE",
+        `${role} is not on a reachable path from researcher to ${terminalRole}.`,
+      );
+    }
   }
 
   return { ok: true, value: true };

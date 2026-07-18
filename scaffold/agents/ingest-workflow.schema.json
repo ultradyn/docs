@@ -1,44 +1,249 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ultradyn.dev/schemas/ingest-workflow.schema.json",
+  "$comment": "This schema is the portable structural boundary. validateIngestManifests performs schema-registry reference checks and graph reachability semantics after structural validation.",
   "title": "Ultradyn ingestion workflow manifest",
   "type": "array",
   "minItems": 5,
   "maxItems": 5,
   "items": {
-    "type": "object",
-    "additionalProperties": false,
-    "required": ["role", "outputSchema", "tools", "freshContext", "next"],
-    "properties": {
-      "role": {
-        "enum": [
-          "researcher",
-          "evidence-critic",
-          "claim-extractor",
-          "claim-reviewer",
-          "answer-composer"
-        ]
+    "oneOf": [
+      {
+        "$ref": "#/$defs/researcher"
       },
-      "outputSchema": { "type": "string", "minLength": 1 },
-      "tools": {
-        "type": "array",
-        "items": { "type": "string", "minLength": 1 },
-        "uniqueItems": true
+      {
+        "$ref": "#/$defs/evidenceCritic"
       },
-      "freshContext": { "type": "boolean" },
-      "next": {
-        "type": "array",
-        "items": {
-          "enum": [
-            "researcher",
-            "evidence-critic",
-            "claim-extractor",
-            "claim-reviewer",
-            "answer-composer"
-          ]
-        },
-        "uniqueItems": true
+      {
+        "$ref": "#/$defs/claimExtractor"
+      },
+      {
+        "$ref": "#/$defs/claimReviewer"
+      },
+      {
+        "$ref": "#/$defs/answerComposer"
       }
+    ]
+  },
+  "allOf": [
+    {
+      "contains": {
+        "$ref": "#/$defs/researcher"
+      },
+      "minContains": 1,
+      "maxContains": 1
+    },
+    {
+      "contains": {
+        "$ref": "#/$defs/evidenceCritic"
+      },
+      "minContains": 1,
+      "maxContains": 1
+    },
+    {
+      "contains": {
+        "$ref": "#/$defs/claimExtractor"
+      },
+      "minContains": 1,
+      "maxContains": 1
+    },
+    {
+      "contains": {
+        "$ref": "#/$defs/claimReviewer"
+      },
+      "minContains": 1,
+      "maxContains": 1
+    },
+    {
+      "contains": {
+        "$ref": "#/$defs/answerComposer"
+      },
+      "minContains": 1,
+      "maxContains": 1
+    }
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "outputSchema", "tools", "freshContext", "next"],
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "outputSchema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "type": "array",
+          "uniqueItems": true
+        },
+        "freshContext": {
+          "type": "boolean"
+        },
+        "next": {
+          "type": "array",
+          "uniqueItems": true
+        }
+      }
+    },
+    "researcher": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "const": "researcher"
+            },
+            "freshContext": {
+              "const": false
+            },
+            "tools": {
+              "items": {
+                "enum": [
+                  "source.exact",
+                  "source.maps",
+                  "source.lexical",
+                  "source.open_unit",
+                  "source.follow_links"
+                ]
+              },
+              "type": "array"
+            },
+            "next": {
+              "items": {
+                "const": "evidence-critic"
+              },
+              "type": "array"
+            }
+          }
+        }
+      ]
+    },
+    "evidenceCritic": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "const": "evidence-critic"
+            },
+            "freshContext": {
+              "const": true
+            },
+            "tools": {
+              "items": {
+                "enum": [
+                  "source.open_reference",
+                  "source.open_reference_context"
+                ]
+              },
+              "type": "array"
+            },
+            "next": {
+              "items": {
+                "enum": ["researcher", "claim-extractor"]
+              },
+              "type": "array"
+            }
+          }
+        }
+      ]
+    },
+    "claimExtractor": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "const": "claim-extractor"
+            },
+            "freshContext": {
+              "const": false
+            },
+            "tools": {
+              "items": {
+                "const": "source.open_reference"
+              },
+              "type": "array"
+            },
+            "next": {
+              "items": {
+                "const": "claim-reviewer"
+              },
+              "type": "array"
+            }
+          }
+        }
+      ]
+    },
+    "claimReviewer": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "const": "claim-reviewer"
+            },
+            "freshContext": {
+              "const": true
+            },
+            "tools": {
+              "items": {
+                "enum": ["source.open_reference", "claim.find_candidates"]
+              },
+              "type": "array"
+            },
+            "next": {
+              "items": {
+                "const": "answer-composer"
+              },
+              "type": "array"
+            }
+          }
+        }
+      ]
+    },
+    "answerComposer": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "const": "answer-composer"
+            },
+            "freshContext": {
+              "const": false
+            },
+            "tools": {
+              "items": {
+                "const": "answer.format"
+              },
+              "type": "array"
+            },
+            "next": {
+              "maxItems": 0,
+              "type": "array"
+            }
+          }
+        }
+      ]
     }
   }
 }
