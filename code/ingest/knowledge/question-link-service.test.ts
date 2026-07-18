@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -178,6 +178,55 @@ describe("filesystem QuestionLinkStore", () => {
         } as never),
       ).rejects.toThrow();
       await expect(store.get(HUMAN_QUESTION_ID)).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("never follows a symlink planted at the destination or temp path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    const directory = join(root, "ingest", "question-links");
+    const victimPath = join(root, "victim.json");
+    try {
+      await mkdir(directory, { recursive: true });
+      await writeFile(victimPath, '"victim-bytes"');
+      await symlink(victimPath, join(directory, `${HUMAN_QUESTION_ID}.json`));
+
+      const store = createFileQuestionLinkStore(root);
+      await expect(store.get(HUMAN_QUESTION_ID)).rejects.toThrow(/symbolic/i);
+      await expect(store.create(storedHumanLink)).rejects.toThrow(/symbolic/i);
+      await expect(readFile(victimPath, "utf8")).resolves.toBe(
+        '"victim-bytes"',
+      );
+
+      await rm(join(directory, `${HUMAN_QUESTION_ID}.json`));
+      await symlink(victimPath, join(directory, `.${HUMAN_QUESTION_ID}.json.tmp`));
+      await expect(store.create(storedHumanLink)).resolves.toBe(true);
+      await expect(readFile(victimPath, "utf8")).resolves.toBe(
+        '"victim-bytes"',
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes with no-replace semantics under competing writers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    try {
+      const store = createFileQuestionLinkStore(root);
+      const rival = {
+        ...storedHumanLink,
+        snapshotId: "snap-rival",
+      } as const;
+      const outcomes = await Promise.all([
+        store.create(storedHumanLink),
+        store.create(rival),
+      ]);
+      expect(outcomes.filter(Boolean)).toHaveLength(1);
+
+      const persisted = await store.get(HUMAN_QUESTION_ID);
+      const winner = outcomes[0] ? storedHumanLink : rival;
+      expect(persisted).toEqual(winner);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
