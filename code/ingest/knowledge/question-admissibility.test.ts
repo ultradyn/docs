@@ -4,6 +4,8 @@ import {
   COVERAGE_OBLIGATION_TERMINAL_STATUSES,
   type CoverageObligation,
   type IngestionQuestionLink,
+  type ObligationId,
+  type QuestionId,
 } from "../../domain/ingest/index.js";
 import {
   ADMISSION_REASON_ORDER,
@@ -13,10 +15,18 @@ import {
   type QuestionProposalInput,
 } from "./index.js";
 
-const CHILD_ID = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";
-const SIBLING_ID = "q-01BX5ZZKBKACTAV9WEVGEMMVRZ";
-const PARENT_ID = "q-01BX5ZZKBKACTAV9WEVGEMMVS0";
-const OBLIGATION_ID = "obl-01BX5ZZKBKACTAV9WEVGEMMVS1";
+function asQuestionId(value: string): QuestionId {
+  return value as QuestionId;
+}
+
+function asObligationId(value: string): ObligationId {
+  return value as ObligationId;
+}
+
+const CHILD_ID = asQuestionId("q-01ARZ3NDEKTSV4RRFFQ69G5FAV");
+const SIBLING_ID = asQuestionId("q-01BX5ZZKBKACTAV9WEVGEMMVRZ");
+const PARENT_ID = asQuestionId("q-01BX5ZZKBKACTAV9WEVGEMMVS0");
+const OBLIGATION_ID = asObligationId("obl-01BX5ZZKBKACTAV9WEVGEMMVS1");
 
 function obligation(
   overrides: Partial<CoverageObligation> = {},
@@ -57,9 +67,9 @@ function link(
 /** An admitted generated question, carried as link + canonical wording. */
 function admittedFact(
   overrides: {
-    questionId?: string;
+    questionId?: QuestionId;
     wording?: string;
-    obligationId?: string;
+    obligationId?: ObligationId;
   } = {},
 ) {
   return {
@@ -69,7 +79,9 @@ function admittedFact(
     }),
     wording:
       overrides.wording ?? "A different concrete enquiry about manifests",
-    obligationId: overrides.obligationId ?? "obl-01BX5ZZKBKACTAV9WEVGEMMVS9",
+    obligationId:
+      overrides.obligationId ??
+      asObligationId("obl-01BX5ZZKBKACTAV9WEVGEMMVS9"),
   };
 }
 
@@ -90,7 +102,7 @@ function generated(
 describe("human demand is never gated", () => {
   it.each([
     ["generic wording", { wording: "What else is missing?" }],
-    ["no trigger", { link: link({ sourceUnitIds: [] }) }],
+    ["no trigger", {}],
     ["no obligation", { obligationId: undefined, obligations: [] }],
     [
       "wording identical to an existing question",
@@ -258,13 +270,13 @@ describe("generated admissibility", () => {
     const decision = assessQuestionProposal(
       generated({
         wording: "What else is missing?",
-        triggerSourceUnitIds: [],
+        link: link({ sourceUnitIds: [] }),
         obligations: [],
         admitted: [
           admittedFact({
             questionId: SIBLING_ID,
             wording: "What else is missing?",
-            obligationId: "obl-01BX5ZZKBKACTAV9WEVGEMMVS9",
+            obligationId: asObligationId("obl-01BX5ZZKBKACTAV9WEVGEMMVS9"),
           }),
         ],
       }),
@@ -309,7 +321,7 @@ describe("generated admissibility", () => {
     const decision = assessQuestionProposal(
       generated({
         wording: "What else is missing?",
-        triggerSourceUnitIds: [],
+        link: link({ sourceUnitIds: [] }),
         obligations: [],
       }),
     );
@@ -333,7 +345,7 @@ describe("duplicate detection is deterministic and bounded", () => {
             questionId: SIBLING_ID,
             wording:
               "  WHICH checksum algorithm gates replay capsule verification!!  ",
-            obligationId: "obl-01BX5ZZKBKACTAV9WEVGEMMVS9",
+            obligationId: asObligationId("obl-01BX5ZZKBKACTAV9WEVGEMMVS9"),
           }),
         ],
       }),
@@ -377,7 +389,7 @@ describe("duplicate detection is deterministic and bounded", () => {
           admittedFact({
             questionId: SIBLING_ID,
             wording: "???",
-            obligationId: "obl-01BX5ZZKBKACTAV9WEVGEMMVS9",
+            obligationId: asObligationId("obl-01BX5ZZKBKACTAV9WEVGEMMVS9"),
           }),
         ],
       }),
@@ -394,7 +406,7 @@ describe("duplicate detection is deterministic and bounded", () => {
           admittedFact({
             questionId: SIBLING_ID,
             wording: "a concrete enquiry about checksum manifests",
-            obligationId: "obl-01BX5ZZKBKACTAV9WEVGEMMVS9",
+            obligationId: asObligationId("obl-01BX5ZZKBKACTAV9WEVGEMMVS9"),
           }),
         ],
       }),
@@ -414,7 +426,7 @@ describe("duplicate detection is deterministic and bounded", () => {
           admittedFact({
             questionId: PARENT_ID,
             wording: "alpha beta gamma delta omega",
-            obligationId: "obl-01BX5ZZKBKACTAV9WEVGEMMVSA",
+            obligationId: asObligationId("obl-01BX5ZZKBKACTAV9WEVGEMMVSA"),
           }),
         ],
       }),
@@ -453,7 +465,7 @@ describe("lexical candidates carry no authority", () => {
     );
     const rejectedWithCandidates = assessQuestionProposal(
       generated({
-        triggerSourceUnitIds: [],
+        link: link({ sourceUnitIds: [] }),
         lexicalCandidates: [SIBLING_ID, PARENT_ID],
       }),
     );
@@ -470,7 +482,7 @@ describe("assessment is pure", () => {
         admittedFact({
           questionId: SIBLING_ID,
           wording: "A different concrete enquiry entirely",
-          obligationId: "obl-01BX5ZZKBKACTAV9WEVGEMMVS9",
+          obligationId: asObligationId("obl-01BX5ZZKBKACTAV9WEVGEMMVS9"),
         }),
       ],
     });
