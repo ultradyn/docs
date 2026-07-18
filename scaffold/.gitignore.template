@@ -17,3 +17,6 @@ code/web/dist/
 tauri-app/src-tauri/target/
 test-results/
 playwright-report/
+
+# agent worktrees
+.worktrees/
