@@ -61,4 +61,35 @@ describe("automatic ingestion architecture", () => {
       "queue folders remain projections",
     );
   });
+
+  it("defines versioned ingestion change control", async () => {
+    const control = await readFile(
+      path.join(
+        process.cwd(),
+        "docs",
+        "engineering",
+        "ingestion-change-control.md",
+      ),
+      "utf8",
+    );
+
+    for (const changeClass of [
+      "schema",
+      "workflow",
+      "agent",
+      "policy",
+      "architecture",
+    ]) {
+      expect(control).toMatch(new RegExp(`\\| ${changeClass}\\s+\\|`));
+    }
+
+    expect(control).toContain("migration impact");
+    expect(control).toContain("paired valid and invalid fixtures");
+    expect(control).toContain("fresh-context verification");
+    expect(control).toContain("ADR gate");
+    expect(control).toContain("existing change-request manager");
+    expect(control.replace(/\s+/g, " ")).toContain(
+      "No ingestion-specific branch manager",
+    );
+  });
 });
