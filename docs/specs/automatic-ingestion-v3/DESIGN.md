@@ -4,7 +4,7 @@ Coordinators: claude-pivot-cotton-27tq (author/mutator) + pi-73c593 (independent
 
 ## 1. Verification summary
 
-Original artifact: `/home/xertrov/Downloads/ingest-feature-v3.zip`, SHA-256 `b10d4c05fff780ab0fe10d7487a0a316f56fc88514df6654cca7ea328e542e6e` (goes in the IMPORT receipt).
+Original artifact: `ingest-feature-v3.zip`, SHA-256 `b10d4c05fff780ab0fe10d7487a0a316f56fc88514df6654cca7ea328e542e6e` (goes in the IMPORT receipt).
 
 - ZIP: 238 entries = 223 files + 15 dirs. MANIFEST.sha256 covers 221 files (all but itself + VALIDATION.md); all hashes verified OK (both coordinators, independent extractions).
 - `tools/validate_bundle.py` (read-only, audited): PASSES exit 0 — 27 schemas, 15 agents, 11 workflows, 42 examples, 31 WPs, 95 leaf tasks, acyclic deps.
@@ -37,6 +37,16 @@ Original artifact: `/home/xertrov/Downloads/ingest-feature-v3.zip`, SHA-256 `b10
 | C15 | Naming collision: existing transcript-derived "Structured answer" (`answers/structured.md`) vs v3 claim-derived answer composition. | Do NOT redefine `answers/structured.md`. Introduce a distinct `AnswerComposition` record + compatibility adapter; both names in the CONTEXT.md glossary and ADR-0005. (WP-60 epic body.) |
 | C16 | WP-63 could spawn a second publication/worktree subsystem beside the existing isolated change-request manager. | Reuse/generalize the existing change-request manager for WP-63 publication; no parallel subsystem. Also: intake lexical question matching stays conservative ROUTING only, never authoritative convergence (guards C9/FR-CON-002). (WP-63/WP-50 stub bodies.) |
 
+### Source-bundle hazards that adaptations must reject
+
+The inert source bundle is preserved byte-for-byte, including known contracts that are incompatible with Ultradyn Docs invariants. Production adaptations MUST NOT reproduce them:
+
+- the bundle Question `status` machine must map to canonical `question.md.state`, never compete with it;
+- contradiction convergence must create an active P1 blocker and prevent completion;
+- source custody uses tombstones/supersession and never makes immutable raw bytes deletable;
+- publication reuses the existing deterministic change-request lane and runs fresh Reviewer, diff-only Diff Summarizer, and post-diff Simulated Asker over the actual diff before merge authorization;
+- Citation Reviewer and Navigation Tester fixtures must validate against their declared output schemas, correcting the mismatched bundle fixtures in curated adaptations.
+
 ## 4. Approaches (A/B/C) and recommendation
 
 - **A — Full backlog ingestion now:** `bl init`, normalize all 95 leaves into tasks. Rejected: floods backlog with non-executable tasks (violates release-truth discipline; guarantees staleness).
@@ -66,7 +76,7 @@ Plus: language = TypeScript (C1); terminology = repo glossary (C5/§2).
 
 ## 6. P/M/E/T decomposition (mapping rule + structure)
 
-**Mapping rule:** Phase = bundle release increment (R0–R4) → Milestone = bundle M0–M8 (kept 1:1, IDs preserved) → Epic = bundle WP (ID preserved as provenance: `wp-XX`) → Task = bundle leaf task (`T-XX-NN`, 95 total; exactly 46 instantiated as backlog tasks for R0/R1 — verified against `plan/task-index.jsonl` `work_package_id` over the 15 R0/R1 WPs). Every backlog task/epic carries its originating WP/task ID in bl tags AND body for traceability; deferred M4–M8 placeholders carry theirs the same way.
+**Mapping rule:** Phase = bundle release increment (R0–R4) → Milestone = bundle M0–M8 (kept 1:1, IDs preserved) → Epic = bundle WP (ID preserved as provenance: `wp-XX`) → Task = bundle leaf task (`T-XX-NN`, 95 total; exactly 46 bundle leaves instantiated for R0/R1, plus the synthetic N3 policy prerequisite (47 total backlog tasks) — verified against `plan/task-index.jsonl` `work_package_id` over the 15 R0/R1 WPs). Every backlog task/epic carries its originating WP/task ID in bl tags AND body for traceability; deferred M4–M8 placeholders carry theirs the same way.
 
 - **Phase I — R0 Lab** — M0: E-00 architecture baseline+ADRs; E-01 contracts: 27 schemas → TS (zod/ajv) + TS validation harness; E-02 eval baseline + tiny/small corpus lab. [parallel: E-00 ∥ E-01 ∥ E-02]
 - **Phase II — R1 Evidence core** — M1: E-10 snapshot intake+replay custody; E-11 extraction/representations; E-12 unitization+maps+lexical retrieval; E-13 data policy/access enforcement [E-13 ∥ E-10..12]. M2: E-20 question/obligation model; E-21 evidence packet+verdict; E-22 claim registry+review; E-23 graph gateway+validity. M3: E-30 Researcher+source tools; E-31 Evidence Critic; E-32 Claim Extractor+Reviewer; E-60 answer composition (pulled forward per bundle). **M3 = first internal release gate.**
@@ -82,7 +92,7 @@ Plus: language = TypeScript (C1); terminology = repo glossary (C5/§2).
 
 | Slice | Content | Files touched | Owner |
 |---|---|---|---|
-| S1 | Ingestion transaction: source-bundle commit (byte-identical, validator passing), IMPORT.md, `bl init` + backlog population (46 atomic + stubs), ADR-0005 (incl. C9 contract migration)/ADR-0006, `.plan/07-*` adoption doc, BLOCKED_TASKS section, CONTEXT.md glossary additions, `.gitignore` += `.worktrees/` | docs/adr/, .plan/, BLOCKED_TASKS.md, CONTEXT.md, .gitignore, .backlog/, docs/specs/automatic-ingestion-v3/ | SINGLE MUTATOR (proposed: me), pi reviews diff before merge |
+| S1 | Ingestion transaction: source-bundle commit (byte-identical, validator passing), IMPORT.md, `bl init` + backlog population (47 atomic: 46 bundle leaves + N3; plus stubs), ADR-0005 (incl. C9 contract migration)/ADR-0006, `.plan/07-*` adoption doc, BLOCKED_TASKS section, CONTEXT.md glossary additions, `.gitignore` += `.worktrees/` | docs/adr/, .plan/, BLOCKED_TASKS.md, CONTEXT.md, .gitignore, .backlog/, docs/specs/automatic-ingestion-v3/ | SINGLE MUTATOR (proposed: me), pi reviews diff before merge |
 | S2 (=E-01) | TS contract port: 27 schemas as `code/domain/ingest/*.ts` (new dir, no edits to shared schemas.ts except one registration edit at the end), scaffold/schemas/ingest/, TS validation harness + fixtures | code/domain/ingest/ (new), scaffold/schemas/ingest/ (new), tests | Coordinator A |
 | S3 (=E-02) | Corpus lab: tiny+small labeled corpora from bundle examples/source-corpus + eval fixture runner | test fixture dirs (new), no shared-file edits | Coordinator B |
 | S4 (=E-00 residue) | Architecture baseline doc (docs/architecture addendum), diagram source port (.dot/.mmd), terminology mapping/adoption docs only (source-bundle stays immutable) | docs/ (distinct files from S1 by list) | folded into S1 or sequenced after |
@@ -95,12 +105,12 @@ S2 ∥ S3 have zero shared files; S1 is sequenced first (everything cross-links 
 - Worktrees per slice under `.worktrees/`; commit → review by other coordinator → merge to main.
 - **Plan-before-code:** the locked proposal is committed as the design spec inside `docs/specs/automatic-ingestion-v3/` (design doc), and a bite-sized R0/R1 implementation plan (writing-plans conventions) is authored and committed BEFORE any implementation slice starts. Backlog tasks reference both artifacts. (pi proposed `docs/superpowers/{specs,plans}/2026-07-18-…`; final path chosen in S1 to match repo conventions — co-locating under docs/specs/automatic-ingestion-v3/ is the default.)
 - Approval: Max's tasking ("investigate → design/ingest → then implement") + /max-afk (proceed unless hard-blocked) = delegated approval IFF both coordinators' independent syntheses agree and no consequential ambiguity remains. **Process assumption (recorded):** with Max AFK, the two coordinators' joint LOCK + cross-review substitutes ONLY for the otherwise-interactive design/plan review gate; it does not extend to irreversible/outward-facing ops. Pause + ccc @cx-reviewer consult before those (remote push, GitHub PR, secrets, deletions). D9 explicitly flagged for Max at M6 gate.
-- Assumptions register: (a) ~~Docent identity~~ RESOLVED AS FACT — Max confirmed 2026-07-18 17:49 AEST: "docent was the old name. ultradyn-docs is the new name" (received directly by both coordinators); (b) R0/R1-only atomic ingestion (46 tasks) satisfies "ingestion into the backlog"; (c) full byte-identical source-bundle commit is acceptable repo weight (686KB, validator-passing); (d) R0/R1 projections use existing filesystem/durable-cursor patterns (D4); SQLite deferred to M7 evidence.
+- Assumptions register: (a) ~~Docent identity~~ RESOLVED AS FACT — Max confirmed 2026-07-18 17:49 AEST: "docent was the old name. ultradyn-docs is the new name" (received directly by both coordinators); (b) R0/R1-only atomic ingestion (47 tasks: 46 bundle leaves + N3) satisfies "ingestion into the backlog"; (c) full byte-identical source-bundle commit is acceptable repo weight (686KB, validator-passing); (d) R0/R1 projections use existing filesystem/durable-cursor patterns (D4); SQLite deferred to M7 evidence.
 
 --- SUMMARY ---
 
 - **What:** adopt the verified ingest-feature-v3 bundle ("Docent Automatic Ingestion" — Docent being the product's former name, per Max) as the design for an automatic knowledge-ingestion feature in Ultradyn Docs, and ingest its plan into a newly initialized `bl` backlog.
-- **How (Approach C, joint rec):** commit the full 223-file bundle byte-identical under `docs/specs/automatic-ingestion-v3/source-bundle/` (validator still passes; IMPORT.md carries ZIP SHA-256); `bl init` with precedence `.backlog`=execution truth, `.plan`=historical, `BLOCKED_TASKS.md`=release truth; instantiate exactly 46 atomic tasks (R0/R1 = M0–M3, 15 WPs) + dependency-gated epic stubs for M4–M8; ADR-0005 (architecture adoption + Critic contract migration) and ADR-0006 (ledger precedence).
+- **How (Approach C, joint rec):** commit the full 223-file bundle byte-identical under `docs/specs/automatic-ingestion-v3/source-bundle/` (validator still passes; IMPORT.md carries ZIP SHA-256); `bl init` with precedence `.backlog`=execution truth, `.plan`=historical, `BLOCKED_TASKS.md`=release truth; instantiate 47 atomic tasks (46 bundle leaves + N3; R0/R1 = M0–M3, 15 WPs) + dependency-gated epic stubs for M4–M8; ADR-0005 (architecture adoption + Critic contract migration) and ADR-0006 (ledger precedence).
 - **Key decisions:** TypeScript only; MiniSearch lexical retrieval (no vectors without future ADR); custom durable state machine on the repo's durable-cursor pattern; filesystem projections behind an interface (SQLite deferred to M7 evidence); one file per claim; preserved bundle never rewritten — new artifacts use Ultradyn Docs terminology.
 - **Material conflicts handled:** C9 Critic contract migration (typed depth findings only; post-terminal Curiosity Planner; contradictions bypass to P1, done=false); C10 WP-42 fail-closed closure framework at M4; C11 obligation `deferred` enum gap resolved explicitly in WP-20 with tests.
 - **Execution:** S1 ingestion transaction by a single mutator (this session) in a bootstrap worktree (preflight: gitignore `.worktrees/`), pi diff-reviews before merge; then design spec + bite-sized R0/R1 implementation plan committed BEFORE code; then parallel slices S2 (TS contract port) ∥ S3 (corpus lab) with zero shared files.

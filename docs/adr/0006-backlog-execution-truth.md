@@ -4,7 +4,7 @@ Status: accepted
 
 ## Context
 
-Work has been tracked in `.plan/06-task-breakdown.md` (milestone plan) and `BLOCKED_TASKS.md` (release-truth ledger). The `backlog` (`bl`) CLI is installed but was never initialized, so there was no claim/parallelize mechanism for multi-agent execution. The automatic-ingestion adoption (ADR 0005) introduces 46 immediately executable tasks plus dependency-gated future work, and multiple agents will implement independent slices in parallel.
+Work has been tracked in `.plan/06-task-breakdown.md` (milestone plan) and `BLOCKED_TASKS.md` (release-truth ledger). The `backlog` (`bl`) CLI is installed but was never initialized, so there was no claim/parallelize mechanism for multi-agent execution. The automatic-ingestion adoption (ADR 0005) introduces 47 immediately executable tasks (46 bundle leaves plus the synthetic N3 policy prerequisite) plus dependency-gated future work, and multiple agents will implement independent slices in parallel.
 
 ## Decision target
 
@@ -21,6 +21,8 @@ Ledgers are cross-linked by ID but never auto-generated from one another. Backlo
 Multi-agent execution gets atomic claims and dependency-aware scheduling without disturbing the existing ledgers' meanings. The cost is one more surface to keep honest: only R0/R1-scope atomic tasks are instantiated now, and later bundle milestones enter as dependency-gated epic stubs expanded at their milestone gates, so the backlog never advertises work that current repository reality cannot support.
 
 **Worktree constraint.** `bl` refuses mutating commands (init/add/claim/done/…) from a git worktree; backlog mutations run in the MAIN checkout only. The per-task sequence is therefore: `bl claim` in the main checkout → commit the claim → create the slice worktree from the claim tip → implement → review/merge → `bl done` in the main checkout. Read-only commands (`list`, `tree`, `check`, `show`) work anywhere.
+
+**S1 bootstrap import exception.** Because `.backlog/` did not exist and `bl init` refuses linked worktrees, the dual-authored, cross-reviewed, hash-pinned script ran twice in a fresh ordinary checkout-shaped directory. Its validated portable `.backlog/` output was imported into the reviewed S1 branch, then merged to the canonical checkout. This one-time initialization exception does not permit future manual backlog mutation; all post-bootstrap mutations use `bl` in the main checkout.
 
 ## Implementation status
 

@@ -60,7 +60,7 @@ Actual branch diffs, non-prefix-conflicting attempt branches, input-fingerprinte
 
 ### Automatic ingestion (v3)
 
-Adopted by ADR 0005/0006; execution truth lives in the backlog (phases R0–R4). Only R0/R1 (bundle M0–M3, 46 atomic tasks) is instantiated; the items below are the release-truth gates that later backlog epic stubs cross-link and must clear before those stubs expand.
+Adopted by ADR 0005/0006; execution truth lives in the backlog (phases R0–R4). Only R0/R1 (bundle M0–M3, 47 atomic tasks: 46 bundle leaves plus the synthetic N3 policy prerequisite) is instantiated; the items below are the release-truth gates that later backlog epic stubs cross-link and must clear before those stubs expand.
 
 - [ ] Complete the R0/R1 measured vertical slice: one A-tier Markdown snapshot → source units + lexical retrieval → Researcher/Evidence Critic loop → independently reviewed claims → one claim-derived answer composition with zero-cache replay fixtures (bundle gate M3; `docs/specs/automatic-ingestion-v3/DESIGN.md`).
 - [ ] Author the deletion-semantics ADR distinguishing authorized source-custody purge from portable append-only history (DESIGN C12). Required before any ingestion deletion task starts.

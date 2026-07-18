@@ -23,7 +23,7 @@ Adopt the v3 architecture with these binding commitments:
 
 ## Consequences
 
-The measured vertical slice (bundle milestones M0–M3) becomes implementable without violating existing invariants: 46 atomic tasks are instantiated in the backlog and later milestones remain dependency-gated epic stubs. Two bundle inconsistencies are owned explicitly: the coverage-obligation `deferred` status gap (resolved with tests in the WP-20 contract work) and WP-60's missing dependency on accepted claim reviews (rewired during backlog normalization).
+The measured vertical slice (bundle milestones M0–M3) becomes implementable without violating existing invariants: 47 atomic tasks (46 bundle leaves plus the synthetic N3 policy prerequisite) are instantiated in the backlog and later milestones remain dependency-gated epic stubs. Two bundle inconsistencies are owned explicitly: the coverage-obligation `deferred` status gap (resolved with tests in the WP-20 contract work) and WP-60's missing dependency on accepted claim reviews (rewired during backlog normalization).
 
 ## Implementation status
 

@@ -1,6 +1,6 @@
 # Import Receipt — Automatic Ingestion v3 Design Bundle
 
-- **Original artifact:** `ingest-feature-v3.zip` (supplied by Max, 2026-07-18, at `/home/xertrov/Downloads/ingest-feature-v3.zip`; ZIP itself intentionally not committed)
+- **Original artifact:** `ingest-feature-v3.zip` (supplied by Max, 2026-07-18; ZIP itself intentionally not committed)
 - **ZIP SHA-256:** `b10d4c05fff780ab0fe10d7487a0a316f56fc88514df6654cca7ea328e542e6e`
 - **Imported:** 2026-07-18 (AEST) by claude-pivot-cotton-27tq, joint-locked with pi-73c593
 - **Contents:** all 223 extracted regular files, byte-identical, under `source-bundle/` (ZIP's 238 entries = 223 files + 15 directory entries)
