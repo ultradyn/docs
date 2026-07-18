@@ -1,0 +1,34 @@
+schema_version: 1
+id: workflow-publish-to-docent
+version: 1
+trigger: Answers/documents pass configured gates
+inputs:
+- run_id
+- publication_mode
+steps:
+- id: audit
+  kind: agent
+  uses: agent-final-auditor
+  on_success: prepare-branch
+  on_failure: blocked
+  fresh_context: true
+- id: prepare-branch
+  kind: service
+  uses: git.prepare_ingestion_pr
+  on_success: checks
+  on_failure: failed
+- id: checks
+  kind: service
+  uses: git.run_checks
+  on_success: review
+  on_failure: failed
+- id: review
+  kind: human
+  uses: human.review_pr
+  on_success: merged
+  on_failure: changes_requested
+terminal_states:
+- merged
+- blocked
+- changes_requested
+- failed

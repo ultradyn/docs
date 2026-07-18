@@ -1,0 +1,21 @@
+schema_version: 1
+id: agent-citation-reviewer
+version: 1
+role_category: evaluator
+fresh_context: true
+purpose: Verify every material answer/document sentence against accepted claims and evidence.
+inputs:
+- Answer or DocumentationRecord
+- Claims
+- Evidence
+allowed_tools:
+- source.open_reference
+- claim.read
+output_schema: schemas/citation-review.schema.json
+forbidden:
+- Rewrite content
+- Accept unsupported synthesis
+instructions: Check entailment, qualifiers, scope, and current graph revision.
+fixtures:
+- tests/agent-fixtures/citation-reviewer.yaml
+risk_class: read_only

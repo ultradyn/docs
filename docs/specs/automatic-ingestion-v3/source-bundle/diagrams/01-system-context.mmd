@@ -1,0 +1,10 @@
+flowchart LR
+  Operator --> UI[Live dashboard]
+  UI --> WF[Workflow orchestrator]
+  WF --> Agents[Fresh-context agents]
+  WF --> Retrieval
+  WF --> Gateway[Question/claim graph gateway]
+  Source[Replay capsule] --> Representations --> Units[Structural source units] --> Retrieval
+  Gateway --> Git[(Git logical records)]
+  Git --> Projections[(Derived indexes / queues / views)]
+  Projections --> UI

@@ -1,0 +1,91 @@
+schema_version: 1
+id: WP-20
+phase: 2
+title: Question and coverage-obligation model
+description: Implement questions as demand/navigation records and obligations as finite work ownership.
+goals:
+- Stable provenance for human/generated/reverse questions
+- Bounded automatic branch growth
+dependencies:
+- WP-01
+- WP-12
+exit_gate:
+- All WP-20 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-20-01
+  work_package_id: WP-20
+  title: Implement Question repository and lifecycle
+  description: Persist raw/canonical wording, goals/facets, scope, origin, graph links, and generations.
+  goals:
+  - Persist raw/canonical wording, goals/facets, scope, origin, graph links, and generations.
+  dependencies:
+  - T-01-03
+  - T-12-04
+  deliverables:
+  - Question service
+  - Lifecycle tests
+  acceptance_criteria:
+  - Raw wording and origin are immutable
+  - Illegal lifecycle transitions fail
+  - Generated and human questions remain distinguishable after convergence
+  test_surface:
+  - unit
+  - schema
+  - workflow
+  owner_role: Domain engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-20-02
+  work_package_id: WP-20
+  title: Implement CoverageObligation ledger
+  description: Create, assign, transfer, satisfy, block, and revoke finite obligations.
+  goals:
+  - Create, assign, transfer, satisfy, block, and revoke finite obligations.
+  dependencies:
+  - T-20-01
+  deliverables:
+  - Obligation service
+  - Ownership invariants
+  acceptance_criteria:
+  - An automatic branch cannot exist without an owned open obligation
+  - One obligation has one canonical owner at a time
+  - Budget pause does not satisfy obligations
+  test_surface:
+  - unit
+  - workflow
+  - recovery
+  owner_role: Domain engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-20-03
+  work_package_id: WP-20
+  title: Implement question admissibility and novelty gate
+  description: Reject ungrounded, generic, duplicate, or obligation-less automatic proposals.
+  goals:
+  - Reject ungrounded, generic, duplicate, or obligation-less automatic proposals.
+  dependencies:
+  - T-20-02
+  deliverables:
+  - Admissibility service
+  - Adversarial proposal fixtures
+  acceptance_criteria:
+  - Generic missingness questions are rejected
+  - Human questions are admitted as demand even when unsupported
+  - Accepted generated children cite triggers and obligations
+  test_surface:
+  - unit
+  - agent_fixture
+  - e2e
+  owner_role: Domain engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []

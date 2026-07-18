@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/search-receipt.schema.json",
+  "title": "Search Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "snapshot_id",
+    "queries",
+    "source_units_opened",
+    "candidate_count",
+    "retrieval_status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "index_build_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "queries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "kind",
+          "text"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "source_units_opened": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+      }
+    },
+    "maps_followed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "retrieval_failures": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "unsearched_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "retrieval_status": {
+      "enum": [
+        "complete",
+        "degraded",
+        "unavailable"
+      ]
+    }
+  }
+}

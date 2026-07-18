@@ -1,0 +1,126 @@
+schema_version: 1
+work_packages:
+- id: WP-00
+  phase: 0
+  title: Architecture baseline and decision control
+  path: tasks/wp-00.yaml
+- id: WP-01
+  phase: 0
+  title: Schema, contract, and validation toolchain
+  path: tasks/wp-01.yaml
+- id: WP-02
+  phase: 0
+  title: Evaluation baseline and corpus laboratory
+  path: tasks/wp-02.yaml
+- id: WP-10
+  phase: 1
+  title: Source intake and replay custody
+  path: tasks/wp-10.yaml
+- id: WP-11
+  phase: 1
+  title: Extraction and qualified representations
+  path: tasks/wp-11.yaml
+- id: WP-12
+  phase: 1
+  title: Structural unitization, maps, and lexical retrieval
+  path: tasks/wp-12.yaml
+- id: WP-13
+  phase: 1
+  title: Data policy and source access enforcement
+  path: tasks/wp-13.yaml
+- id: WP-20
+  phase: 2
+  title: Question and coverage-obligation model
+  path: tasks/wp-20.yaml
+- id: WP-21
+  phase: 2
+  title: Evidence packet and verdict model
+  path: tasks/wp-21.yaml
+- id: WP-22
+  phase: 2
+  title: Claim registry and independent review
+  path: tasks/wp-22.yaml
+- id: WP-23
+  phase: 2
+  title: Graph gateway and dependency validity
+  path: tasks/wp-23.yaml
+- id: WP-30
+  phase: 3
+  title: Researcher agent and source tools
+  path: tasks/wp-30.yaml
+- id: WP-31
+  phase: 3
+  title: Evidence Critic agent
+  path: tasks/wp-31.yaml
+- id: WP-32
+  phase: 3
+  title: Claim Extractor and Claim Reviewer agents
+  path: tasks/wp-32.yaml
+- id: WP-33
+  phase: 3
+  title: Curiosity Planner and branch scheduler
+  path: tasks/wp-33.yaml
+- id: WP-40
+  phase: 4
+  title: Reverse Questioner and source-led accounting
+  path: tasks/wp-40.yaml
+- id: WP-41
+  phase: 4
+  title: Human curiosity and source-topic curation
+  path: tasks/wp-41.yaml
+- id: WP-42
+  phase: 4
+  title: Operational closure and assurance certificate
+  path: tasks/wp-42.yaml
+- id: WP-50
+  phase: 5
+  title: Question and claim convergence
+  path: tasks/wp-50.yaml
+- id: WP-51
+  phase: 5
+  title: Authority, lifecycle, and contradiction resolution
+  path: tasks/wp-51.yaml
+- id: WP-52
+  phase: 5
+  title: Incremental re-ingestion and invalidation
+  path: tasks/wp-52.yaml
+- id: WP-60
+  phase: 6
+  title: Answer composition from accepted claims
+  path: tasks/wp-60.yaml
+- id: WP-61
+  phase: 6
+  title: Information architecture and canonical homes
+  path: tasks/wp-61.yaml
+- id: WP-62
+  phase: 6
+  title: Document generation, citation, and navigation review
+  path: tasks/wp-62.yaml
+- id: WP-63
+  phase: 6
+  title: Git publication and Docent import
+  path: tasks/wp-63.yaml
+- id: WP-70
+  phase: 7
+  title: Live dashboard and operator workbench
+  path: tasks/wp-70.yaml
+- id: WP-71
+  phase: 7
+  title: Workflow orchestration, concurrency, and recovery
+  path: tasks/wp-71.yaml
+- id: WP-72
+  phase: 7
+  title: Observability, cost, and cache optimization
+  path: tasks/wp-72.yaml
+- id: WP-80
+  phase: 8
+  title: Comprehensive automated and adversarial test suite
+  path: tasks/wp-80.yaml
+- id: WP-81
+  phase: 8
+  title: Pilot corpora and architecture ablations
+  path: tasks/wp-81.yaml
+- id: WP-82
+  phase: 8
+  title: Production readiness and staged rollout
+  path: tasks/wp-82.yaml

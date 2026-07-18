@@ -1,0 +1,91 @@
+schema_version: 1
+id: WP-21
+phase: 2
+title: Evidence packet and verdict model
+description: Implement immutable evidence/search artifacts and bounded evidence-refinement state.
+goals:
+- Traceable retrieval proposals
+- Independent per-facet sufficiency verdicts
+dependencies:
+- WP-12
+- WP-20
+exit_gate:
+- All WP-21 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-21-01
+  work_package_id: WP-21
+  title: Implement EvidencePacket and SearchReceipt repository
+  description: Persist packet versions, references, roles, facet mappings, queries, filters, and failures.
+  goals:
+  - Persist packet versions, references, roles, facet mappings, queries, filters, and failures.
+  dependencies:
+  - T-12-04
+  - T-20-03
+  deliverables:
+  - Evidence service
+  - Reference verifier
+  acceptance_criteria:
+  - All references verify snapshot/file/unit hashes
+  - Packet versions are append-only
+  - No-evidence packet without a receipt is rejected
+  test_surface:
+  - unit
+  - schema
+  - retrieval
+  owner_role: Domain engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-21-02
+  work_package_id: WP-21
+  title: Implement EvidenceVerdict lifecycle
+  description: Persist reference classifications, facet states, terminal verdicts, and bounded refinement requests.
+  goals:
+  - Persist reference classifications, facet states, terminal verdicts, and bounded refinement requests.
+  dependencies:
+  - T-21-01
+  deliverables:
+  - Verdict service
+  - State transition tests
+  acceptance_criteria:
+  - Accepted requires all required facets satisfied
+  - Every material reference receives a classification
+  - Retrieval unavailable cannot become no-supported-answer
+  test_surface:
+  - unit
+  - schema
+  - workflow
+  owner_role: Domain engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-21-03
+  work_package_id: WP-21
+  title: Implement evidence loop limiter
+  description: Detect repeated/non-novel refinement requests and route search-incomplete or human action.
+  goals:
+  - Detect repeated/non-novel refinement requests and route search-incomplete or human action.
+  dependencies:
+  - T-21-02
+  deliverables:
+  - Loop policy
+  - Cycle fixtures
+  acceptance_criteria:
+  - Refinement count and novel search obligation are enforced
+  - Loop termination preserves all packets/verdicts
+  - No artificial accepted/no-evidence state is created
+  test_surface:
+  - workflow
+  - recovery
+  - cost
+  owner_role: Workflow engineer
+  estimate_class: S
+  risk_level: medium
+  status: planned
+  notes: []

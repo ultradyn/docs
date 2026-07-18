@@ -1,0 +1,38 @@
+schema_version: 1
+id: workflow-reverse-accounting
+version: 1
+trigger: Forward wave is stable or final coverage audit is requested
+inputs:
+- run_id
+- snapshot_id
+steps:
+- id: audit-coverage
+  kind: service
+  uses: coverage.cluster_unaccounted
+  on_success: reverse
+  on_failure: reconciled
+- id: reverse
+  kind: agent
+  uses: agent-reverse-questioner
+  on_success: curate
+  on_failure: failed
+  fresh_context: true
+- id: curate
+  kind: human
+  uses: human.curate_reverse_topics
+  on_success: schedule
+  on_failure: deferred
+- id: schedule
+  kind: service
+  uses: branch.create_from_reverse
+  on_success: reexplore
+  on_failure: failed
+- id: reexplore
+  kind: subworkflow
+  uses: workflow-explore-question
+  on_success: audit-coverage
+  on_failure: failed
+terminal_states:
+- reconciled
+- deferred
+- failed

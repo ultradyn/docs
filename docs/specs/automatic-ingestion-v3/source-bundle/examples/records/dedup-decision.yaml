@@ -1,0 +1,14 @@
+schema_version: 1
+id: ded-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+entity_type: question
+left_id: q-01J00000000000000000000001
+right_id: q-01J00000000000000000000002
+decision: shares_answer_with
+reason: Both questions use the project-purpose claims, but the second has an API-integration goal and remains distinct.
+reversible: true
+unique_contributions:
+  right_goals:
+  - api-integration
+secondary_replay_passed: true
+human_review_required: false

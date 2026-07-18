@@ -1,0 +1,16 @@
+schema_version: 1
+id: file-01J00000000000000000000004
+snapshot_id: snap-01J00000000000000000000001
+original_path: legacy.md
+normalized_path: legacy.md
+media_type: text/markdown
+blob_sha256: acd53ac58d50cd1ae460fe69737256384cb4007b17e6425ff08b070d90d4da42
+size_bytes: 260
+classification: internal
+rights_profile: owned-internal
+representation_status: exact
+extractor:
+  id: markdown-exact
+  version: 1.0.0
+  normalized_sha256: acd53ac58d50cd1ae460fe69737256384cb4007b17e6425ff08b070d90d4da42
+warnings: []

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/claim-review.schema.json",
+  "title": "Claim Review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "claim_id",
+    "decision",
+    "checks",
+    "reason"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "claim_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "decision": {
+      "enum": [
+        "accept",
+        "accept_with_qualifier",
+        "split",
+        "merge_candidate",
+        "reject_unsupported",
+        "reject_wrong_scope",
+        "needs_authority",
+        "needs_extraction_repair"
+      ]
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entailed",
+        "atomic",
+        "scope_correct",
+        "qualifiers_preserved",
+        "authority_eligible"
+      ],
+      "properties": {
+        "entailed": {
+          "type": "boolean"
+        },
+        "atomic": {
+          "type": "boolean"
+        },
+        "scope_correct": {
+          "type": "boolean"
+        },
+        "qualifiers_preserved": {
+          "type": "boolean"
+        },
+        "authority_eligible": {
+          "type": "boolean"
+        }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replacement_claim_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+      }
+    },
+    "required_qualifier_text": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

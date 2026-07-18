@@ -1,0 +1,24 @@
+schema_version: 1
+id: unit-01J00000000000000000000001
+snapshot_id: snap-01J00000000000000000000001
+source_file_id: file-01J00000000000000000000001
+parent_unit_id: null
+kind: paragraph_group
+heading_path:
+- Acorn Relay
+unit_sha256: 581c751593e9c1a5ad3a1bf9cacb57e9ca7381747bf543762aac3c7d43bb6641
+text_sha256: 581c751593e9c1a5ad3a1bf9cacb57e9ca7381747bf543762aac3c7d43bb6641
+normalized_locator:
+  line_start: 3
+  line_end: 3
+original_locator:
+  line_start: 3
+  line_end: 3
+extraction_tier: A_exact
+authority_hints:
+  authority: official
+lifecycle_hints:
+  lifecycle: current
+coverage_state: represented_by_claim
+text: Acorn Relay is an internal webhook relay for services that need durable, controlled delivery to registered
+  HTTP endpoints.

@@ -1,0 +1,7 @@
+digraph G {
+ graph [rankdir=TB,bgcolor="transparent",pad=0.25,nodesep=0.4,ranksep=0.5,fontname="Arial"];
+ node [shape=box,style="rounded,filled",fillcolor="#f8fafc",color="#475569",fontname="Arial",fontsize=10];
+ edge [color="#64748b",fontname="Arial",fontsize=9,arrowsize=0.7];
+ Q[label="Question + goals/facets + obligation",fillcolor="#eef2ff"]; R[label="Researcher\nreferences + search receipt"]; EC[label="Evidence Critic\nfacet/reference verdict",fillcolor="#fff7ed"]; V[label="Terminal evidence?",shape=diamond,fillcolor="#fff7ed"]; REF[label="Precise evidence refinement"]; SP[label="Authority / conflict / extraction workflow"]; CE[label="Claim Extractor"]; CR[label="Fresh Claim Reviewer"]; GAP[label="Honest source gap"]; CP[label="Curiosity Planner\ngrounded children only",fillcolor="#ecfdf5"]; NG[label="Novelty + obligation gate",shape=diamond,fillcolor="#fff7ed"]; CHILD[label="Parallel child cells",fillcolor="#eef2ff"];
+ Q->R->EC->V; V->REF[label="needs evidence"]; REF->R; V->SP[label="special issue"]; V->GAP[label="no supported answer"]; V->CE[label="accepted"]; CE->CR; CR->CE[label="split/revise"]; CR->CP[label="accepted claims"]; GAP->CP; SP->CP[label="terminal outcome"]; CP->NG; NG->CHILD[label="novel"]; NG->CP[label="reject/rewrite"];
+}

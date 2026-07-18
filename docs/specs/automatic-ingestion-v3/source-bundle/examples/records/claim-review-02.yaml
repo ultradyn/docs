@@ -1,0 +1,14 @@
+schema_version: 1
+id: crv-01J00000000000000000000002
+run_id: run-01J00000000000000000000001
+claim_id: clm-01J00000000000000000000002
+decision: accept
+checks:
+  entailed: true
+  atomic: true
+  scope_correct: true
+  qualifiers_preserved: true
+  authority_eligible: true
+reason: The statement is directly supported and correctly scoped.
+replacement_claim_ids: []
+required_qualifier_text: null

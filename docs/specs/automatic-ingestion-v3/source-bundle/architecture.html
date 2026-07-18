@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docent Automatic Ingestion v3 — Architecture</title>
+<style>
+:root{--bg:#0b1020;--panel:#121a2e;--ink:#e8edf7;--muted:#aab5c7;--line:#293750;--accent:#8bb8ff;--good:#6ee7b7;--warn:#fbbf24}
+*{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,#090e1c,#10182b);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
+header{padding:48px max(24px,7vw) 28px;border-bottom:1px solid var(--line)} h1{font-size:clamp(2rem,5vw,4rem);line-height:1.03;margin:0 0 14px;max-width:1000px} header p{max-width:900px;color:var(--muted);font-size:1.12rem}
+main{padding:28px max(20px,6vw) 70px;max-width:1600px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px}.card{background:rgba(18,26,46,.94);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 10px 35px rgba(0,0,0,.18)}.card.wide{grid-column:1/-1}h2{margin:0 0 10px;font-size:1.45rem}h3{margin:18px 0 8px}.kicker{text-transform:uppercase;letter-spacing:.14em;color:var(--accent);font-size:.78rem;font-weight:700}.muted{color:var(--muted)}img{display:block;width:100%;background:#fff;border-radius:12px;padding:10px}.pill{display:inline-block;padding:4px 9px;margin:3px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:.84rem}.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:18px 0}.flow div{padding:12px;border-radius:12px;background:#18233b;text-align:center;border:1px solid var(--line)}code,pre{background:#09101f;border:1px solid var(--line);border-radius:10px}code{padding:.12em .35em}pre{padding:16px;overflow:auto;color:#d7e5ff}a{color:var(--accent)}@media(max-width:800px){.flow{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+<div class="kicker">Docent · Automatic ingestion · v3</div>
+<h1>Evidence becomes claims; questions become demand; documents become reader-oriented.</h1>
+<p>v3 separates the knowledge layers and splits the old Questioner into a strict Evidence Critic and a separate Curiosity Planner. The result is easier to test, safer to deduplicate, and capable of precise downstream invalidation.</p>
+</header>
+<main>
+<section class="card wide">
+<div class="kicker">The two changes</div>
+<div class="flow">
+<div>Immutable<br><strong>source units</strong></div><div>Verified<br><strong>evidence</strong></div><div>Reusable<br><strong>claims</strong></div><div>Goal-specific<br><strong>answers</strong></div><div>Reader-facing<br><strong>documents</strong></div>
+</div>
+<p class="muted">Questions run alongside this chain as the demand and navigation graph. They ask for evidence, consume claims through answer compositions, and influence the information architecture without becoming the sole canonical container for facts.</p>
+</section>
+<section class="grid">
+<article class="card wide"><div class="kicker">System boundary</div><h2>Source custody, runtime orchestration, and Git logical state</h2><img src="diagrams/01-system-context.svg" alt="System context diagram"></article>
+<article class="card"><div class="kicker">Knowledge model</div><h2>Five distinct layers</h2><img src="diagrams/02-layered-knowledge-model.svg" alt="Layered knowledge model"></article>
+<article class="card"><div class="kicker">Core loop</div><h2>Criticism before curiosity</h2><img src="diagrams/03-exploration-loop.svg" alt="Exploration loop"></article>
+<article class="card"><div class="kicker">Completion</div><h2>Forward, reverse, and human</h2><img src="diagrams/04-three-sided-closure.svg" alt="Three-sided closure"></article>
+<article class="card"><div class="kicker">Change safety</div><h2>Claim-mediated invalidation</h2><img src="diagrams/05-claim-and-answer-validity.svg" alt="Claim and answer validity"></article>
+<article class="card"><div class="kicker">Publication</div><h2>Information architecture before prose</h2><img src="diagrams/06-publication-pipeline.svg" alt="Publication pipeline"></article>
+<article class="card"><div class="kicker">Maintenance</div><h2>Incremental re-ingestion</h2><img src="diagrams/07-reingestion-invalidation.svg" alt="Reingestion invalidation"></article>
+<article class="card"><div class="kicker">Operations</div><h2>Transactional runtime, reviewable Git output</h2><img src="diagrams/08-runtime-and-git-boundary.svg" alt="Runtime and Git boundary"></article>
+</section>
+<section class="card wide" style="margin-top:20px">
+<div class="kicker">Role contracts</div><h2>The product-facing “Questioner” is two independent agents</h2>
+<p><span class="pill">Researcher</span><span class="pill">Evidence Critic</span><span class="pill">Claim Extractor</span><span class="pill">Claim Reviewer</span><span class="pill">Curiosity Planner</span><span class="pill">Reverse Questioner</span></p>
+<pre>Evidence Critic: “Do these references completely and honestly support this question?”
+Curiosity Planner: “Given the terminal result, what new source-grounded obligations deserve a child question?”</pre>
+<p class="muted">The Evidence Critic cannot create child questions. The Curiosity Planner cannot change the current evidence verdict. Both run in fresh contexts with separate schemas and fixtures.</p>
+</section>
+<section class="card wide" style="margin-top:20px">
+<div class="kicker">Implementation plan</div><h2>Build the measured core first</h2>
+<ol>
+<li>A-tier source snapshot, structural source units, exact/lexical retrieval.</li>
+<li>Question, EvidencePacket, EvidenceVerdict, and replay fixture.</li>
+<li>Claim extraction and fresh Claim Review.</li>
+<li>Answer composition from accepted claims.</li>
+<li>Only then add curiosity branching, reverse coverage, convergence, IA/document generation, the rich dashboard, and scale.</li>
+</ol>
+<p>See <a href="plan/README.md">plan/README.md</a> and <a href="plan/02-work-breakdown-structure.md">the work breakdown</a>.</p>
+</section>
+</main>
+</body>
+</html>

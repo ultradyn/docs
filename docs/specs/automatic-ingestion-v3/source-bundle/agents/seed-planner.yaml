@@ -1,0 +1,21 @@
+schema_version: 1
+id: agent-seed-planner
+version: 1
+role_category: planner
+fresh_context: true
+purpose: Create a small source-grounded initial question set and coverage obligations.
+inputs:
+- SourceSnapshot
+- Source inventory
+- Goal presets
+allowed_tools:
+- source.maps
+- source.open_unit
+output_schema: schemas/question.schema.json
+forbidden:
+- Answer questions
+- Create ungrounded exhaustive lists
+instructions: Prefer broad project orientation seeds; every generated seed states goals, facets, and provenance.
+fixtures:
+- tests/agent-fixtures/seed-planner.yaml
+risk_class: proposal

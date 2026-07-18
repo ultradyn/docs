@@ -1,0 +1,15 @@
+schema_version: 1
+id: auth-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+subject_claim_ids:
+- clm-01J00000000000000000000004
+decision: historical_only
+scope:
+  version: before 3
+effective_from: null
+effective_until: null
+reason: The legacy source explicitly says direct delivery was removed in version 3.
+decided_by: policy
+status: accepted
+evidence_unit_ids:
+- unit-01J00000000000000000000007

@@ -1,0 +1,28 @@
+schema_version: 1
+id: workflow-resolve-authority
+version: 1
+trigger: Claim conflict or deprecation ambiguity is material
+inputs:
+- claim_ids
+- authority_policy
+steps:
+- id: resolve
+  kind: agent
+  uses: agent-authority-resolver
+  on_success: apply-or-human
+  on_failure: failed
+  fresh_context: true
+- id: apply-or-human
+  kind: policy
+  uses: authority.route
+  on_success: applied
+  on_failure: waiting_human
+- id: applied
+  kind: service
+  uses: authority.apply_and_invalidate
+  on_success: resolved
+  on_failure: failed
+terminal_states:
+- resolved
+- waiting_human
+- failed

@@ -1,0 +1,21 @@
+schema_version: 1
+id: agent-claim-extractor
+version: 1
+role_category: producer
+fresh_context: true
+purpose: Propose minimal reusable atomic claims from accepted evidence.
+inputs:
+- Question
+- Accepted EvidencePacket
+- EvidenceVerdict
+allowed_tools:
+- source.open_reference
+output_schema: schemas/claim.schema.json
+forbidden:
+- Accept its own claims
+- Add unsupported rationale
+- Write final docs
+instructions: Preserve scope, qualifiers, lifecycle, and exact evidence.
+fixtures:
+- tests/agent-fixtures/claim-extractor.yaml
+risk_class: proposal

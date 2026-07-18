@@ -1,0 +1,120 @@
+schema_version: 1
+id: WP-70
+phase: 7
+title: Live dashboard and operator workbench
+description: Expose activity, evidence, claims, coverage, assurance, and human controls accurately.
+goals:
+- Operational inspectability without false transparency
+- Efficient human decisions
+dependencies:
+- WP-20
+- WP-21
+- WP-22
+- WP-42
+exit_gate:
+- All WP-70 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-70-01
+  work_package_id: WP-70
+  title: Implement durable event model and streaming API
+  description: Persist ordered events and deliver snapshot+incremental SSE/WebSocket projections.
+  goals:
+  - Persist ordered events and deliver snapshot+incremental SSE/WebSocket projections.
+  dependencies:
+  - T-20-03
+  - T-21-03
+  - T-22-03
+  - T-42-03
+  deliverables:
+  - Event service
+  - Streaming API
+  acceptance_criteria:
+  - Reconnect from sequence loses no terminal/error event
+  - Duplicate event delivery is idempotent
+  - Sensitive payloads respect visibility labels
+  test_surface:
+  - integration
+  - recovery
+  - observability
+  - security
+  owner_role: Frontend/platform engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-70-02
+  work_package_id: WP-70
+  title: Implement graph/source/claim dashboard views
+  description: Render question tree, claim graph, source coverage, branch lanes, and validity.
+  goals:
+  - Render question tree, claim graph, source coverage, branch lanes, and validity.
+  dependencies:
+  - T-70-01
+  deliverables:
+  - Dashboard views
+  - Virtualization strategy
+  acceptance_criteria:
+  - Question and claim nodes are visually distinct
+  - 10k-node clustered fixture remains interactive at target
+  - Every status links to source artifacts/reasons
+  test_surface:
+  - performance
+  - human_factors
+  - observability
+  owner_role: Frontend engineer
+  estimate_class: XL
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-70-03
+  work_package_id: WP-70
+  title: Implement human decision workbenches
+  description: Support curiosity injection, curation, dedup, authority, extraction repair, budgets, and publication review.
+  goals:
+  - Support curiosity injection, curation, dedup, authority, extraction repair, budgets, and publication review.
+  dependencies:
+  - T-70-02
+  deliverables:
+  - Decision UI/API
+  - Audit records
+  acceptance_criteria:
+  - Every override records actor/reason
+  - Destructive-looking operations are reversible or confirmed
+  - Users can locate blocked gates and required action
+  test_surface:
+  - human_factors
+  - workflow
+  - security
+  owner_role: Product engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-70-04
+  work_package_id: WP-70
+  title: Run transparency comprehension study
+  description: Test Activity versus Evidence versus Assurance semantics and bounded closure language.
+  goals:
+  - Test Activity versus Evidence versus Assurance semantics and bounded closure language.
+  dependencies:
+  - T-70-03
+  deliverables:
+  - Study protocol
+  - Results and UI revisions
+  acceptance_criteria:
+  - Configured comprehension target is met
+  - No UI claims hidden chain-of-thought
+  - Busy failed run cannot appear healthier than quiet passed run
+  test_surface:
+  - human_factors
+  - observability
+  owner_role: UX researcher
+  estimate_class: M
+  risk_level: medium
+  status: planned
+  notes: []

@@ -1,0 +1,94 @@
+schema_version: 1
+id: WP-42
+phase: 4
+title: Operational closure and assurance certificate
+description: Compute the bounded completion predicate and expose exact exceptions.
+goals:
+- No false complete status
+- Reproducible closure proof
+dependencies:
+- WP-23
+- WP-40
+- WP-41
+exit_gate:
+- All WP-42 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-42-01
+  work_package_id: WP-42
+  title: Implement gate collectors
+  description: Collect forward/reverse/human/coverage/evidence/claim/authority/extraction/dedup/validity/publication/replay
+    gates.
+  goals:
+  - Collect forward/reverse/human/coverage/evidence/claim/authority/extraction/dedup/validity/publication/replay gates.
+  dependencies:
+  - T-23-03
+  - T-40-03
+  - T-41-03
+  deliverables:
+  - Gate service
+  - Gate status API
+  acceptance_criteria:
+  - Each gate identifies source artifacts and policy version
+  - A missing result is fail/unknown, not pass
+  - Gate recalculation is deterministic
+  test_surface:
+  - unit
+  - integration
+  - observability
+  owner_role: Platform engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-42-02
+  work_package_id: WP-42
+  title: Implement closure certificate issuance/invalidation
+  description: Issue scoped status and invalidate on dependency changes.
+  goals:
+  - Issue scoped status and invalidate on dependency changes.
+  dependencies:
+  - T-42-01
+  deliverables:
+  - Certificate service
+  - Invalidation fixtures
+  acceptance_criteria:
+  - Certificate pins snapshot/config/graph revision/exceptions
+  - No bare universal-complete status exists
+  - Relevant mutation invalidates certificate automatically
+  test_surface:
+  - schema
+  - workflow
+  - recovery
+  owner_role: Platform engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-42-03
+  work_package_id: WP-42
+  title: Build closure adversarial suite
+  description: Test empty queues with unreviewed units, held duplicates, stale claims, unavailable source, and budget
+    pauses.
+  goals:
+  - Test empty queues with unreviewed units, held duplicates, stale claims, unavailable source, and budget pauses.
+  dependencies:
+  - T-42-02
+  deliverables:
+  - Closure fixture suite
+  acceptance_criteria:
+  - Every false-completion scenario remains blocked/paused
+  - Allowed partial-publish cases are explicit
+  - Human can trace each failed predicate
+  test_surface:
+  - e2e
+  - workflow
+  - human_factors
+  owner_role: Evaluation engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []

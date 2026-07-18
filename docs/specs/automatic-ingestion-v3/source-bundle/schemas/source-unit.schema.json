@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/source-unit.schema.json",
+  "title": "Source Unit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "snapshot_id",
+    "source_file_id",
+    "kind",
+    "unit_sha256",
+    "text_sha256",
+    "normalized_locator",
+    "extraction_tier",
+    "coverage_state"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "source_file_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "parent_unit_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "enum": [
+        "document",
+        "section",
+        "paragraph_group",
+        "list",
+        "table",
+        "code",
+        "slide",
+        "sheet_range",
+        "figure_description",
+        "callout"
+      ]
+    },
+    "heading_path": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "unit_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "text_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "normalized_locator": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "original_locator": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "extraction_tier": {
+      "enum": [
+        "A_exact",
+        "B_verifiable",
+        "C_approximate",
+        "D_unsupported"
+      ]
+    },
+    "authority_hints": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "lifecycle_hints": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "coverage_state": {
+      "enum": [
+        "unreviewed",
+        "candidate_relevant",
+        "represented_by_claim",
+        "represented_by_question",
+        "cited_primary",
+        "cited_qualifying",
+        "supplemental_selected",
+        "duplicate_content",
+        "superseded_or_deprecated",
+        "historical_only",
+        "boilerplate_or_navigation",
+        "human_excluded",
+        "unsupported_or_unreadable",
+        "processing_failed"
+      ]
+    },
+    "text": {
+      "type": "string"
+    }
+  }
+}

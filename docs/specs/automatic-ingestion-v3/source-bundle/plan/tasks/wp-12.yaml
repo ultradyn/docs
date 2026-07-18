@@ -1,0 +1,116 @@
+schema_version: 1
+id: WP-12
+phase: 1
+title: Structural unitization, maps, and lexical retrieval
+description: Create stable source units and the default exact/lexical retrieval projection.
+goals:
+- Reliable source granularity and locators
+- Fast source-grounded retrieval without mandatory vectors
+dependencies:
+- WP-11
+exit_gate:
+- All WP-12 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-12-01
+  work_package_id: WP-12
+  title: Implement structural source-unit parser
+  description: Create document/section/paragraph/list/table/code units with parent and heading relationships.
+  goals:
+  - Create document/section/paragraph/list/table/code units with parent and heading relationships.
+  dependencies:
+  - T-11-03
+  deliverables:
+  - Unitizer
+  - Unit identity fixtures
+  acceptance_criteria:
+  - Units remain stable under unrelated edits where possible
+  - All units retain original and normalized locators
+  - No selected text is silently dropped
+  test_surface:
+  - unit
+  - integration
+  - retrieval
+  owner_role: Search engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-12-02
+  work_package_id: WP-12
+  title: Build exact maps and aliases
+  description: Generate ID/path/title/heading/acronym/error-code maps and ambiguity handling.
+  goals:
+  - Generate ID/path/title/heading/acronym/error-code maps and ambiguity handling.
+  dependencies:
+  - T-12-01
+  deliverables:
+  - Readable map files
+  - Exact lookup service
+  acceptance_criteria:
+  - Unique aliases resolve deterministically
+  - Ambiguous aliases return all candidates with reasons
+  - Maps rebuild reproducibly from the snapshot
+  test_surface:
+  - unit
+  - retrieval
+  - migration
+  owner_role: Search engineer
+  estimate_class: M
+  risk_level: medium
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-12-03
+  work_package_id: WP-12
+  title: Build lexical index and search receipts
+  description: Index structural fields, apply scope/status filters, and emit engine-neutral search receipts.
+  goals:
+  - Index structural fields, apply scope/status filters, and emit engine-neutral search receipts.
+  dependencies:
+  - T-12-02
+  deliverables:
+  - Lexical index adapter
+  - Retrieval API
+  - Search receipt records
+  acceptance_criteria:
+  - Expected units are retrieved in tiny/small fixtures
+  - Index outage is distinguishable from no evidence
+  - A deleted index rebuilds without knowledge loss
+  test_surface:
+  - retrieval
+  - integration
+  - performance
+  - recovery
+  owner_role: Search engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-12-04
+  work_package_id: WP-12
+  title: Benchmark optional semantic retrieval
+  description: Compare lexical-only and dense/hybrid candidates on representative replay fixtures.
+  goals:
+  - Compare lexical-only and dense/hybrid candidates on representative replay fixtures.
+  dependencies:
+  - T-12-03
+  deliverables:
+  - Benchmark report
+  - Enable/disable decision
+  acceptance_criteria:
+  - Quality, cost, and latency are reported together
+  - Vectors remain disabled unless material improvement is demonstrated
+  - Disabling vectors requires no source/data migration
+  test_surface:
+  - retrieval
+  - performance
+  - cost
+  owner_role: Evaluation engineer
+  estimate_class: M
+  risk_level: medium
+  status: planned
+  notes: []

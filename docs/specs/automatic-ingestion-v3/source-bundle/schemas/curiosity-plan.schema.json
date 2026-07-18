@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/curiosity-plan.schema.json",
+  "title": "Curiosity Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "question_id",
+    "terminal_verdict_id",
+    "children",
+    "no_more_children_reason"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "question_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "terminal_verdict_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "accepted_claim_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+      }
+    },
+    "children": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question_text",
+          "reason",
+          "expected_answer_type",
+          "goals",
+          "facets",
+          "trigger_source_unit_ids",
+          "trigger_claim_ids",
+          "obligation_id",
+          "branch_directive"
+        ],
+        "properties": {
+          "question_text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_answer_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "goals": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "facets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "description",
+                "required"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "trigger_source_unit_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+            }
+          },
+          "trigger_claim_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+            }
+          },
+          "obligation_id": {
+            "type": "string",
+            "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+          },
+          "branch_directive": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "no_more_children_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "visible_summary": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

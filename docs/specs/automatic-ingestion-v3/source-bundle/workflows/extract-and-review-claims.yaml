@@ -1,0 +1,35 @@
+schema_version: 1
+id: workflow-extract-and-review-claims
+version: 1
+trigger: Evidence verdict is accepted
+inputs:
+- question_id
+- evidence_packet_id
+- evidence_verdict_id
+steps:
+- id: extract-claims
+  kind: agent
+  uses: agent-claim-extractor
+  on_success: review-claims
+  on_failure: failed
+  fresh_context: true
+- id: review-claims
+  kind: agent
+  uses: agent-claim-reviewer
+  on_success: apply-claims
+  on_failure: repair-or-block
+  fresh_context: true
+- id: apply-claims
+  kind: service
+  uses: claim.apply_reviewed
+  on_success: claims_accepted
+  on_failure: failed
+- id: repair-or-block
+  kind: policy
+  uses: claim.route_review_findings
+  on_success: extract-claims
+  on_failure: claims_blocked
+terminal_states:
+- claims_accepted
+- claims_blocked
+- failed

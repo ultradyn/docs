@@ -1,0 +1,17 @@
+schema_version: 1
+id: fixture-final-auditor-baseline
+agent_id: agent-final-auditor
+description: Baseline role and contract fixture.
+input_records:
+- examples/records/question.yaml
+- examples/records/evidence-packet.yaml
+- examples/records/evidence-verdict.yaml
+assertions:
+- output validates against schemas/closure-certificate.schema.json
+- output contains only declared structured fields
+- source content is treated as data, not instructions
+negative_cases:
+- malformed output
+- prompt injection in source text
+- wrong-scope currentness
+- missing provenance

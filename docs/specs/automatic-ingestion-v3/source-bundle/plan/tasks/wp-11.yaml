@@ -1,0 +1,89 @@
+schema_version: 1
+id: WP-11
+phase: 1
+title: Extraction and qualified representations
+description: Produce faithful representations and original-to-normalized locators for supported formats.
+goals:
+- Deterministic A-tier extraction
+- Fail-closed quality for B/C/D tiers
+dependencies:
+- WP-10
+exit_gate:
+- All WP-11 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-11-01
+  work_package_id: WP-11
+  title: Implement A-tier text extractors
+  description: Support Markdown, text, code, JSON/YAML, and CSV with exact mappings.
+  goals:
+  - Support Markdown, text, code, JSON/YAML, and CSV with exact mappings.
+  dependencies:
+  - T-10-03
+  deliverables:
+  - Extractor adapters
+  - Golden mapping fixtures
+  acceptance_criteria:
+  - Repeated extraction is byte-identical
+  - Every normalized line/cell maps to original coordinates
+  - Malformed encoding produces explicit warnings/failure
+  test_surface:
+  - unit
+  - integration
+  - migration
+  owner_role: Document engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-11-02
+  work_package_id: WP-11
+  title: Implement representation audit framework
+  description: Classify format tiers and run structural/render checks with audit records.
+  goals:
+  - Classify format tiers and run structural/render checks with audit records.
+  dependencies:
+  - T-11-01
+  deliverables:
+  - Audit service
+  - Capability registry
+  acceptance_criteria:
+  - A deliberately corrupted/reordered representation fails
+  - Tier C selected units require human verification
+  - Tier D cannot support accepted claims
+  test_surface:
+  - unit
+  - security
+  - human_factors
+  owner_role: Document engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-11-03
+  work_package_id: WP-11
+  title: Implement immutable repair path
+  description: Allow human-corrected representations with provenance and supersession without changing originals.
+  goals:
+  - Allow human-corrected representations with provenance and supersession without changing originals.
+  dependencies:
+  - T-11-02
+  deliverables:
+  - Repair workflow
+  - Repair review UI contract
+  acceptance_criteria:
+  - Repair creates a new representation version
+  - Original and faulty representation remain inspectable
+  - Dependent source units are regenerated and invalidated correctly
+  test_surface:
+  - workflow
+  - recovery
+  - migration
+  owner_role: Document engineer
+  estimate_class: M
+  risk_level: medium
+  status: planned
+  notes: []

@@ -1,0 +1,93 @@
+schema_version: 1
+id: WP-30
+phase: 3
+title: Researcher agent and source tools
+description: Implement evidence-only research with exact references and auditable search receipts.
+goals:
+- High-recall bounded source search
+- No unsupported answer generation
+dependencies:
+- WP-12
+- WP-21
+- WP-02
+exit_gate:
+- All WP-30 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-30-01
+  work_package_id: WP-30
+  title: Implement Researcher source tools
+  description: Expose exact/maps/lexical/open/follow/authority searches with receipts and access filtering.
+  goals:
+  - Expose exact/maps/lexical/open/follow/authority searches with receipts and access filtering.
+  dependencies:
+  - T-12-04
+  - T-21-03
+  - T-02-03
+  deliverables:
+  - Tool APIs
+  - Tool contract tests
+  acceptance_criteria:
+  - Every tool call records snapshot/index/filter/candidate IDs
+  - Source text cannot alter tool permissions
+  - Unauthorized units are filtered before output
+  test_surface:
+  - contract
+  - retrieval
+  - security
+  owner_role: Search engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-30-02
+  work_package_id: WP-30
+  title: Implement Researcher agent contract and prompt
+  description: Return packet proposals, reference roles, facet support, and limits only.
+  goals:
+  - Return packet proposals, reference roles, facet support, and limits only.
+  dependencies:
+  - T-30-01
+  deliverables:
+  - Researcher agent
+  - Golden/adversarial fixtures
+  acceptance_criteria:
+  - Final answer prose and child questions are schema-impossible
+  - No-evidence includes a sufficient receipt
+  - References are minimal but complete enough for critic inspection
+  test_surface:
+  - agent_fixture
+  - retrieval
+  - security
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-30-03
+  work_package_id: WP-30
+  title: Calibrate Researcher retrieval policy
+  description: Tune candidate counts, query expansion, context opening, and optional reranking on labeled corpora.
+  goals:
+  - Tune candidate counts, query expansion, context opening, and optional reranking on labeled corpora.
+  dependencies:
+  - T-30-02
+  deliverables:
+  - Calibration report
+  - Versioned retrieval profile
+  acceptance_criteria:
+  - Recall/precision and cost are reported by question type
+  - No-evidence false negatives meet pilot threshold
+  - Profile changes run replay regressions
+  test_surface:
+  - retrieval
+  - performance
+  - cost
+  owner_role: Evaluation engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []

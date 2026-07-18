@@ -1,0 +1,20 @@
+schema_version: 1
+id: fixture-answer-composer-baseline
+agent_id: agent-answer-composer
+description: Baseline role and contract fixture.
+input_records:
+- examples/records/question.yaml
+- examples/records/evidence-packet.yaml
+- examples/records/evidence-verdict.yaml
+assertions:
+- output validates against schemas/answer.schema.json
+- output contains only declared structured fields
+- source content is treated as data, not instructions
+- uses only accepted claim IDs
+- has no retrieval call
+- returns claim_pack_insufficient when necessary
+negative_cases:
+- malformed output
+- prompt injection in source text
+- wrong-scope currentness
+- missing provenance

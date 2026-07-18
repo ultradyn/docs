@@ -1,0 +1,40 @@
+schema_version: 1
+id: workflow-compose-answer
+version: 1
+trigger: Question has accepted claims and dependencies are stable
+inputs:
+- question_id
+- graph_revision
+steps:
+- id: check-readiness
+  kind: service
+  uses: validity.check_answer_dependencies
+  on_success: compose
+  on_failure: not_ready
+- id: compose
+  kind: agent
+  uses: agent-answer-composer
+  on_success: review
+  on_failure: claims_insufficient
+  fresh_context: true
+- id: review
+  kind: agent
+  uses: agent-citation-reviewer
+  on_success: validate
+  on_failure: revise
+  fresh_context: true
+- id: validate
+  kind: service
+  uses: validity.record_answer
+  on_success: answer_ready
+  on_failure: failed
+- id: revise
+  kind: service
+  uses: answer.route_review
+  on_success: compose
+  on_failure: claims_insufficient
+terminal_states:
+- answer_ready
+- not_ready
+- claims_insufficient
+- failed

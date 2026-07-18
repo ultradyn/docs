@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/dashboard-event.schema.json",
+  "title": "Dashboard Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "sequence",
+    "type",
+    "at",
+    "actor",
+    "correlation_id",
+    "visibility",
+    "payload",
+    "idempotency_key"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "system",
+            "service",
+            "agent",
+            "human",
+            "tool"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "visibility": {
+      "enum": [
+        "operator",
+        "maintainer",
+        "reviewer",
+        "internal"
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

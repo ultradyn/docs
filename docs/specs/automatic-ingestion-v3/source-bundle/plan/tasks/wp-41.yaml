@@ -1,0 +1,91 @@
+schema_version: 1
+id: WP-41
+phase: 4
+title: Human curiosity and source-topic curation
+description: Let operators inject tacit demand and choose supplemental uncovered topics.
+goals:
+- Low-friction human steering
+- Immutable provenance and normal workflow treatment
+dependencies:
+- WP-33
+- WP-40
+exit_gate:
+- All WP-41 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-41-01
+  work_package_id: WP-41
+  title: Implement Ask-here injection model and API
+  description: Create human questions at root/question/claim/document/source anchors with goals and context.
+  goals:
+  - Create human questions at root/question/claim/document/source anchors with goals and context.
+  dependencies:
+  - T-33-03
+  - T-40-03
+  deliverables:
+  - HumanCuriosity service
+  - API/UI contract
+  acceptance_criteria:
+  - Exact wording/actor/anchor are immutable
+  - Injection creates a human obligation and normal branch
+  - Injection against closed run invalidates certificate
+  test_surface:
+  - integration
+  - workflow
+  - human_factors
+  owner_role: Product engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-41-02
+  work_package_id: WP-41
+  title: Implement uncovered-topic curation
+  description: Present topic tree with include/exclude/defer/historical/duplicate decisions and previews.
+  goals:
+  - Present topic tree with include/exclude/defer/historical/duplicate decisions and previews.
+  dependencies:
+  - T-41-01
+  deliverables:
+  - Curation workflow
+  - Decision records
+  acceptance_criteria:
+  - Every human decision has a reason and affected unit list
+  - Selected topics generate supplemental obligations
+  - Excluded material remains visible in final report
+  test_surface:
+  - workflow
+  - human_factors
+  - observability
+  owner_role: Product engineer
+  estimate_class: M
+  risk_level: medium
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-41-03
+  work_package_id: WP-41
+  title: Implement human curiosity checkpoint
+  description: Require explicit acknowledgment and zero open injections before closure.
+  goals:
+  - Require explicit acknowledgment and zero open injections before closure.
+  dependencies:
+  - T-41-02
+  deliverables:
+  - Checkpoint record
+  - Closure gate
+  acceptance_criteria:
+  - Open/blocked injections prevent closure
+  - Withdrawal is explicit and attributable
+  - New injection reopens downstream validity
+  test_surface:
+  - workflow
+  - e2e
+  - recovery
+  owner_role: Workflow engineer
+  estimate_class: S
+  risk_level: high
+  status: planned
+  notes: []

@@ -1,0 +1,19 @@
+schema_version: 1
+id: snap-01J00000000000000000000001
+project_id: acorn-relay
+created_at: '2026-07-18T00:00:00Z'
+artifact:
+  kind: directory
+  name: source-corpus
+  sha256: c75765c81a04f379fd308da99c548377f0c815cff0cf654cbca229396a37708c
+  size_bytes: 2041
+  replay_uri: object://examples/acorn-relay/c75765c81a04f379fd308da99c548377f0c815cff0cf654cbca229396a37708c
+snapshot_sha256: c75765c81a04f379fd308da99c548377f0c815cff0cf654cbca229396a37708c
+policy_profile: internal-example
+importer:
+  name: docent-example-importer
+  version: 1.0.0
+status: qualified
+file_count: 6
+source_unit_count: 8
+warnings: []

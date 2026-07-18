@@ -1,0 +1,27 @@
+schema_version: 1
+id: agent-researcher
+version: 1
+role_category: producer
+fresh_context: true
+purpose: Find and return a complete minimal evidence packet and search receipt for one question.
+inputs:
+- Question
+- Goals/facets
+- Snapshot
+- Prior criticism
+allowed_tools:
+- source.exact
+- source.maps
+- source.lexical
+- source.vector_optional
+- source.open_unit
+- source.follow_links
+output_schema: schemas/evidence-packet.schema.json
+forbidden:
+- Write the answer
+- Judge sufficiency
+- Propose child questions
+instructions: Return references and proposed roles only. Record search limits and failures honestly.
+fixtures:
+- tests/agent-fixtures/researcher.yaml
+risk_class: proposal

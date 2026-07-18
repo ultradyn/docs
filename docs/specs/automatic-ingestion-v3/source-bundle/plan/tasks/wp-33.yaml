@@ -1,0 +1,96 @@
+schema_version: 1
+id: WP-33
+phase: 3
+title: Curiosity Planner and branch scheduler
+description: Implement grounded expansion after terminal evidence/claim outcomes.
+goals:
+- Materially distinct child discovery
+- Finite obligation-bound scheduling
+dependencies:
+- WP-20
+- WP-23
+- WP-31
+- WP-32
+exit_gate:
+- All WP-33 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-33-01
+  work_package_id: WP-33
+  title: Implement Curiosity Planner agent
+  description: Propose child questions with goals/facets, triggers, expected answer types, directives, and obligation
+    IDs.
+  goals:
+  - Propose child questions with goals/facets, triggers, expected answer types, directives, and obligation IDs.
+  dependencies:
+  - T-20-03
+  - T-23-03
+  - T-31-03
+  - T-32-03
+  deliverables:
+  - Curiosity Planner
+  - Grounding fixtures
+  acceptance_criteria:
+  - Agent cannot alter evidence verdict
+  - Every accepted proposal has source/claim triggers and novel obligation
+  - Generic or speculative proposals are rejected
+  test_surface:
+  - agent_fixture
+  - workflow
+  - cost
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-33-02
+  work_package_id: WP-33
+  title: Implement novelty/obligation scheduler
+  description: Admit, rewrite, queue, prioritize, or reject proposals deterministically.
+  goals:
+  - Admit, rewrite, queue, prioritize, or reject proposals deterministically.
+  dependencies:
+  - T-33-01
+  deliverables:
+  - Branch scheduler
+  - Novelty rules
+  acceptance_criteria:
+  - Duplicate obligation ownership is prevented
+  - Breadth-first policy is reproducible
+  - Human overrides are attributable and reversible
+  test_surface:
+  - unit
+  - workflow
+  - recovery
+  owner_role: Workflow engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-33-03
+  work_package_id: WP-33
+  title: Implement paired context manifests and recovery
+  description: Build compact reconstructable branch contexts independent of live provider sessions.
+  goals:
+  - Build compact reconstructable branch contexts independent of live provider sessions.
+  dependencies:
+  - T-33-02
+  deliverables:
+  - Context manifest service
+  - Session-loss recovery test
+  acceptance_criteria:
+  - Destroying all provider sessions does not lose branch state
+  - Ancestor accepted artifacts and unresolved findings are preserved
+  - Context hashes/versioning are reproducible
+  test_surface:
+  - recovery
+  - cost
+  - integration
+  owner_role: Platform engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []

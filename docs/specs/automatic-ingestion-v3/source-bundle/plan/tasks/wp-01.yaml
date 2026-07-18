@@ -1,0 +1,89 @@
+schema_version: 1
+id: WP-01
+phase: 0
+title: Schema, contract, and validation toolchain
+description: Implement the machine-readable contracts and validators used by every later work package.
+goals:
+- Reject malformed artifacts before durable mutation
+- Keep contracts portable across providers and runtime choices
+dependencies:
+- WP-00
+exit_gate:
+- All WP-01 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-01-01
+  work_package_id: WP-01
+  title: Implement schema registry
+  description: Load, version, and resolve JSON Schemas for all domain and agent/workflow records.
+  goals:
+  - Load, version, and resolve JSON Schemas for all domain and agent/workflow records.
+  dependencies:
+  - T-00-03
+  deliverables:
+  - Schema registry library
+  - Schema CI command
+  acceptance_criteria:
+  - All bundled schemas validate under Draft 2020-12
+  - Unknown schema versions fail explicitly
+  - Validation errors include exact record paths
+  test_surface:
+  - unit
+  - schema
+  - integration
+  owner_role: Platform engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-01-02
+  work_package_id: WP-01
+  title: Implement agent and workflow manifest validation
+  description: Validate tool allowlists, output schemas, fresh-context flags, state transitions, and referenced agents/subworkflows.
+  goals:
+  - Validate tool allowlists, output schemas, fresh-context flags, state transitions, and referenced agents/subworkflows.
+  dependencies:
+  - T-01-01
+  deliverables:
+  - Manifest validator
+  - Invalid fixture set
+  acceptance_criteria:
+  - Dangling agent/workflow references fail CI
+  - Evaluator roles without fresh context fail CI
+  - Every workflow state has a terminal or reachable successor
+  test_surface:
+  - schema
+  - contract
+  - workflow
+  owner_role: Platform engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-01-03
+  work_package_id: WP-01
+  title: Implement bundle and link validator
+  description: Check internal links, source-copy hashes, diagrams, task dependencies, and forbidden artifacts.
+  goals:
+  - Check internal links, source-copy hashes, diagrams, task dependencies, and forbidden artifacts.
+  dependencies:
+  - T-01-02
+  deliverables:
+  - Bundle validator
+  - Validation report generator
+  acceptance_criteria:
+  - A clean bundle produces one reproducible pass report
+  - Injected broken links/dependencies/binary indexes fail
+  - Task dependency cycles are detected
+  test_surface:
+  - unit
+  - schema
+  - integration
+  owner_role: Tooling engineer
+  estimate_class: S
+  risk_level: medium
+  status: planned
+  notes: []

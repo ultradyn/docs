@@ -1,0 +1,16 @@
+schema_version: 1
+id: file-01J00000000000000000000001
+snapshot_id: snap-01J00000000000000000000001
+original_path: README.md
+normalized_path: README.md
+media_type: text/markdown
+blob_sha256: ac5f488c2b07b7eca06eb365bcefd667a8831815d02579f0fa6a3d2bb49369a3
+size_bytes: 404
+classification: internal
+rights_profile: owned-internal
+representation_status: exact
+extractor:
+  id: markdown-exact
+  version: 1.0.0
+  normalized_sha256: ac5f488c2b07b7eca06eb365bcefd667a8831815d02579f0fa6a3d2bb49369a3
+warnings: []

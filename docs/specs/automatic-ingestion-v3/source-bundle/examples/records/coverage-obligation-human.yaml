@@ -1,0 +1,11 @@
+schema_version: 1
+id: obl-01J00000000000000000000003
+run_id: run-01J00000000000000000000001
+kind: human_curiosity
+subject_id: hci-01J00000000000000000000001
+status: open
+owner_question_id: null
+parent_obligation_id: null
+created_at: '2026-07-18T00:06:00Z'
+reason: Operator asked about queued events and disabled endpoints.
+satisfaction_artifact_ids: []

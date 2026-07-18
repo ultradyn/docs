@@ -1,0 +1,93 @@
+schema_version: 1
+id: WP-51
+phase: 5
+title: Authority, lifecycle, and contradiction resolution
+description: Keep current, historical, scoped, and conflicting claims honest.
+goals:
+- Deterministic clear-case precedence
+- Fail-closed organizational ambiguity
+dependencies:
+- WP-13
+- WP-22
+- WP-23
+exit_gate:
+- All WP-51 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-51-01
+  work_package_id: WP-51
+  title: Implement project authority policy
+  description: Define precedence, scope dimensions, effective-time, owners, and historical handling.
+  goals:
+  - Define precedence, scope dimensions, effective-time, owners, and historical handling.
+  dependencies:
+  - T-13-03
+  - T-22-03
+  - T-23-03
+  deliverables:
+  - Authority policy schema/UI
+  - Reference policy
+  acceptance_criteria:
+  - Newer file does not automatically outrank approved policy
+  - Scope dimensions are configurable
+  - Historical material remains retrievable with labels
+  test_surface:
+  - schema
+  - human_factors
+  - security
+  owner_role: Knowledge governance lead
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-51-02
+  work_package_id: WP-51
+  title: Implement contradiction laboratory
+  description: Search for supersession, exceptions, scope, and implementation/policy evidence for a conflict.
+  goals:
+  - Search for supersession, exceptions, scope, and implementation/policy evidence for a conflict.
+  dependencies:
+  - T-51-01
+  deliverables:
+  - Focused workflow
+  - Conflict evidence pack
+  acceptance_criteria:
+  - Scoped differences are not false contradictions
+  - Unresolved same-scope conflict remains blocking
+  - Search receipt is preserved
+  test_surface:
+  - retrieval
+  - agent_fixture
+  - workflow
+  owner_role: Search engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-51-03
+  work_package_id: WP-51
+  title: Implement human authority decision and history graph
+  description: Record named decisions, rationale, evidence, scope/time, and reversibility.
+  goals:
+  - Record named decisions, rationale, evidence, scope/time, and reversibility.
+  dependencies:
+  - T-51-02
+  deliverables:
+  - Authority decision workflow
+  - Historical root links
+  acceptance_criteria:
+  - Only authorized owners can decide configured cases
+  - Decision changes invalidate dependent claims/docs
+  - Superseded claims remain inspectable
+  test_surface:
+  - workflow
+  - security
+  - migration
+  owner_role: Product engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []

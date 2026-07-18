@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/evidence-packet.schema.json",
+  "title": "Evidence Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "branch_id",
+    "question_id",
+    "generation",
+    "snapshot_id",
+    "search_receipt_id",
+    "references",
+    "facet_support",
+    "conclusion"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "branch_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "question_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "search_receipt_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "snapshot_id",
+          "source_file_id",
+          "source_unit_id",
+          "file_sha256",
+          "unit_sha256",
+          "normalized_path",
+          "locator",
+          "relation"
+        ],
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+          },
+          "source_file_id": {
+            "type": "string",
+            "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+          },
+          "source_unit_id": {
+            "type": "string",
+            "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+          },
+          "file_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "unit_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "normalized_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locator": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "line",
+                  "page",
+                  "cell",
+                  "slide",
+                  "element",
+                  "byte",
+                  "time"
+                ]
+              }
+            }
+          },
+          "relation": {
+            "enum": [
+              "primary",
+              "qualifying",
+              "example",
+              "context_only",
+              "conflict",
+              "historical"
+            ]
+          },
+          "authority": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lifecycle": {
+            "type": "string",
+            "minLength": 1
+          },
+          "extraction_tier": {
+            "enum": [
+              "A_exact",
+              "B_verifiable",
+              "C_approximate",
+              "D_unsupported"
+            ]
+          }
+        }
+      }
+    },
+    "facet_support": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "facet_id",
+          "source_unit_ids",
+          "reason"
+        ],
+        "properties": {
+          "facet_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_unit_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "previous_packet_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "addresses_criticism_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+      }
+    },
+    "conclusion": {
+      "enum": [
+        "evidence_proposed",
+        "no_direct_evidence",
+        "authority_required",
+        "source_processing_blocked"
+      ]
+    },
+    "visible_note": {
+      "type": "string"
+    }
+  }
+}

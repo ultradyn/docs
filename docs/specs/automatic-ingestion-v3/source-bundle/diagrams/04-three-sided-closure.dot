@@ -1,0 +1,7 @@
+digraph G {
+ graph [rankdir=LR,bgcolor="transparent",pad=0.25,nodesep=0.4,ranksep=0.6,fontname="Arial"];
+ node [shape=box,style="rounded,filled",fillcolor="#f8fafc",color="#475569",fontname="Arial",fontsize=9];
+ edge [color="#64748b",fontname="Arial",fontsize=8,arrowsize=0.65];
+ Seeds[label="Seeds"]; F[label="Forward curiosity\nfinite obligations"]; Cov[label="Source coverage ledger"]; Rev[label="Reverse Questioner\nunaccounted clusters"]; H[label="Human curiosity\nAsk here + checkpoint"]; Gates[label="Evidence / claims / authority / extraction / dedup / validity / editorial gates"]; Cert[label="Bounded closure certificate",fillcolor="#ecfdf5"];
+ Seeds->F->Cov; Cov->Rev; Rev->F [label="grounded questions"]; Cov->H; H->F [label="injections"]; Cov->Gates; F->Gates; Rev->Gates; H->Gates; Gates->Cert;
+}

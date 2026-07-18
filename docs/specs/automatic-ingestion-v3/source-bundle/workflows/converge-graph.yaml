@@ -1,0 +1,33 @@
+schema_version: 1
+id: workflow-converge-graph
+version: 1
+trigger: Question or claim similarity candidate is emitted
+inputs:
+- candidate_id
+steps:
+- id: adjudicate
+  kind: agent
+  uses: agent-duplicate-adjudicator
+  on_success: replay
+  on_failure: waiting_human
+  fresh_context: true
+- id: replay
+  kind: service
+  uses: convergence.dual_replay
+  on_success: apply
+  on_failure: release
+- id: apply
+  kind: service
+  uses: convergence.apply_reversible
+  on_success: held_or_linked
+  on_failure: failed
+- id: release
+  kind: service
+  uses: convergence.release_distinct
+  on_success: distinct
+  on_failure: failed
+terminal_states:
+- held_or_linked
+- distinct
+- waiting_human
+- failed

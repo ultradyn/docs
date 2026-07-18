@@ -1,0 +1,11 @@
+flowchart TB
+  Q[Question + obligations] --> R[Researcher]
+  R --> EC[Evidence Critic]
+  EC -->|needs more| R
+  EC -->|accepted| CE[Claim Extractor]
+  CE --> CR[Claim Reviewer]
+  CR --> CP[Curiosity Planner]
+  EC -->|gap / special terminal| CP
+  CP --> NG{Novel obligation?}
+  NG -->|yes| Children[Child cells]
+  NG -->|no| Reject[Reject / rewrite]

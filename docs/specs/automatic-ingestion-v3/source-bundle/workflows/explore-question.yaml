@@ -1,0 +1,64 @@
+schema_version: 1
+id: workflow-explore-question
+version: 1
+trigger: Question is admitted with goals, facets, and obligations
+inputs:
+- question_id
+- snapshot_id
+- branch_id
+steps:
+- id: research
+  kind: agent
+  uses: agent-researcher
+  on_success: critic
+  on_failure: retry-or-fail
+  fresh_context: true
+  retry:
+    max_attempts: 2
+    strategy: exponential
+- id: critic
+  kind: agent
+  uses: agent-evidence-critic
+  on_success: route-verdict
+  on_failure: retry-or-fail
+  fresh_context: true
+  retry:
+    max_attempts: 2
+    strategy: fixed
+- id: route-verdict
+  kind: policy
+  uses: evidence.route_accepted
+  on_success: extract-claims
+  on_failure: route-nonaccepted
+- id: extract-claims
+  kind: subworkflow
+  uses: workflow-extract-and-review-claims
+  on_success: curiosity
+  on_failure: failed
+- id: route-nonaccepted
+  kind: policy
+  uses: evidence.route_refinement
+  on_success: research
+  on_failure: route-terminal
+- id: route-terminal
+  kind: policy
+  uses: evidence.route_terminal_curiosity
+  on_success: curiosity
+  on_failure: terminal-nonaccept
+- id: curiosity
+  kind: agent
+  uses: agent-curiosity-planner
+  on_success: schedule-children
+  on_failure: failed
+  fresh_context: true
+- id: schedule-children
+  kind: service
+  uses: branch.accept_novel_children
+  on_success: explored
+  on_failure: waiting-human
+terminal_states:
+- explored
+- terminal-nonaccept
+- waiting-human
+- retry-or-fail
+- failed

@@ -1,0 +1,7 @@
+digraph G {
+ graph [rankdir=TB,bgcolor="transparent",pad=0.25,nodesep=0.38,ranksep=0.45,fontname="Arial"];
+ node [shape=box,style="rounded,filled",fillcolor="#f8fafc",color="#475569",fontname="Arial",fontsize=9];
+ edge [color="#64748b",fontname="Arial",fontsize=8,arrowsize=0.65];
+ Stable[label="Stabilized graph revision",fillcolor="#eef2ff"]; IA[label="Information Architect\ncanonical homes + doc types"]; Approve[label="Review document plan",shape=diamond,fillcolor="#fff7ed"]; W[label="Document Writer\nsealed claim packs only"]; Cite[label="Fresh citation/claim review"]; Nav[label="Fresh navigation tasks"]; Gate[label="Publication mode / risk gate",shape=diamond,fillcolor="#fff7ed"]; PR[label="Git branch + PR"]; Diff[label="Diff-only summary + independent review"]; Merge[label="Docent import",fillcolor="#ecfdf5"];
+ Stable->IA->Approve; Approve->W[label="approved"]; Approve->IA[label="changes"]; W->Cite; Cite->W[label="revise"]; Cite->Nav[label="pass"]; Nav->W[label="fail"]; Nav->Gate[label="pass"]; Gate->PR[label="canonical / provisional / partial"]; PR->Diff->Merge;
+}

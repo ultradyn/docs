@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/question.schema.json",
+  "title": "Question",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "canonical_text",
+    "origin",
+    "goals",
+    "facets",
+    "scope",
+    "status",
+    "obligation_ids",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "canonical_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_text": {
+      "type": "string"
+    },
+    "origin": {
+      "enum": [
+        "seed",
+        "generated_follow_up",
+        "reverse_source_seed",
+        "human_ingestion_seed",
+        "reopened_invalidation"
+      ]
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "facets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "required"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "status": {
+      "enum": [
+        "proposed",
+        "admitted",
+        "researching",
+        "refining",
+        "evidence_terminal",
+        "claims_pending",
+        "claims_accepted",
+        "no_supported_answer",
+        "waiting_human",
+        "held_equivalence",
+        "invalidated",
+        "answered",
+        "published",
+        "failed"
+      ]
+    },
+    "primary_parent_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cross_parent_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+      }
+    },
+    "obligation_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+      }
+    },
+    "accepted_claim_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+      }
+    },
+    "answer_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

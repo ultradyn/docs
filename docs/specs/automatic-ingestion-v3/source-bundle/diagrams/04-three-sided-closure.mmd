@@ -1,0 +1,11 @@
+flowchart LR
+  Seeds --> Forward
+  Forward --> Coverage
+  Coverage --> Reverse[Reverse Questioner]
+  Reverse --> Forward
+  Coverage --> Human[Human curiosity]
+  Human --> Forward
+  Forward --> Gates
+  Reverse --> Gates
+  Human --> Gates
+  Gates --> Certificate

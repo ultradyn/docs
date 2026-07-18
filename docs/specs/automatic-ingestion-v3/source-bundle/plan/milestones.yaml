@@ -1,0 +1,69 @@
+schema_version: 1
+milestones:
+- id: M0
+  name: Contracts and lab ready
+  required_work_packages:
+  - WP-00
+  - WP-01
+  - WP-02
+  exit: Schemas, fixtures, tiny corpus, and validation pass.
+- id: M1
+  name: Deterministic source plane
+  required_work_packages:
+  - WP-10
+  - WP-11
+  - WP-12
+  - WP-13
+  exit: A-tier corpus is safely replayable, unitized, searchable, and policy-filtered.
+- id: M2
+  name: Knowledge core
+  required_work_packages:
+  - WP-20
+  - WP-21
+  - WP-22
+  - WP-23
+  exit: Questions, obligations, evidence, claims, dependencies, and invalidation are durable.
+- id: M3
+  name: Measured vertical slice
+  required_work_packages:
+  - WP-30
+  - WP-31
+  - WP-32
+  - WP-60
+  exit: "One question completes Researcher\u2192Critic\u2192Claims\u2192Answer with replay tests."
+- id: M4
+  name: Grounded exploration
+  required_work_packages:
+  - WP-33
+  - WP-40
+  - WP-41
+  - WP-42
+  exit: Forward, reverse, and human exploration close under finite obligations.
+- id: M5
+  name: Convergent maintained graph
+  required_work_packages:
+  - WP-50
+  - WP-51
+  - WP-52
+  exit: Duplicates, authority, contradictions, and source updates are reversible and precise.
+- id: M6
+  name: Reader-facing publication
+  required_work_packages:
+  - WP-61
+  - WP-62
+  - WP-63
+  exit: IA-first documentation and Docent PR/replay pass.
+- id: M7
+  name: Operational product
+  required_work_packages:
+  - WP-70
+  - WP-71
+  - WP-72
+  exit: Dashboard, durable orchestration, recovery, observability, and budgets pass.
+- id: M8
+  name: Production release
+  required_work_packages:
+  - WP-80
+  - WP-81
+  - WP-82
+  exit: Representative pilot, adversarial, DR, deletion, and rollout gates pass.

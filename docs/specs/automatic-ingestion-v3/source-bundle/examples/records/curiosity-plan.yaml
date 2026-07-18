@@ -1,0 +1,31 @@
+schema_version: 1
+id: cur-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+question_id: q-01J00000000000000000000001
+terminal_verdict_id: evv-01J00000000000000000000001
+accepted_claim_ids:
+- clm-01J00000000000000000000001
+- clm-01J00000000000000000000002
+- clm-01J00000000000000000000003
+children:
+- question_text: How does Acorn Relay handle failed deliveries?
+  reason: The operations source contains a distinct failure-handling topic that is not required for the overview
+    answer.
+  expected_answer_type: procedure-and-behavior
+  goals:
+  - operations
+  - troubleshooting
+  facets:
+  - id: retryability
+    description: Which failures are retried.
+    required: true
+  - id: exhaustion
+    description: What happens after retries are exhausted.
+    required: true
+  trigger_source_unit_ids:
+  - unit-01J00000000000000000000006
+  trigger_claim_ids: []
+  obligation_id: obl-01J00000000000000000000002
+  branch_directive: Explore retry classification, attempt limit, and dead-letter outcome.
+no_more_children_reason: null
+visible_summary: One grounded operational child is proposed; ordering and maintenance remain separate coverage items.

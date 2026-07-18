@@ -1,0 +1,90 @@
+schema_version: 1
+id: WP-22
+phase: 2
+title: Claim registry and independent review
+description: Implement reusable claims between evidence and answers/documents.
+goals:
+- Atomic reusable knowledge with source provenance
+- Independent claim acceptance and relationships
+dependencies:
+- WP-21
+exit_gate:
+- All WP-22 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-22-01
+  work_package_id: WP-22
+  title: Implement Claim repository and lifecycle
+  description: Persist proposed/accepted/disputed/stale/superseded claims with scope, type, evidence, and relationships.
+  goals:
+  - Persist proposed/accepted/disputed/stale/superseded claims with scope, type, evidence, and relationships.
+  dependencies:
+  - T-21-03
+  deliverables:
+  - Claim service
+  - Lifecycle/relationship tests
+  acceptance_criteria:
+  - Accepted claims have at least one verified evidence reference
+  - Scope/authority/lifecycle are mandatory for acceptance
+  - Source changes can mark claims stale
+  test_surface:
+  - unit
+  - schema
+  - claim
+  owner_role: Domain engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-22-02
+  work_package_id: WP-22
+  title: Implement claim candidate search
+  description: Find equivalent, variant, broader/narrower, and contradiction candidates using text, scope, type, and
+    evidence.
+  goals:
+  - Find equivalent, variant, broader/narrower, and contradiction candidates using text, scope, type, and evidence.
+  dependencies:
+  - T-22-01
+  deliverables:
+  - Claim candidate service
+  - Labeled candidate fixtures
+  acceptance_criteria:
+  - Same wording with different scope is not exact equivalent
+  - Evidence overlap is reported but not decisive
+  - Candidate generation recall is measurable
+  test_surface:
+  - claim
+  - retrieval
+  - performance
+  owner_role: Search engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-22-03
+  work_package_id: WP-22
+  title: Implement ClaimReview application
+  description: Apply split, qualifier, acceptance, rejection, authority, and extraction outcomes idempotently.
+  goals:
+  - Apply split, qualifier, acceptance, rejection, authority, and extraction outcomes idempotently.
+  dependencies:
+  - T-22-02
+  deliverables:
+  - Review application service
+  - Claim mutation fixtures
+  acceptance_criteria:
+  - Extractor cannot self-accept claims
+  - Split claims preserve provenance
+  - Rejected claims cannot enter answer/document packs
+  test_surface:
+  - workflow
+  - claim
+  - recovery
+  owner_role: Domain engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []

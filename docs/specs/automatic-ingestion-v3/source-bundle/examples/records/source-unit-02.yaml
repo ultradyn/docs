@@ -1,0 +1,24 @@
+schema_version: 1
+id: unit-01J00000000000000000000002
+snapshot_id: snap-01J00000000000000000000001
+source_file_id: file-01J00000000000000000000001
+parent_unit_id: null
+kind: paragraph_group
+heading_path:
+- Acorn Relay
+unit_sha256: 0e2bb552e1c234db4cbb95da0130d3f98525e6e9203ea03bc5bb5dd453a714d1
+text_sha256: 0e2bb552e1c234db4cbb95da0130d3f98525e6e9203ea03bc5bb5dd453a714d1
+normalized_locator:
+  line_start: 5
+  line_end: 5
+original_locator:
+  line_start: 5
+  line_end: 5
+extraction_tier: A_exact
+authority_hints:
+  authority: official
+lifecycle_hints:
+  lifecycle: current
+coverage_state: represented_by_claim
+text: The service accepts events through an ingress API, stores them in a durable queue, and uses delivery workers
+  to send them to endpoint registrations.

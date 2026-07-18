@@ -1,0 +1,22 @@
+schema_version: 1
+id: agent-duplicate-adjudicator
+version: 1
+role_category: adjudicator
+fresh_context: true
+purpose: Decide reversible convergence relationships for questions or claims.
+inputs:
+- Candidate pair
+- Goals/scope
+- Evidence/claims
+- Graph context
+allowed_tools:
+- graph.read_entity
+- source.open_reference
+output_schema: schemas/dedup-decision.schema.json
+forbidden:
+- Delete provenance
+- Merge from text similarity alone
+instructions: Preserve unique contributions and require replay for execution holds.
+fixtures:
+- tests/agent-fixtures/duplicate-adjudicator.yaml
+risk_class: proposal

@@ -1,0 +1,24 @@
+schema_version: 1
+id: unit-01J00000000000000000000003
+snapshot_id: snap-01J00000000000000000000001
+source_file_id: file-01J00000000000000000000001
+parent_unit_id: null
+kind: paragraph_group
+heading_path:
+- Acorn Relay
+unit_sha256: 7e85bbc05c8c38646a99f8c875c6b22f9125973558de795f4216f644d2ea34d4
+text_sha256: 7e85bbc05c8c38646a99f8c875c6b22f9125973558de795f4216f644d2ea34d4
+normalized_locator:
+  line_start: 7
+  line_end: 7
+original_locator:
+  line_start: 7
+  line_end: 7
+extraction_tier: A_exact
+authority_hints:
+  authority: official
+lifecycle_hints:
+  lifecycle: current
+coverage_state: represented_by_claim
+text: Acorn Relay is intended for internal service-to-service event delivery. It is not a general public message
+  broker.

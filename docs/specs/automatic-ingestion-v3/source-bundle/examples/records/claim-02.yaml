@@ -1,0 +1,47 @@
+schema_version: 1
+id: clm-01J00000000000000000000002
+run_id: run-01J00000000000000000000001
+statement: Acorn Relay accepts events through an ingress API, stores them in a durable queue, and delivers them
+  using workers to endpoint registrations.
+claim_type: behavior
+scope:
+  version: current
+authority: official
+lifecycle: current
+status: accepted
+evidence_refs:
+- snapshot_id: snap-01J00000000000000000000001
+  source_file_id: file-01J00000000000000000000001
+  source_unit_id: unit-01J00000000000000000000002
+  file_sha256: ac5f488c2b07b7eca06eb365bcefd667a8831815d02579f0fa6a3d2bb49369a3
+  unit_sha256: 0e2bb552e1c234db4cbb95da0130d3f98525e6e9203ea03bc5bb5dd453a714d1
+  normalized_path: README.md
+  locator:
+    kind: line
+    line_start: 5
+    line_end: 5
+  relation: primary
+  authority: official
+  lifecycle: current
+  extraction_tier: A_exact
+- snapshot_id: snap-01J00000000000000000000001
+  source_file_id: file-01J00000000000000000000003
+  source_unit_id: unit-01J00000000000000000000004
+  file_sha256: 388d860b5b5534fce5cad3aad888bd01f513e3924cb97b0f7a70823dfeecc5c7
+  unit_sha256: cf106ac9ab77eaf2735653bcef14aaa4e897e6bf0783667cbf9d572f57d65170
+  normalized_path: architecture.md
+  locator:
+    kind: line
+    line_start: 5
+    line_end: 9
+  relation: qualifying
+  authority: official
+  lifecycle: current
+  extraction_tier: A_exact
+qualifier_claim_ids: []
+contradicts_claim_ids: []
+supersedes_claim_ids: []
+created_from:
+  question_id: q-01J00000000000000000000001
+  evidence_packet_id: evp-01J00000000000000000000001
+semantic_fingerprint: 57963f6c302a31a89aa03c419c4b55c9eebeac0c13de25e371bb6a50fc4706b3

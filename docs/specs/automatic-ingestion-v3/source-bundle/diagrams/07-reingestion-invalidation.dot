@@ -1,0 +1,7 @@
+digraph G {
+ graph [rankdir=TB,bgcolor="transparent",pad=0.25,nodesep=0.36,ranksep=0.45,fontname="Arial"];
+ node [shape=box,style="rounded,filled",fillcolor="#f8fafc",color="#475569",fontname="Arial",fontsize=9];
+ edge [color="#64748b",fontname="Arial",fontsize=8,arrowsize=0.65];
+ New[label="New source snapshot"]; Diff[label="File + source-unit hash diff"]; Map[label="Continuity map\nunchanged / moved / changed / deleted / new"]; Inv[label="Invalidate affected evidence + claims"]; Obl[label="Create changed/new obligations"]; Exp[label="Targeted exploration + claim review"]; Rev[label="Reverse accounting for new units"]; Ans[label="Regenerate affected answers/docs/fixtures"]; PR[label="Focused update PR",fillcolor="#ecfdf5"];
+ New->Diff->Map->Inv->Obl->Exp->Rev->Ans->PR;
+}

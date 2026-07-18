@@ -1,0 +1,31 @@
+schema_version: 1
+id: unit-01J00000000000000000000004
+snapshot_id: snap-01J00000000000000000000001
+source_file_id: file-01J00000000000000000000003
+parent_unit_id: null
+kind: section
+heading_path:
+- Architecture
+- Components
+unit_sha256: cf106ac9ab77eaf2735653bcef14aaa4e897e6bf0783667cbf9d572f57d65170
+text_sha256: cf106ac9ab77eaf2735653bcef14aaa4e897e6bf0783667cbf9d572f57d65170
+normalized_locator:
+  line_start: 5
+  line_end: 9
+original_locator:
+  line_start: 5
+  line_end: 9
+extraction_tier: A_exact
+authority_hints:
+  authority: official
+lifecycle_hints:
+  lifecycle: current
+coverage_state: represented_by_claim
+text: 'The ingress API authenticates callers, validates event envelopes, and appends accepted events to the durable
+  queue.
+
+
+  The endpoint registry stores destination URLs, enabled state, and delivery policy for each registered consumer.
+
+
+  Delivery workers lease queued events, resolve endpoint registrations, attempt delivery, and record outcomes.'

@@ -1,0 +1,6 @@
+flowchart LR
+  Source --> Evidence --> Claim --> Answer
+  Claim --> Document
+  Change[Source / extraction / authority / dedup change] --> Claim
+  Claim -->|invalidates| Answer
+  Claim -->|invalidates| Document

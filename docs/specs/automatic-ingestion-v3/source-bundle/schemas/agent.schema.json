@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/agent.schema.json",
+  "title": "Agent Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "role_category",
+    "fresh_context",
+    "purpose",
+    "inputs",
+    "allowed_tools",
+    "output_schema",
+    "forbidden",
+    "instructions",
+    "fixtures"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^agent-[a-z0-9-]+$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "role_category": {
+      "enum": [
+        "producer",
+        "evaluator",
+        "planner",
+        "adjudicator",
+        "writer",
+        "auditor"
+      ]
+    },
+    "fresh_context": {
+      "type": "boolean"
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "allowed_tools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "output_schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "forbidden": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "risk_class": {
+      "enum": [
+        "read_only",
+        "proposal",
+        "branch_write",
+        "merge_control"
+      ]
+    }
+  }
+}

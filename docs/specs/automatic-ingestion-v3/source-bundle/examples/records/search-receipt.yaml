@@ -1,0 +1,24 @@
+schema_version: 1
+id: srch-01J00000000000000000000001
+snapshot_id: snap-01J00000000000000000000001
+index_build_ids:
+- lexical-example-v1
+queries:
+- kind: exact
+  text: Acorn Relay
+- kind: lexical
+  text: project components ingress queue delivery workers
+filters:
+  lifecycle: current
+source_units_opened:
+- unit-01J00000000000000000000001
+- unit-01J00000000000000000000002
+- unit-01J00000000000000000000003
+- unit-01J00000000000000000000004
+maps_followed:
+- project-root
+- architecture-components
+candidate_count: 6
+retrieval_failures: []
+unsearched_reasons: []
+retrieval_status: complete

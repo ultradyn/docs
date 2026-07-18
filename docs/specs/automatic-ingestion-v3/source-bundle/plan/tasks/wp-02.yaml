@@ -1,0 +1,92 @@
+schema_version: 1
+id: WP-02
+phase: 0
+title: Evaluation baseline and corpus laboratory
+description: Create the test harness and labeled corpora before agent quality is optimized.
+goals:
+- Make retrieval/evidence/claim quality measurable
+- Turn every discovered failure into a replayable fixture
+dependencies:
+- WP-01
+exit_gate:
+- All WP-02 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-02-01
+  work_package_id: WP-02
+  title: Build tiny synthetic corpus and expected graph
+  description: Author a compact corpus with overview, procedure, deprecation, contradiction, disconnected note, duplicate
+    content, and unsupported question.
+  goals:
+  - Author a compact corpus with overview, procedure, deprecation, contradiction, disconnected note, duplicate content,
+    and unsupported question.
+  dependencies:
+  - T-01-03
+  deliverables:
+  - Tiny source corpus
+  - Expected source/question/claim/answer graph
+  acceptance_criteria:
+  - Every source unit has a labeled disposition
+  - Expected claims preserve qualifiers and lifecycle
+  - Expected duplicate and contradiction outcomes are explicit
+  test_surface:
+  - retrieval
+  - claim
+  - e2e
+  owner_role: Evaluation engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-02-02
+  work_package_id: WP-02
+  title: Define quality metrics and labeling guide
+  description: Specify evidence, claim, exploration, dedup, publication, operations, and human-task metrics.
+  goals:
+  - Specify evidence, claim, exploration, dedup, publication, operations, and human-task metrics.
+  dependencies:
+  - T-02-01
+  deliverables:
+  - Metric catalogue
+  - Human labeling guide
+  acceptance_criteria:
+  - Metrics distinguish answer sufficiency from source coverage
+  - False no-evidence and false merge have clear denominators
+  - Inter-rater disagreement procedure is documented
+  test_surface:
+  - human_factors
+  - claim
+  - retrieval
+  owner_role: Evaluation lead
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-02-03
+  work_package_id: WP-02
+  title: Build fixture runner and result store
+  description: Run deterministic, agent, workflow, retrieval, claim, and navigation fixtures with versioned results.
+  goals:
+  - Run deterministic, agent, workflow, retrieval, claim, and navigation fixtures with versioned results.
+  dependencies:
+  - T-02-02
+  deliverables:
+  - Fixture runner
+  - Result schema and comparison report
+  acceptance_criteria:
+  - Results record model/prompt/tool/index versions
+  - A regression diff identifies changed decisive fields
+  - Fixtures can run with provider cache disabled
+  test_surface:
+  - unit
+  - agent_fixture
+  - workflow
+  - cost
+  owner_role: Evaluation engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []

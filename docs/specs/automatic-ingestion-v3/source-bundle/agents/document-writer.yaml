@@ -1,0 +1,20 @@
+schema_version: 1
+id: agent-document-writer
+version: 1
+role_category: writer
+fresh_context: true
+purpose: Write a reader-facing documentation record from an approved plan and sealed claims.
+inputs:
+- DocumentPlan item
+- Accepted claim pack
+- Style contract
+allowed_tools: []
+output_schema: schemas/documentation-record.schema.json
+forbidden:
+- Search or research
+- Create unsupported facts
+- Change canonical homes
+instructions: Preserve claim-to-sentence traceability and current/historical distinctions.
+fixtures:
+- tests/agent-fixtures/document-writer.yaml
+risk_class: proposal

@@ -1,0 +1,106 @@
+schema_version: 1
+id: WP-80
+phase: 8
+title: Comprehensive automated and adversarial test suite
+description: Integrate deterministic, agent, workflow, security, migration, and end-to-end tests in CI.
+goals:
+- Prevent regression in decisive contracts
+- Exercise every major failure class
+dependencies:
+- WP-02
+- WP-30
+- WP-31
+- WP-32
+- WP-33
+- WP-50
+- WP-60
+exit_gate:
+- All WP-80 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-80-01
+  work_package_id: WP-80
+  title: Build full CI test matrix
+  description: Partition fast schema/unit, agent fixtures, workflow recovery, corpus replay, security, and slow scale
+    tests.
+  goals:
+  - Partition fast schema/unit, agent fixtures, workflow recovery, corpus replay, security, and slow scale tests.
+  dependencies:
+  - T-02-03
+  - T-30-03
+  - T-31-03
+  - T-32-03
+  - T-33-03
+  - T-50-03
+  - T-60-03
+  deliverables:
+  - CI workflows
+  - Test selection rules
+  acceptance_criteria:
+  - PR path changes select relevant suites
+  - Required gates cannot be skipped silently
+  - Results retain model/index/source versions
+  test_surface:
+  - unit
+  - agent_fixture
+  - workflow
+  - e2e
+  owner_role: Test engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-80-02
+  work_package_id: WP-80
+  title: Build adversarial source and agent suite
+  description: Include injection, archive attacks, secrets, stale/current ambiguity, duplicate traps, locator corruption,
+    and malformed outputs.
+  goals:
+  - Include injection, archive attacks, secrets, stale/current ambiguity, duplicate traps, locator corruption, and malformed
+    outputs.
+  dependencies:
+  - T-80-01
+  deliverables:
+  - Adversarial corpus
+  - Expected failures
+  acceptance_criteria:
+  - Source instructions cannot change agent roles
+  - False merge/no-evidence/claim generalization traps fail safely
+  - Security violations occur before exposure/publication
+  test_surface:
+  - security
+  - privacy
+  - agent_fixture
+  - e2e
+  owner_role: Security test engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-80-03
+  work_package_id: WP-80
+  title: Build mutation and invalidation suite
+  description: Programmatically alter source text, locators, scope, authority, and claim relationships.
+  goals:
+  - Programmatically alter source text, locators, scope, authority, and claim relationships.
+  dependencies:
+  - T-80-02
+  deliverables:
+  - Mutation generator
+  - Impact assertions
+  acceptance_criteria:
+  - All affected dependencies invalidate
+  - Unaffected artifacts stay current
+  - Focused reingestion restores valid state
+  test_surface:
+  - migration
+  - claim
+  - recovery
+  owner_role: Test engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []

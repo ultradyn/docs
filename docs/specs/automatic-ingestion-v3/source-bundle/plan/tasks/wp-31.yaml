@@ -1,0 +1,94 @@
+schema_version: 1
+id: WP-31
+phase: 3
+title: Evidence Critic agent
+description: Implement the strict independent current-question evidence gate.
+goals:
+- Reliable per-facet sufficiency
+- Detection of irrelevant, obsolete, scoped, or conflicting references
+dependencies:
+- WP-21
+- WP-30
+- WP-02
+exit_gate:
+- All WP-31 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-31-01
+  work_package_id: WP-31
+  title: Implement Evidence Critic contract and prompt
+  description: Open material references and return reference/facet classifications and terminal verdict.
+  goals:
+  - Open material references and return reference/facet classifications and terminal verdict.
+  dependencies:
+  - T-21-03
+  - T-30-03
+  - T-02-03
+  deliverables:
+  - Evidence Critic agent
+  - Output schema
+  acceptance_criteria:
+  - Child proposals cannot appear in output
+  - Every material reference and required facet is evaluated
+  - Accepted packets preserve all material qualifiers
+  test_surface:
+  - agent_fixture
+  - claim
+  - retrieval
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-31-02
+  work_package_id: WP-31
+  title: Build evidence-criticism fixtures
+  description: Cover partial evidence, irrelevant citations, redundant citations, wrong scope, deprecation, conflict,
+    and no evidence.
+  goals:
+  - Cover partial evidence, irrelevant citations, redundant citations, wrong scope, deprecation, conflict, and no evidence.
+  dependencies:
+  - T-31-01
+  deliverables:
+  - Golden/adversarial fixture suite
+  - Regression thresholds
+  acceptance_criteria:
+  - Known weak packets are never accepted
+  - Known complete minimal packets pass
+  - Source prompt injection does not alter role
+  test_surface:
+  - agent_fixture
+  - security
+  - retrieval
+  owner_role: Evaluation engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-31-03
+  work_package_id: WP-31
+  title: Run combined-versus-split ablation
+  description: Compare the v3 critic with a combined critic/curiosity baseline.
+  goals:
+  - Compare the v3 critic with a combined critic/curiosity baseline.
+  dependencies:
+  - T-31-02
+  deliverables:
+  - Ablation report
+  - Go/no-go decision
+  acceptance_criteria:
+  - Measure false acceptance, refinement quality, branch factor, cost, and output stability
+  - Separate role must provide a material quality/testability gain or be revisited
+  - Results are reproducible on the same corpus/model versions
+  test_surface:
+  - agent_fixture
+  - e2e
+  - cost
+  owner_role: Evaluation lead
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []

@@ -1,0 +1,21 @@
+schema_version: 1
+id: agent-navigation-tester
+version: 1
+role_category: evaluator
+fresh_context: true
+purpose: Evaluate whether generated documentation supports representative reader tasks.
+inputs:
+- Documentation set
+- Task fixtures
+- Source baseline
+allowed_tools:
+- docs.navigate
+- docs.search
+output_schema: schemas/navigation-review.schema.json
+forbidden:
+- Use producer context
+- Edit documentation
+instructions: Report task success, path length, misleading dead ends, and blocking failures.
+fixtures:
+- tests/agent-fixtures/navigation-tester.yaml
+risk_class: read_only

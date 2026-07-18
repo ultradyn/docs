@@ -1,0 +1,16 @@
+schema_version: 1
+id: file-01J00000000000000000000003
+snapshot_id: snap-01J00000000000000000000001
+original_path: architecture.md
+normalized_path: architecture.md
+media_type: text/markdown
+blob_sha256: 388d860b5b5534fce5cad3aad888bd01f513e3924cb97b0f7a70823dfeecc5c7
+size_bytes: 505
+classification: internal
+rights_profile: owned-internal
+representation_status: exact
+extractor:
+  id: markdown-exact
+  version: 1.0.0
+  normalized_sha256: 388d860b5b5534fce5cad3aad888bd01f513e3924cb97b0f7a70823dfeecc5c7
+warnings: []

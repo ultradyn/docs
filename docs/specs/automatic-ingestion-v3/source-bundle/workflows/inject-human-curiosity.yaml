@@ -1,0 +1,29 @@
+schema_version: 1
+id: workflow-inject-human-curiosity
+version: 1
+trigger: Operator submits a question at a graph anchor
+inputs:
+- run_id
+- raw_question
+- anchor
+- goals
+steps:
+- id: record
+  kind: service
+  uses: curiosity.record_injection
+  on_success: admit
+  on_failure: failed
+- id: admit
+  kind: policy
+  uses: question.admit_human
+  on_success: explore
+  on_failure: waiting_human
+- id: explore
+  kind: subworkflow
+  uses: workflow-explore-question
+  on_success: resolved
+  on_failure: failed
+terminal_states:
+- resolved
+- waiting_human
+- failed

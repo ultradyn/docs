@@ -1,0 +1,13 @@
+schema_version: 1
+id: hci-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+actor: operator@example.test
+raw_question: What happens when an endpoint is disabled while events are queued?
+goals:
+- operations
+context_note: Asked from the endpoint registry node after reviewing the overview.
+anchor_type: claim
+anchor_id: clm-01J00000000000000000000002
+obligation_id: obl-01J00000000000000000000003
+created_at: '2026-07-18T00:06:00Z'
+status: open

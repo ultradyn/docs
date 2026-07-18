@@ -1,0 +1,94 @@
+schema_version: 1
+id: WP-60
+phase: 6
+title: Answer composition from accepted claims
+description: Generate question-specific answers without direct source research.
+goals:
+- Goal/facet-complete answer compositions
+- Precise claim/citation dependency
+dependencies:
+- WP-22
+- WP-23
+- WP-31
+exit_gate:
+- All WP-60 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-60-01
+  work_package_id: WP-60
+  title: Implement sealed claim-pack builder
+  description: Assemble accepted claims, qualifiers, relationships, citations, gaps, and graph revision for one question.
+  goals:
+  - Assemble accepted claims, qualifiers, relationships, citations, gaps, and graph revision for one question.
+  dependencies:
+  - T-22-03
+  - T-23-03
+  - T-31-03
+  deliverables:
+  - Claim pack service
+  - Pack hash/validity tests
+  acceptance_criteria:
+  - No proposed/stale claim enters pack
+  - Required qualifier dependencies are included
+  - Pack is content-addressed and reproducible
+  test_surface:
+  - unit
+  - claim
+  - recovery
+  owner_role: Domain engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-60-02
+  work_package_id: WP-60
+  title: Implement Answer Composer agent
+  description: Produce direct answers, claim order, citations, coverage, and limitations; return insufficient pack when
+    needed.
+  goals:
+  - Produce direct answers, claim order, citations, coverage, and limitations; return insufficient pack when needed.
+  dependencies:
+  - T-60-01
+  deliverables:
+  - Answer Composer
+  - Answer fixtures
+  acceptance_criteria:
+  - Agent has no retrieval tools
+  - Every material assertion maps to accepted claims
+  - Different goals can produce different compositions over shared claims
+  test_surface:
+  - agent_fixture
+  - claim
+  - e2e
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-60-03
+  work_package_id: WP-60
+  title: Implement answer citation/validity review
+  description: Verify sentence support, scope, graph revision, and dependency hashes.
+  goals:
+  - Verify sentence support, scope, graph revision, and dependency hashes.
+  dependencies:
+  - T-60-02
+  deliverables:
+  - Answer review service
+  - Invalidation fixtures
+  acceptance_criteria:
+  - Unsupported synthesis blocks promotable state
+  - Stale graph revision blocks publication
+  - Source/claim mutation invalidates answer
+  test_surface:
+  - claim
+  - workflow
+  - recovery
+  owner_role: Evaluation engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []

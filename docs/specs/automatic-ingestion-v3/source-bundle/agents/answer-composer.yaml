@@ -1,0 +1,21 @@
+schema_version: 1
+id: agent-answer-composer
+version: 1
+role_category: writer
+fresh_context: true
+purpose: Compose a question-specific answer only from accepted claims.
+inputs:
+- Question
+- Accepted claim pack
+- Coverage matrix
+- Graph revision
+allowed_tools: []
+output_schema: schemas/answer.schema.json
+forbidden:
+- Search source corpus
+- Introduce new facts
+- Ignore claim qualifiers
+instructions: Return claim_pack_insufficient if the sealed pack cannot answer the question.
+fixtures:
+- tests/agent-fixtures/answer-composer.yaml
+risk_class: proposal

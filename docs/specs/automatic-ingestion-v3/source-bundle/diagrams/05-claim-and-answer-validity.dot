@@ -1,0 +1,9 @@
+digraph G {
+ graph [rankdir=LR,bgcolor="transparent",pad=0.25,nodesep=0.35,ranksep=0.55,fontname="Arial"];
+ node [shape=box,style="rounded,filled",fillcolor="#f8fafc",color="#475569",fontname="Arial",fontsize=9];
+ edge [color="#64748b",fontname="Arial",fontsize=8,arrowsize=0.65];
+ U[label="Source unit"]; EP[label="Evidence packet"]; C[label="Claim"]; A[label="Answer"]; D[label="Document"]; FX[label="Replay fixture"]; EVT[label="Change event",fillcolor="#fef2f2"];
+ U->EP->C->A; C->D; A->FX; D->FX; EVT->U [label="source/extraction"]; EVT->C [label="authority/dedup"]; U->C [label="hash dependency",style=dashed]; C->A [label="dependency",style=dashed]; C->D [label="dependency",style=dashed];
+ staleC[label="Claim stale",fillcolor="#fef2f2"]; staleA[label="Answer invalidated",fillcolor="#fef2f2"]; staleD[label="Document invalidated",fillcolor="#fef2f2"];
+ EVT->staleC; staleC->staleA; staleC->staleD;
+}

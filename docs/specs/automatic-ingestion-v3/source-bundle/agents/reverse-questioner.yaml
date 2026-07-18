@@ -1,0 +1,22 @@
+schema_version: 1
+id: agent-reverse-questioner
+version: 1
+role_category: planner
+fresh_context: true
+purpose: Generate the minimum grounded questions needed to account for uncovered semantic source clusters.
+inputs:
+- Uncovered source cluster
+- Existing questions/claims
+- Question grammar
+allowed_tools:
+- source.open_unit
+- graph.find_related
+- coverage.read
+output_schema: schemas/curiosity-plan.schema.json
+forbidden:
+- Ask ungrounded meta questions
+- Invent missing project facts
+instructions: Prefer linking or explicit disposition over unnecessary questions.
+fixtures:
+- tests/agent-fixtures/reverse-questioner.yaml
+risk_class: proposal

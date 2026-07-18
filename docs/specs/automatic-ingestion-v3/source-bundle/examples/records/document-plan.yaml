@@ -1,0 +1,23 @@
+schema_version: 1
+id: plan-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+graph_revision: 7
+items:
+- document_id: doc-01J00000000000000000000001
+  document_type: overview
+  title: Acorn Relay overview
+  canonical_claim_ids:
+  - clm-01J00000000000000000000001
+  - clm-01J00000000000000000000002
+  - clm-01J00000000000000000000003
+  question_ids:
+  - q-01J00000000000000000000001
+  path: docs/overview/acorn-relay.md
+  audience:
+  - new engineer
+  - integrator
+  prerequisite_claim_ids: []
+publication_mode: provisional_questions_and_answers
+status: approved
+warnings:
+- Retry and ordering branches are not yet complete.

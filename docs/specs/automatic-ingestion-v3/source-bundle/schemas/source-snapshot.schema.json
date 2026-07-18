@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/source-snapshot.schema.json",
+  "title": "Source Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "project_id",
+    "created_at",
+    "artifact",
+    "snapshot_sha256",
+    "policy_profile",
+    "importer",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "directory",
+            "git",
+            "zip",
+            "tar",
+            "upload",
+            "object_manifest"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "replay_uri": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "policy_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "importer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "created",
+        "processing",
+        "qualified",
+        "exploratory_only",
+        "failed",
+        "deleted"
+      ]
+    },
+    "file_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source_unit_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/evidence-verdict.schema.json",
+  "title": "Evidence Verdict",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "branch_id",
+    "question_id",
+    "evidence_packet_id",
+    "reference_reviews",
+    "facet_states",
+    "verdict",
+    "criticisms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "branch_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "question_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "evidence_packet_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "reference_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_unit_id",
+          "classification",
+          "reason"
+        ],
+        "properties": {
+          "source_unit_id": {
+            "type": "string",
+            "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+          },
+          "classification": {
+            "enum": [
+              "necessary_primary",
+              "necessary_qualifying",
+              "useful_example",
+              "context_only",
+              "redundant",
+              "irrelevant",
+              "wrong_scope",
+              "deprecated_for_scope",
+              "conflicting",
+              "unverifiable"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "facet_states": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "facet_id",
+          "state",
+          "reason"
+        ],
+        "properties": {
+          "facet_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "enum": [
+              "satisfied",
+              "partial",
+              "missing",
+              "conflicting",
+              "ambiguous_scope",
+              "unsupported_in_snapshot",
+              "not_applicable"
+            ]
+          },
+          "source_unit_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+            }
+          },
+          "claim_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "verdict": {
+      "enum": [
+        "accepted",
+        "needs_more_evidence",
+        "ambiguous_scope",
+        "conflicting_or_deprecated",
+        "no_supported_answer",
+        "human_authority_required",
+        "source_processing_blocked",
+        "search_incomplete"
+      ]
+    },
+    "criticisms": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "follow_up_request": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "visible_summary": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

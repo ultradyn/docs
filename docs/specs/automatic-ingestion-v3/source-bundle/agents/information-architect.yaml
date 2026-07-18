@@ -1,0 +1,22 @@
+schema_version: 1
+id: agent-information-architect
+version: 1
+role_category: planner
+fresh_context: true
+purpose: Map accepted claims and question demand into canonical reader-facing documents.
+inputs:
+- Stabilized graph
+- Accepted claims
+- Question demand
+- Publication profile
+allowed_tools:
+- graph.read_claims
+- graph.read_questions
+output_schema: schemas/document-plan.schema.json
+forbidden:
+- Write unsupported content
+- Use one page per question by default
+instructions: Assign one canonical home per durable claim and reader/task-oriented document types.
+fixtures:
+- tests/agent-fixtures/information-architect.yaml
+risk_class: proposal

@@ -1,0 +1,90 @@
+schema_version: 1
+id: WP-32
+phase: 3
+title: Claim Extractor and Claim Reviewer agents
+description: Turn accepted evidence into independently reviewed reusable claims.
+goals:
+- Qualifier-preserving atomic claims
+- High entailment precision and reusable granularity
+dependencies:
+- WP-22
+- WP-31
+exit_gate:
+- All WP-32 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-32-01
+  work_package_id: WP-32
+  title: Implement Claim Extractor agent
+  description: Propose minimal claims with type, scope, authority/lifecycle, evidence, and candidate relationships.
+  goals:
+  - Propose minimal claims with type, scope, authority/lifecycle, evidence, and candidate relationships.
+  dependencies:
+  - T-22-03
+  - T-31-03
+  deliverables:
+  - Claim Extractor
+  - Extraction fixtures
+  acceptance_criteria:
+  - Examples are not generalized as universal behavior
+  - Documented rationale is distinguished from inferred intent
+  - All claim evidence comes from accepted packet references
+  test_surface:
+  - agent_fixture
+  - claim
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-32-02
+  work_package_id: WP-32
+  title: Implement Claim Reviewer agent
+  description: Verify entailment, atomicity, scope, qualifiers, authority eligibility, and split/merge candidates.
+  goals:
+  - Verify entailment, atomicity, scope, qualifiers, authority eligibility, and split/merge candidates.
+  dependencies:
+  - T-32-01
+  deliverables:
+  - Claim Reviewer
+  - Review fixtures
+  acceptance_criteria:
+  - Unsupported generalization is rejected
+  - Overbroad claims are split without provenance loss
+  - Review runs in fresh context
+  test_surface:
+  - agent_fixture
+  - claim
+  - security
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-32-03
+  work_package_id: WP-32
+  title: Calibrate claim granularity and relationships
+  description: Label pilot claims and tune guidelines for reuse versus fragmentation.
+  goals:
+  - Label pilot claims and tune guidelines for reuse versus fragmentation.
+  dependencies:
+  - T-32-02
+  deliverables:
+  - Granularity guide
+  - Candidate/adjudication metrics
+  acceptance_criteria:
+  - Two questions can reuse a claim in fixtures
+  - Procedure and interface claims preserve ordering/preconditions
+  - Reviewer agreement meets pilot target
+  test_surface:
+  - claim
+  - human_factors
+  - e2e
+  owner_role: Knowledge engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []

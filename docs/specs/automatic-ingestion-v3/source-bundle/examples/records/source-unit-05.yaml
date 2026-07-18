@@ -1,0 +1,25 @@
+schema_version: 1
+id: unit-01J00000000000000000000005
+snapshot_id: snap-01J00000000000000000000001
+source_file_id: file-01J00000000000000000000003
+parent_unit_id: null
+kind: paragraph_group
+heading_path:
+- Architecture
+- Ordering
+unit_sha256: c4c97eeedfeb9f958a0290b8f57ac3c117ebaa0b4cd06067056d558a90febe30
+text_sha256: c4c97eeedfeb9f958a0290b8f57ac3c117ebaa0b4cd06067056d558a90febe30
+normalized_locator:
+  line_start: 13
+  line_end: 13
+original_locator:
+  line_start: 13
+  line_end: 13
+extraction_tier: A_exact
+authority_hints:
+  authority: official
+lifecycle_hints:
+  lifecycle: current
+coverage_state: unreviewed
+text: Ordering is preserved only within a single endpoint registration. No global ordering is guaranteed across
+  registrations.

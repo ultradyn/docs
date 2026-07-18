@@ -1,0 +1,4 @@
+flowchart LR
+  Runtime[Leases / events / retries / sessions / telemetry] --> Checkpoints
+  Checkpoints --> Git[Git logical records]
+  Git --> Projections[Indexes / queues / dashboard views]

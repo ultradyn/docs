@@ -1,0 +1,8 @@
+flowchart TB
+  Stable[Stable graph] --> IA[Information architecture]
+  IA --> PlanReview
+  PlanReview --> Writer
+  Writer --> CitationReview
+  CitationReview --> NavigationTest
+  NavigationTest --> PR[Git PR]
+  PR --> Docent

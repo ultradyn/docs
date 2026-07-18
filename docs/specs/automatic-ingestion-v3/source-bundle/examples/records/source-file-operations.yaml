@@ -1,0 +1,16 @@
+schema_version: 1
+id: file-01J00000000000000000000006
+snapshot_id: snap-01J00000000000000000000001
+original_path: operations.md
+normalized_path: operations.md
+media_type: text/markdown
+blob_sha256: dfb2f3f9d44c272a97d0a252ee58c10565659a41bd705661e0b719221153ef8c
+size_bytes: 351
+classification: internal
+rights_profile: owned-internal
+representation_status: exact
+extractor:
+  id: markdown-exact
+  version: 1.0.0
+  normalized_sha256: dfb2f3f9d44c272a97d0a252ee58c10565659a41bd705661e0b719221153ef8c
+warnings: []

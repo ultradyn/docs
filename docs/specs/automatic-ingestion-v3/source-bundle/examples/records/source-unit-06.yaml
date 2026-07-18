@@ -1,0 +1,31 @@
+schema_version: 1
+id: unit-01J00000000000000000000006
+snapshot_id: snap-01J00000000000000000000001
+source_file_id: file-01J00000000000000000000006
+parent_unit_id: null
+kind: section
+heading_path:
+- Operations
+- Retry policy
+unit_sha256: 79a5be8559ad7c1ad3e2e52886226c4652e3b20663469901892ea33ddc432971
+text_sha256: 79a5be8559ad7c1ad3e2e52886226c4652e3b20663469901892ea33ddc432971
+normalized_locator:
+  line_start: 5
+  line_end: 9
+original_locator:
+  line_start: 5
+  line_end: 9
+extraction_tier: A_exact
+authority_hints:
+  authority: official
+lifecycle_hints:
+  lifecycle: current
+coverage_state: unreviewed
+text: 'A failed delivery is retried with exponential backoff for up to eight attempts.
+
+
+  HTTP 400, 401, 403, and 404 responses are treated as permanent failures and are not retried. HTTP 408, 429, and
+  5xx responses are retryable.
+
+
+  After the final failed attempt, the event is moved to the dead-letter store for operator review.'

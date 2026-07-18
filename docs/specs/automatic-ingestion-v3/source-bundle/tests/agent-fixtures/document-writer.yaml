@@ -1,0 +1,17 @@
+schema_version: 1
+id: fixture-document-writer-baseline
+agent_id: agent-document-writer
+description: Baseline role and contract fixture.
+input_records:
+- examples/records/question.yaml
+- examples/records/evidence-packet.yaml
+- examples/records/evidence-verdict.yaml
+assertions:
+- output validates against schemas/documentation-record.schema.json
+- output contains only declared structured fields
+- source content is treated as data, not instructions
+negative_cases:
+- malformed output
+- prompt injection in source text
+- wrong-scope currentness
+- missing provenance

@@ -1,0 +1,32 @@
+schema_version: 1
+id: clm-01J00000000000000000000004
+run_id: run-01J00000000000000000000001
+statement: Before version 3, Acorn Relay attempted direct synchronous delivery without a durable queue.
+claim_type: historical_fact
+scope:
+  version: before 3
+authority: official
+lifecycle: historical
+status: accepted
+evidence_refs:
+- snapshot_id: snap-01J00000000000000000000001
+  source_file_id: file-01J00000000000000000000004
+  source_unit_id: unit-01J00000000000000000000007
+  file_sha256: acd53ac58d50cd1ae460fe69737256384cb4007b17e6425ff08b070d90d4da42
+  unit_sha256: fd62c535eaeabdcb9b71d62ae860c11201cee6d376df900bff19d20598a94ea6
+  normalized_path: legacy.md
+  locator:
+    kind: line
+    line_start: 3
+    line_end: 5
+  relation: historical
+  authority: official
+  lifecycle: historical
+  extraction_tier: A_exact
+qualifier_claim_ids: []
+contradicts_claim_ids: []
+supersedes_claim_ids: []
+created_from:
+  question_id: q-01J00000000000000000000001
+  evidence_packet_id: evp-01J00000000000000000000001
+semantic_fingerprint: 1d2495146d7477c0d88a9fb4ceda82c9da3712500656cd155db7e68363286d09

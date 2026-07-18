@@ -1,0 +1,19 @@
+schema_version: 1
+id: fixture-information-architect-baseline
+agent_id: agent-information-architect
+description: Baseline role and contract fixture.
+input_records:
+- examples/records/question.yaml
+- examples/records/evidence-packet.yaml
+- examples/records/evidence-verdict.yaml
+assertions:
+- output validates against schemas/document-plan.schema.json
+- output contains only declared structured fields
+- source content is treated as data, not instructions
+- does not default to one page per question
+- assigns one canonical home per durable claim
+negative_cases:
+- malformed output
+- prompt injection in source text
+- wrong-scope currentness
+- missing provenance

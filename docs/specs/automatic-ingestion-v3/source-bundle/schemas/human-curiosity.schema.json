@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/human-curiosity.schema.json",
+  "title": "Human Curiosity Injection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "actor",
+    "raw_question",
+    "goals",
+    "anchor_type",
+    "anchor_id",
+    "obligation_id",
+    "created_at",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "context_note": {
+      "type": "string"
+    },
+    "anchor_type": {
+      "enum": [
+        "project_root",
+        "question",
+        "claim",
+        "document",
+        "source_unit"
+      ]
+    },
+    "anchor_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "obligation_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "open",
+        "exploring",
+        "resolved",
+        "withdrawn",
+        "blocked"
+      ]
+    }
+  }
+}

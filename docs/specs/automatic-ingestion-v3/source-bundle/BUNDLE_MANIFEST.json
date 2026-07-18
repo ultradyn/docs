@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "artifact": "ingest-feature-v3.zip",
+  "title": "Docent Automatic Ingestion Feature v3",
+  "status": "design-and-implementation-plan",
+  "primary_changes": [
+    "source-claim-question-answer/document layered model",
+    "separate Evidence Critic and Curiosity Planner roles"
+  ],
+  "counts": {
+    "schemas": 27,
+    "agents": 15,
+    "workflows": 11,
+    "example_records": 42,
+    "work_packages": 31,
+    "leaf_tasks": 95,
+    "diagram_sets": 8
+  },
+  "source_inputs": [
+    {
+      "path": "source/01-goals-and-constraints.original.md",
+      "sha256": "5f520384542a73e4128e3d75e1cc1e07a2ba2ac3abee30dbfa3d5cefce291437"
+    },
+    {
+      "path": "source/04-conversation-transcript.original.md",
+      "sha256": "55ccd3bbc05b6bfd1ee28837ad74cf2f316487e4225551418846ea74b4ae0210"
+    }
+  ]
+}

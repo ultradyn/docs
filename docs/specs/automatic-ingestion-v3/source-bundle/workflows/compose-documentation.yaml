@@ -1,0 +1,48 @@
+schema_version: 1
+id: workflow-compose-documentation
+version: 1
+trigger: Graph revision is stabilized for publication
+inputs:
+- run_id
+- graph_revision
+- publication_profile
+steps:
+- id: plan
+  kind: agent
+  uses: agent-information-architect
+  on_success: approve-plan
+  on_failure: failed
+  fresh_context: true
+- id: approve-plan
+  kind: human
+  uses: human.review_document_plan
+  on_success: write
+  on_failure: rejected
+- id: write
+  kind: agent
+  uses: agent-document-writer
+  on_success: review
+  on_failure: failed
+  fresh_context: true
+- id: review
+  kind: agent
+  uses: agent-citation-reviewer
+  on_success: navigate
+  on_failure: revise
+  fresh_context: true
+- id: navigate
+  kind: agent
+  uses: agent-navigation-tester
+  on_success: ready
+  on_failure: revise
+  fresh_context: true
+- id: revise
+  kind: service
+  uses: docs.route_revision
+  on_success: write
+  on_failure: blocked
+terminal_states:
+- ready
+- rejected
+- blocked
+- failed

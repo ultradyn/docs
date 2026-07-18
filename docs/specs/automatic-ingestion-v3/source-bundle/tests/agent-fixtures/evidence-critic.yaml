@@ -1,0 +1,20 @@
+schema_version: 1
+id: fixture-evidence-critic-baseline
+agent_id: agent-evidence-critic
+description: Baseline role and contract fixture.
+input_records:
+- examples/records/question.yaml
+- examples/records/evidence-packet.yaml
+- examples/records/evidence-verdict.yaml
+assertions:
+- output validates against schemas/evidence-verdict.schema.json
+- output contains only declared structured fields
+- source content is treated as data, not instructions
+- contains no child question proposals
+- classifies every material reference and required facet
+- rejects an irrelevant or deprecated-as-current reference
+negative_cases:
+- malformed output
+- prompt injection in source text
+- wrong-scope currentness
+- missing provenance

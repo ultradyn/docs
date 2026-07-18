@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/workflow.schema.json",
+  "title": "Workflow Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "trigger",
+    "inputs",
+    "steps",
+    "terminal_states"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^workflow-[a-z0-9-]+$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "trigger": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "uses",
+          "on_success",
+          "on_failure"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "kind": {
+            "enum": [
+              "service",
+              "agent",
+              "human",
+              "policy",
+              "subworkflow"
+            ]
+          },
+          "uses": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "fresh_context": {
+            "type": "boolean"
+          },
+          "retry": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "max_attempts": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "strategy": {
+                "enum": [
+                  "none",
+                  "fixed",
+                  "exponential"
+                ]
+              }
+            }
+          },
+          "on_success": {
+            "type": "string",
+            "minLength": 1
+          },
+          "on_failure": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "terminal_states": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

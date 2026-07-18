@@ -1,0 +1,92 @@
+schema_version: 1
+id: WP-10
+phase: 1
+title: Source intake and replay custody
+description: Securely accept source packages, assign immutable snapshots, and retain replayable bytes.
+goals:
+- Source identity and recoverability
+- No unsafe archive traversal or external-only promotion
+dependencies:
+- WP-01
+- WP-02
+exit_gate:
+- All WP-10 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-10-01
+  work_package_id: WP-10
+  title: Implement package preflight
+  description: Validate archive paths, file counts/sizes, media types, include/exclude rules, and policy prerequisites.
+  goals:
+  - Validate archive paths, file counts/sizes, media types, include/exclude rules, and policy prerequisites.
+  dependencies:
+  - T-01-03
+  - T-02-03
+  deliverables:
+  - Preflight service
+  - Adversarial archive fixtures
+  acceptance_criteria:
+  - Traversal/symlink/decompression-bomb fixtures fail before extraction
+  - All included/excluded paths appear in the manifest
+  - Unclassified/prohibited content cannot proceed
+  test_surface:
+  - unit
+  - security
+  - privacy
+  owner_role: Security engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-10-02
+  work_package_id: WP-10
+  title: Create immutable source snapshot
+  description: Hash original artifacts/files and persist SourceSnapshot and SourceFile records idempotently.
+  goals:
+  - Hash original artifacts/files and persist SourceSnapshot and SourceFile records idempotently.
+  dependencies:
+  - T-10-01
+  deliverables:
+  - Snapshot service
+  - Content-addressed manifest
+  acceptance_criteria:
+  - Same package/policy input produces one idempotent snapshot result
+  - Every file has a verified digest and logical path
+  - Partial failure cannot produce a qualified snapshot
+  test_surface:
+  - unit
+  - integration
+  - recovery
+  owner_role: Platform engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-10-03
+  work_package_id: WP-10
+  title: Implement replay capsule lifecycle
+  description: Seal, replicate, verify, export, retain, and delete source replay capsules.
+  goals:
+  - Seal, replicate, verify, export, retain, and delete source replay capsules.
+  dependencies:
+  - T-10-02
+  deliverables:
+  - Replay storage adapter
+  - Verification/deletion receipts
+  acceptance_criteria:
+  - Promotion is impossible without passing replay receipt
+  - Loss of original upload is recoverable from retained capsule
+  - Deletion drill invalidates dependent closure artifacts
+  test_surface:
+  - integration
+  - security
+  - privacy
+  - recovery
+  owner_role: Storage engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []

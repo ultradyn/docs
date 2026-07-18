@@ -1,0 +1,95 @@
+schema_version: 1
+id: WP-63
+phase: 6
+title: Git publication and Docent import
+description: Create a coherent reviewable transaction for provisional or canonical import.
+goals:
+- Reviewable Git safety rail
+- Correct authority and retrieval visibility in Docent
+dependencies:
+- WP-42
+- WP-60
+- WP-61
+- WP-62
+exit_gate:
+- All WP-63 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-63-01
+  work_package_id: WP-63
+  title: Implement publication planner and worktree writer
+  description: Select artifacts, paths, maps, fixtures, and authority mode; write isolated branch.
+  goals:
+  - Select artifacts, paths, maps, fixtures, and authority mode; write isolated branch.
+  dependencies:
+  - T-42-03
+  - T-60-03
+  - T-61-03
+  - T-62-03
+  deliverables:
+  - Publication service
+  - Worktree adapter
+  acceptance_criteria:
+  - No direct protected-main writes
+  - Invalidated artifacts cannot enter plan
+  - One transaction contains required provenance/maps/fixtures
+  test_surface:
+  - integration
+  - security
+  - recovery
+  owner_role: Git integration engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-63-02
+  work_package_id: WP-63
+  title: Implement independent diff review and summary
+  description: Review final diff against plan/claims and summarize final diff alone.
+  goals:
+  - Review final diff against plan/claims and summarize final diff alone.
+  dependencies:
+  - T-63-01
+  deliverables:
+  - Diff reviewer/summarizer
+  - PR checks
+  acceptance_criteria:
+  - Summary cannot use integration-agent context
+  - Missed canonical-home or unsupported changes block
+  - Changes requested are resumable
+  test_surface:
+  - agent_fixture
+  - workflow
+  - human_factors
+  owner_role: Evaluation engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-63-03
+  work_package_id: WP-63
+  title: Implement Docent import and replay
+  description: Merge by risk policy, rebuild projections, and replay imported questions/claims.
+  goals:
+  - Merge by risk policy, rebuild projections, and replay imported questions/claims.
+  dependencies:
+  - T-63-02
+  deliverables:
+  - Import workflow
+  - Post-merge replay report
+  acceptance_criteria:
+  - Imported generated questions retain origin
+  - User-mode retrieval excludes raw/disputed ingestion artifacts
+  - Replay failure reopens publication
+  test_surface:
+  - e2e
+  - migration
+  - recovery
+  owner_role: Git integration engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []

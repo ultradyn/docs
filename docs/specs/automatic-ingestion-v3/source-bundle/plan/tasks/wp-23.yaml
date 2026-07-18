@@ -1,0 +1,94 @@
+schema_version: 1
+id: WP-23
+phase: 2
+title: Graph gateway and dependency validity
+description: Provide serialized logical mutations, dependency graphs, and invalidation primitives.
+goals:
+- Safe parallel graph changes
+- Precise downstream stale propagation
+dependencies:
+- WP-20
+- WP-21
+- WP-22
+exit_gate:
+- All WP-23 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-23-01
+  work_package_id: WP-23
+  title: Implement graph mutation gateway
+  description: Validate IDs, expected versions, idempotency, relationship types, and event persistence.
+  goals:
+  - Validate IDs, expected versions, idempotency, relationship types, and event persistence.
+  dependencies:
+  - T-20-03
+  - T-21-03
+  - T-22-03
+  deliverables:
+  - Graph gateway
+  - Concurrency fixtures
+  acceptance_criteria:
+  - Concurrent stale writes are rejected/retried
+  - Idempotent retries produce one logical mutation
+  - Invalid edge types/entities fail
+  test_surface:
+  - unit
+  - integration
+  - recovery
+  owner_role: Platform engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-23-02
+  work_package_id: WP-23
+  title: Implement dependency graph and SCC analysis
+  description: "Track source\u2192evidence\u2192claim\u2192answer/document dependencies and strongly connected components."
+  goals:
+  - "Track source\u2192evidence\u2192claim\u2192answer/document dependencies and strongly connected components."
+  dependencies:
+  - T-23-01
+  deliverables:
+  - Dependency service
+  - SCC fixtures
+  acceptance_criteria:
+  - Cycles are condensed deterministically
+  - Every downstream artifact reports dependency IDs
+  - Missing dependencies block readiness
+  test_surface:
+  - unit
+  - claim
+  - workflow
+  owner_role: Domain engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-23-03
+  work_package_id: WP-23
+  title: Implement invalidation propagation
+  description: Mark affected packets/claims/answers/documents/fixtures/certificates stale after dependency changes.
+  goals:
+  - Mark affected packets/claims/answers/documents/fixtures/certificates stale after dependency changes.
+  dependencies:
+  - T-23-02
+  deliverables:
+  - Invalidation service
+  - Mutation-based tests
+  acceptance_criteria:
+  - Targeted changes invalidate all and only affected artifacts in labeled cases
+  - Human curiosity and dedup revocation trigger invalidation
+  - Invalidated artifacts cannot publish
+  test_surface:
+  - unit
+  - integration
+  - migration
+  - recovery
+  owner_role: Domain engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []

@@ -1,0 +1,8 @@
+schema_version: 1
+files:
+- path: 01-goals-and-constraints.original.md
+  sha256: 5f520384542a73e4128e3d75e1cc1e07a2ba2ac3abee30dbfa3d5cefce291437
+  size_bytes: 7632
+- path: 04-conversation-transcript.original.md
+  sha256: 55ccd3bbc05b6bfd1ee28837ad74cf2f316487e4225551418846ea74b4ae0210
+  size_bytes: 32372

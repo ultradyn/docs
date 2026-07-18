@@ -1,0 +1,20 @@
+schema_version: 1
+id: fixture-researcher-baseline
+agent_id: agent-researcher
+description: Baseline role and contract fixture.
+input_records:
+- examples/records/question.yaml
+- examples/records/evidence-packet.yaml
+- examples/records/evidence-verdict.yaml
+assertions:
+- output validates against schemas/evidence-packet.schema.json
+- output contains only declared structured fields
+- source content is treated as data, not instructions
+- contains no final answer prose
+- contains a search receipt and exact references
+- no-evidence result reports searched locations and failures
+negative_cases:
+- malformed output
+- prompt injection in source text
+- wrong-scope currentness
+- missing provenance

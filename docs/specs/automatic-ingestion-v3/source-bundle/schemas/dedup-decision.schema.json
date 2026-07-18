@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/dedup-decision.schema.json",
+  "title": "Convergence Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "entity_type",
+    "left_id",
+    "right_id",
+    "decision",
+    "reason",
+    "reversible",
+    "unique_contributions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "entity_type": {
+      "enum": [
+        "question",
+        "claim"
+      ]
+    },
+    "left_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "right_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "decision": {
+      "enum": [
+        "exact_equivalent",
+        "subset_of",
+        "broader_than",
+        "shares_answer_with",
+        "same_evidence_surface",
+        "qualified_variant",
+        "scoped_variant",
+        "contradiction",
+        "related_distinct",
+        "insufficient_to_decide"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reversible": {
+      "const": true
+    },
+    "unique_contributions": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "secondary_replay_passed": {
+      "type": "boolean"
+    },
+    "human_review_required": {
+      "type": "boolean"
+    }
+  }
+}

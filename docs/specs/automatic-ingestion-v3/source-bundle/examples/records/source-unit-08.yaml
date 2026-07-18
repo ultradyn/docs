@@ -1,0 +1,28 @@
+schema_version: 1
+id: unit-01J00000000000000000000008
+snapshot_id: snap-01J00000000000000000000001
+source_file_id: file-01J00000000000000000000005
+parent_unit_id: null
+kind: section
+heading_path:
+- Maintenance note
+unit_sha256: da98eed60cfff79e13a2d35c54fc2037f395d2541ef58bf279bdb6a240c147c9
+text_sha256: da98eed60cfff79e13a2d35c54fc2037f395d2541ef58bf279bdb6a240c147c9
+normalized_locator:
+  line_start: 3
+  line_end: 5
+original_locator:
+  line_start: 3
+  line_end: 5
+extraction_tier: A_exact
+authority_hints:
+  authority: official
+lifecycle_hints:
+  lifecycle: current
+coverage_state: supplemental_selected
+text: 'Endpoint registrations that have been disabled for more than 90 days should be reviewed and either re-enabled
+  or removed.
+
+
+  This maintenance recommendation is not part of the public ingress API and may not be discoverable from the project
+  overview path.'

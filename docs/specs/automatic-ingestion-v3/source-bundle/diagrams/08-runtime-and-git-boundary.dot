@@ -1,0 +1,9 @@
+digraph G {
+ graph [rankdir=LR,bgcolor="transparent",pad=0.25,nodesep=0.4,ranksep=0.7,fontname="Arial"];
+ node [shape=box,style="rounded,filled",fillcolor="#f8fafc",color="#475569",fontname="Arial",fontsize=9];
+ edge [color="#64748b",fontname="Arial",fontsize=8,arrowsize=0.65];
+ subgraph cluster_runtime {label="Transactional / event runtime";style="rounded,dashed";color="#94a3b8"; Lease[label="Worker leases"]; Event[label="Live event stream"]; Queue[label="Queues + retries"]; Session[label="Provider sessions/cache"]; Tele[label="Cost + telemetry"];}
+ subgraph cluster_git {label="Git authoritative logical state";style="rounded";color="#334155"; Manifest[label="Source/replay manifests"]; Record[label="Questions, evidence, claims, answers"]; Policy[label="Agents, workflows, policies, fixtures"]; Pub[label="Documents + publication history"];}
+ Check[label="Durable workflow checkpoints"]; Export[label="Completed-run export / reconciliation"];
+ Lease->Check; Event->Check; Queue->Check; Session->Check [style=dashed,label="not authoritative"]; Check->Record; Tele->Export; Export->Manifest; Export->Record; Export->Policy; Export->Pub;
+}

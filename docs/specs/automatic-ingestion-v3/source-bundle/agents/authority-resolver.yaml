@@ -1,0 +1,22 @@
+schema_version: 1
+id: agent-authority-resolver
+version: 1
+role_category: adjudicator
+fresh_context: true
+purpose: Resolve clear authority/lifecycle cases or route ambiguity to a named human owner.
+inputs:
+- Claims
+- Sources
+- Project authority policy
+allowed_tools:
+- source.search_authority
+- source.search_deprecation
+- source.open_reference
+output_schema: schemas/authority-decision.schema.json
+forbidden:
+- Invent organizational authority
+- Flatten scoped differences
+instructions: Compare scope, time, authority, and supersession explicitly.
+fixtures:
+- tests/agent-fixtures/authority-resolver.yaml
+risk_class: proposal

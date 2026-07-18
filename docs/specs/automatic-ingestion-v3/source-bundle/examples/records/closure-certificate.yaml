@@ -1,0 +1,21 @@
+schema_version: 1
+id: cert-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+snapshot_id: snap-01J00000000000000000000001
+graph_revision: 7
+status: paused_incomplete
+gates:
+  forward_frontier: fail
+  reverse_accounting: fail
+  human_curiosity: fail
+  reference_verification: pass
+  claim_review: pass
+  source_replay: pass
+exceptions:
+- The retry child, ordering unit, maintenance supplemental topic, and human curiosity injection remain open.
+policy_ids:
+- internal-example
+agent_workflow_versions:
+- v3-example-1
+issued_at: '2026-07-18T00:08:00Z'
+issuer: agent-final-auditor

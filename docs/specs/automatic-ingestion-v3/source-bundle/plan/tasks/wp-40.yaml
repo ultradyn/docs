@@ -1,0 +1,93 @@
+schema_version: 1
+id: WP-40
+phase: 4
+title: Reverse Questioner and source-led accounting
+description: Discover meaningful source content that forward question expansion did not use.
+goals:
+- Bidirectional source/question coverage
+- Minimum grounded supplemental question set
+dependencies:
+- WP-12
+- WP-22
+- WP-33
+exit_gate:
+- All WP-40 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-40-01
+  work_package_id: WP-40
+  title: Implement uncovered-unit clustering
+  description: Group unaccounted units by structure, topic, authority, lifecycle, and duplication.
+  goals:
+  - Group unaccounted units by structure, topic, authority, lifecycle, and duplication.
+  dependencies:
+  - T-12-04
+  - T-22-03
+  - T-33-03
+  deliverables:
+  - Coverage clusterer
+  - Cluster fixtures
+  acceptance_criteria:
+  - Meaningful disconnected content forms reviewable clusters
+  - Boilerplate/duplicates do not dominate topics
+  - Every unit retains ledger traceability
+  test_surface:
+  - unit
+  - retrieval
+  - performance
+  owner_role: Search engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-40-02
+  work_package_id: WP-40
+  title: Implement Reverse Questioner agent
+  description: Create minimum grounded questions or explicit dispositions from source clusters.
+  goals:
+  - Create minimum grounded questions or explicit dispositions from source clusters.
+  dependencies:
+  - T-40-01
+  deliverables:
+  - Reverse Questioner
+  - Reverse fixtures
+  acceptance_criteria:
+  - Proposals cite triggering source units
+  - Existing claims/questions are linked instead of duplicated where possible
+  - No generic missingness questions are emitted
+  test_surface:
+  - agent_fixture
+  - retrieval
+  - e2e
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-40-03
+  work_package_id: WP-40
+  title: Implement iterative reverse reconciliation
+  description: Route selected questions into exploration and repeat until source accounting stabilizes.
+  goals:
+  - Route selected questions into exploration and repeat until source accounting stabilizes.
+  dependencies:
+  - T-40-02
+  deliverables:
+  - Reverse workflow
+  - Closure integration
+  acceptance_criteria:
+  - New reverse claims update coverage before next pass
+  - Final pass has no selected unaccounted semantic units
+  - Budget/tool failures remain non-terminal
+  test_surface:
+  - workflow
+  - e2e
+  - recovery
+  owner_role: Workflow engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []

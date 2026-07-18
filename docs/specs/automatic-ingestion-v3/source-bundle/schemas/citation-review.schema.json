@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/citation-review.schema.json",
+  "title": "Citation Review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "artifact_type",
+    "artifact_id",
+    "pass",
+    "claim_reviews",
+    "blocking_findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "artifact_type": {
+      "enum": [
+        "answer",
+        "documentation_record"
+      ]
+    },
+    "artifact_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "pass": {
+      "type": "boolean"
+    },
+    "claim_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim_id",
+          "status",
+          "reason"
+        ],
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+          },
+          "status": {
+            "enum": [
+              "supported",
+              "partially_supported",
+              "unsupported",
+              "scope_mismatch",
+              "deprecated_misuse",
+              "citation_too_broad",
+              "unnecessary_citation"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "blocking_findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

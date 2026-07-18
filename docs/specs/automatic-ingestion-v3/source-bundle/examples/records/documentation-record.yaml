@@ -1,0 +1,25 @@
+schema_version: 1
+id: doc-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+document_plan_id: plan-01J00000000000000000000001
+document_type: overview
+title: Acorn Relay overview
+path: docs/overview/acorn-relay.md
+claim_ids:
+- clm-01J00000000000000000000001
+- clm-01J00000000000000000000002
+- clm-01J00000000000000000000003
+question_ids:
+- q-01J00000000000000000000001
+markdown: '# Acorn Relay overview
+
+
+  Acorn Relay is an internal webhook relay that provides durable, controlled delivery to registered HTTP endpoints.
+  It accepts events through an authenticated ingress API, stores accepted events in a durable queue, and uses delivery
+  workers plus an endpoint registry to deliver them. It is intended for internal service-to-service delivery, not
+  as a general public message broker.
+
+  '
+status: reviewed
+graph_revision: 7
+dependency_hash: f18188735c7559518718a5492ac677b2f120b9f0ce200f607d7af989f7c53114

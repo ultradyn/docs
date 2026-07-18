@@ -1,0 +1,93 @@
+schema_version: 1
+id: WP-50
+phase: 5
+title: Question and claim convergence
+description: Detect and safely reconcile duplicate/equivalent work without deleting provenance.
+goals:
+- Execution savings with reversible semantics
+- Separate question and claim convergence
+dependencies:
+- WP-22
+- WP-23
+- WP-33
+exit_gate:
+- All WP-50 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-50-01
+  work_package_id: WP-50
+  title: Implement multi-signal candidate generation
+  description: Combine semantic intent, goals/facets, scope, expected answer, claims/evidence, and graph context.
+  goals:
+  - Combine semantic intent, goals/facets, scope, expected answer, claims/evidence, and graph context.
+  dependencies:
+  - T-22-03
+  - T-23-03
+  - T-33-03
+  deliverables:
+  - Candidate service
+  - Labeled candidate dataset
+  acceptance_criteria:
+  - Same evidence/different goal remains a candidate not an automatic merge
+  - Question and claim candidates are separate
+  - Candidate recall/volume are measurable
+  test_surface:
+  - retrieval
+  - claim
+  - performance
+  owner_role: Search engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-50-02
+  work_package_id: WP-50
+  title: Implement Duplicate Adjudicator and typed relations
+  description: Produce reversible exact/subset/shared-answer/scoped/contradiction/distinct decisions.
+  goals:
+  - Produce reversible exact/subset/shared-answer/scoped/contradiction/distinct decisions.
+  dependencies:
+  - T-50-01
+  deliverables:
+  - Adjudicator agent
+  - Decision application
+  acceptance_criteria:
+  - No decision deletes raw entities
+  - Unique contributions are enumerated
+  - High-impact/low-confidence cases route to human
+  test_surface:
+  - agent_fixture
+  - workflow
+  - human_factors
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-50-03
+  work_package_id: WP-50
+  title: Implement dual replay, holds, and revocation
+  description: Replay later question and canonical facets, pause redundant execution, and restore on revocation.
+  goals:
+  - Replay later question and canonical facets, pause redundant execution, and restore on revocation.
+  dependencies:
+  - T-50-02
+  deliverables:
+  - Replay service
+  - Hold/revoke workflow
+  acceptance_criteria:
+  - Hold occurs only after both replay checks pass
+  - Revocation restores branch and obligations
+  - Affected answers/docs/certificates invalidate
+  test_surface:
+  - e2e
+  - recovery
+  - migration
+  owner_role: Workflow engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []

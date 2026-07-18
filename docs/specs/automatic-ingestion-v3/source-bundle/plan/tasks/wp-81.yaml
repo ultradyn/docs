@@ -1,0 +1,98 @@
+schema_version: 1
+id: WP-81
+phase: 8
+title: Pilot corpora and architecture ablations
+description: Validate the two v3 changes and optional retrieval choices on realistic projects.
+goals:
+- Evidence-based architecture decisions
+- Calibrated quality/cost thresholds
+dependencies:
+- WP-40
+- WP-50
+- WP-62
+- WP-80
+exit_gate:
+- All WP-81 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-81-01
+  work_package_id: WP-81
+  title: Run tiny and small deterministic pilots
+  description: Reach exact expected graphs and debug workflow/UX issues.
+  goals:
+  - Reach exact expected graphs and debug workflow/UX issues.
+  dependencies:
+  - T-40-03
+  - T-50-03
+  - T-62-03
+  - T-80-03
+  deliverables:
+  - Pilot reports
+  - Fixture expansions
+  acceptance_criteria:
+  - No false closure or high-impact false merge
+  - Every selected unit has terminal disposition
+  - Operators can explain all blocked/held states
+  test_surface:
+  - e2e
+  - human_factors
+  - recovery
+  owner_role: Pilot lead
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-81-02
+  work_package_id: WP-81
+  title: Run v3 architecture ablations
+  description: Compare claim-mediated versus question-only and split versus combined Questioner designs.
+  goals:
+  - Compare claim-mediated versus question-only and split versus combined Questioner designs.
+  dependencies:
+  - T-81-01
+  deliverables:
+  - Ablation report
+  - Architecture confirmation or change ADR
+  acceptance_criteria:
+  - Metrics cover qualifier loss, reuse, invalidation precision, false acceptance, branch factor, cost
+  - Decision uses confidence/qualitative review, not anecdotes
+  - Regressions become fixtures
+  test_surface:
+  - claim
+  - agent_fixture
+  - cost
+  - human_factors
+  owner_role: Evaluation lead
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-81-03
+  work_package_id: WP-81
+  title: Run medium real-project shadow ingestion
+  description: Use domain reviewers and stratified sampling across claims/questions/coverage/documents.
+  goals:
+  - Use domain reviewers and stratified sampling across claims/questions/coverage/documents.
+  dependencies:
+  - T-81-02
+  deliverables:
+  - Shadow run
+  - Human review dataset
+  - Threshold proposal
+  acceptance_criteria:
+  - Quality/cost/security gates are evaluated on real material
+  - Human workload is measured
+  - No canonical import occurs without review
+  test_surface:
+  - e2e
+  - human_factors
+  - performance
+  - cost
+  owner_role: Pilot lead
+  estimate_class: XL
+  risk_level: critical
+  status: planned
+  notes: []

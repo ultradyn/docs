@@ -1,0 +1,93 @@
+schema_version: 1
+id: WP-71
+phase: 7
+title: Workflow orchestration, concurrency, and recovery
+description: Provide durable, idempotent execution for parallel paired branches and human waits.
+goals:
+- Safe parallelism and resumability
+- Provider/session independence
+dependencies:
+- WP-01
+- WP-23
+- WP-33
+exit_gate:
+- All WP-71 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-71-01
+  work_package_id: WP-71
+  title: Select/implement durable workflow engine
+  description: Evaluate existing engine versus custom state machine and implement adapters.
+  goals:
+  - Evaluate existing engine versus custom state machine and implement adapters.
+  dependencies:
+  - T-01-03
+  - T-23-03
+  - T-33-03
+  deliverables:
+  - Decision ADR
+  - Workflow runtime
+  acceptance_criteria:
+  - Retries/human waits/checkpoints are durable
+  - Workflow manifests map cleanly to runtime
+  - Engine failure modes are tested
+  test_surface:
+  - workflow
+  - recovery
+  - performance
+  owner_role: Platform architect
+  estimate_class: XL
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-71-02
+  work_package_id: WP-71
+  title: Implement leases, optimistic graph writes, and idempotency
+  description: Coordinate branches, graph mutations, duplicate leaders, and coverage batches.
+  goals:
+  - Coordinate branches, graph mutations, duplicate leaders, and coverage batches.
+  dependencies:
+  - T-71-01
+  deliverables:
+  - Coordination service
+  - Race fixtures
+  acceptance_criteria:
+  - Concurrent duplicate candidate race has one provisional leader
+  - Expired lease resumes safely
+  - Retry does not duplicate artifact
+  test_surface:
+  - integration
+  - recovery
+  - performance
+  owner_role: Platform engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-71-03
+  work_package_id: WP-71
+  title: Implement context reconstruction and compaction
+  description: Build immutable context manifests and verified compaction for long branches.
+  goals:
+  - Build immutable context manifests and verified compaction for long branches.
+  dependencies:
+  - T-71-02
+  deliverables:
+  - Context service
+  - Compaction verifier
+  acceptance_criteria:
+  - Cache/session loss changes no decisive output expectation
+  - Compaction preserves unresolved criticism and source refs
+  - Context size limits route to verified compaction
+  test_surface:
+  - recovery
+  - cost
+  - agent_fixture
+  owner_role: Platform engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []

@@ -1,0 +1,60 @@
+schema_version: 1
+scenarios:
+- id: vertical-slice
+  workflow: workflow-explore-question
+  expected:
+  - research packet
+  - independent verdict
+  - accepted claims
+  - curiosity after terminal verdict
+- id: critic-refinement
+  workflow: workflow-explore-question
+  inject: missing required facet
+  expected:
+  - bounded criticism
+  - new packet version
+  - no child planning before terminal verdict
+- id: source-gap
+  workflow: workflow-explore-question
+  inject: well-searched unsupported question
+  expected:
+  - no_supported_answer
+  - search certificate
+  - curiosity may still plan grounded neighboring work
+- id: session-loss
+  workflow: workflow-explore-question
+  inject: destroy provider sessions after verdict
+  expected:
+  - resume from durable artifacts
+  - no duplicate packet/claim
+- id: reverse-disconnected-note
+  workflow: workflow-reverse-accounting
+  expected:
+  - maintenance note clustered
+  - grounded reverse question or explicit disposition
+- id: human-reopen
+  workflow: workflow-inject-human-curiosity
+  inject: question after closure certificate
+  expected:
+  - new obligation
+  - certificate invalidated
+  - ordinary exploration branch
+- id: false-question-merge
+  workflow: workflow-converge-graph
+  inject: same claims but different goal
+  expected:
+  - shares_answer_with or distinct
+  - no provenance deletion
+- id: source-change
+  workflow: workflow-reingest-snapshot
+  inject: change retry attempt count
+  expected:
+  - affected claim/answer/doc stale
+  - overview purpose claims remain current
+- id: publication
+  workflow: workflow-publish-to-docent
+  expected:
+  - fresh audit
+  - isolated branch
+  - diff-only review
+  - post-merge replay

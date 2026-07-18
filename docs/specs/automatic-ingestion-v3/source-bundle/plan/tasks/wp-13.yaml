@@ -1,0 +1,91 @@
+schema_version: 1
+id: WP-13
+phase: 1
+title: Data policy and source access enforcement
+description: Propagate classification, rights, access, and processing policies through every source boundary.
+goals:
+- No unapproved model/storage exposure
+- Rights-aware transformation and publication
+dependencies:
+- WP-10
+- WP-11
+exit_gate:
+- All WP-13 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-13-01
+  work_package_id: WP-13
+  title: Implement data and rights policy profiles
+  description: Define classification, providers, region, retention, logging, cache, quote, and publication rules.
+  goals:
+  - Define classification, providers, region, retention, logging, cache, quote, and publication rules.
+  dependencies:
+  - T-10-03
+  - T-11-03
+  deliverables:
+  - Policy schema
+  - Reference profiles
+  acceptance_criteria:
+  - A run cannot begin without an approved profile
+  - Every profile maps to explicit processors/storage
+  - License restrictions reach publication checks
+  test_surface:
+  - schema
+  - security
+  - privacy
+  owner_role: Security architect
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-13-02
+  work_package_id: WP-13
+  title: Enforce policy at retrieval/model boundaries
+  description: Filter before LLM exposure and isolate cache/storage namespaces.
+  goals:
+  - Filter before LLM exposure and isolate cache/storage namespaces.
+  dependencies:
+  - T-13-01
+  deliverables:
+  - Policy enforcement middleware
+  - Access leakage fixtures
+  acceptance_criteria:
+  - Restricted units never appear in disallowed context packs
+  - Dashboard/source previews respect access labels
+  - Cache keys cannot cross policy boundaries
+  test_surface:
+  - security
+  - privacy
+  - integration
+  owner_role: Security engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-13-03
+  work_package_id: WP-13
+  title: Implement secret/PII and publication scans
+  description: Scan intake representations and proposed Git changes with configured actions.
+  goals:
+  - Scan intake representations and proposed Git changes with configured actions.
+  dependencies:
+  - T-13-02
+  deliverables:
+  - Scan adapters
+  - Block/redact/quarantine workflow
+  acceptance_criteria:
+  - Seeded secret is blocked before external agent event
+  - Redaction preserves authorized source mapping
+  - Proposed commit with prohibited material fails
+  test_surface:
+  - security
+  - privacy
+  - workflow
+  owner_role: Security engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []

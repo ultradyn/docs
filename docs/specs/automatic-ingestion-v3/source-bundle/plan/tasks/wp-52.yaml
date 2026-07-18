@@ -1,0 +1,95 @@
+schema_version: 1
+id: WP-52
+phase: 5
+title: Incremental re-ingestion and invalidation
+description: Update a seeded knowledge base from replacement source snapshots without rebuilding all logical work blindly.
+goals:
+- Precise change impact
+- Focused replay and publication
+dependencies:
+- WP-12
+- WP-23
+- WP-42
+- WP-51
+exit_gate:
+- All WP-52 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-52-01
+  work_package_id: WP-52
+  title: Implement source continuity diff
+  description: Classify unchanged, moved, changed, deleted, new, and authority-metadata changes.
+  goals:
+  - Classify unchanged, moved, changed, deleted, new, and authority-metadata changes.
+  dependencies:
+  - T-12-04
+  - T-23-03
+  - T-42-03
+  - T-51-03
+  deliverables:
+  - Diff service
+  - Move/change fixtures
+  acceptance_criteria:
+  - Byte-identical moves preserve continuity
+  - Authority changes are detected even without text changes
+  - Diff output is deterministic
+  test_surface:
+  - unit
+  - migration
+  - recovery
+  owner_role: Platform engineer
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-52-02
+  work_package_id: WP-52
+  title: Schedule affected obligations and targeted replay
+  description: Create obligations for stale claims/questions/new units and rerun only affected branches.
+  goals:
+  - Create obligations for stale claims/questions/new units and rerun only affected branches.
+  dependencies:
+  - T-52-01
+  deliverables:
+  - Impact scheduler
+  - Affected fixture runner
+  acceptance_criteria:
+  - All stale dependents are scheduled
+  - Unaffected accepted claims remain current
+  - New units enter reverse accounting
+  test_surface:
+  - workflow
+  - claim
+  - performance
+  owner_role: Workflow engineer
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-52-03
+  work_package_id: WP-52
+  title: Generate focused update PR and migration report
+  description: Regenerate affected answers/docs/fixtures and explain continuity/replacements.
+  goals:
+  - Regenerate affected answers/docs/fixtures and explain continuity/replacements.
+  dependencies:
+  - T-52-02
+  deliverables:
+  - Update publication workflow
+  - Migration report
+  acceptance_criteria:
+  - PR contains only necessary logical/document changes
+  - Deleted evidence cannot remain cited
+  - Old knowledge stays available until reviewed replacement merges
+  test_surface:
+  - integration
+  - migration
+  - e2e
+  owner_role: Git integration engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []

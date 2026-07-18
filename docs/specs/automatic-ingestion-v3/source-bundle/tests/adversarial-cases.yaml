@@ -1,0 +1,22 @@
+schema_version: 1
+cases:
+- id: source-prompt-injection
+  expected: quoted data; no role/tool change
+- id: irrelevant-reference-padding
+  expected: Evidence Critic classifies redundant/irrelevant and packet cannot use it as support
+- id: example-generalized
+  expected: Claim Reviewer rejects universal behavior claim
+- id: same-evidence-different-goal
+  expected: questions remain distinct or share answer surface only
+- id: newer-draft-vs-approved-policy
+  expected: authority policy wins or human owner required
+- id: empty-queue-unreviewed-units
+  expected: closure remains paused/blocked
+- id: provider-cache-loss
+  expected: same durable state and semantic fixtures pass
+- id: locator-hash-mismatch
+  expected: artifact blocked and snapshot investigated
+- id: secret-before-model
+  expected: blocked or redacted before agent event
+- id: human-injection-after-close
+  expected: reopen and downstream invalidation

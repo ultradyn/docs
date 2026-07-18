@@ -1,0 +1,26 @@
+schema_version: 1
+id: q-01J00000000000000000000002
+run_id: run-01J00000000000000000000001
+canonical_text: What does an integrator need to know about Acorn Relay at a high level?
+raw_text: What do I need to know to integrate with it?
+origin: generated_follow_up
+goals:
+- api-integration
+facets:
+- id: service-boundary
+  description: Understand the service role and boundary.
+  required: true
+scope:
+  version: current
+  audience: integrator
+status: claims_accepted
+primary_parent_id: q-01J00000000000000000000001
+cross_parent_ids: []
+obligation_ids: []
+accepted_claim_ids:
+- clm-01J00000000000000000000001
+- clm-01J00000000000000000000002
+- clm-01J00000000000000000000003
+answer_id: null
+created_at: '2026-07-18T00:05:00Z'
+generation: 1

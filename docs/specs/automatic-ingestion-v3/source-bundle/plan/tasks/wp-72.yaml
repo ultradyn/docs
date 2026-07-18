@@ -1,0 +1,94 @@
+schema_version: 1
+id: WP-72
+phase: 7
+title: Observability, cost, and cache optimization
+description: Measure quality, operations, and economics without making cache a correctness assumption.
+goals:
+- Zero-cache commercial baseline
+- Actionable operational telemetry
+dependencies:
+- WP-02
+- WP-30
+- WP-71
+exit_gate:
+- All WP-72 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-72-01
+  work_package_id: WP-72
+  title: Implement telemetry and cost ledger
+  description: Record per-step/model/tool tokens, latency, cost, errors, and cache receipts without duplicating sensitive
+    text.
+  goals:
+  - Record per-step/model/tool tokens, latency, cost, errors, and cache receipts without duplicating sensitive text.
+  dependencies:
+  - T-02-03
+  - T-30-03
+  - T-71-03
+  deliverables:
+  - Telemetry pipeline
+  - Cost records
+  acceptance_criteria:
+  - Every model call is attributable to run/branch/agent/version
+  - Sensitive payloads are excluded from general logs
+  - Costs reconcile to provider invoices within tolerance
+  test_surface:
+  - observability
+  - cost
+  - privacy
+  owner_role: Platform engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-72-02
+  work_package_id: WP-72
+  title: Implement deterministic prompt compiler and prefix tests
+  description: "Assemble stable P0\u2013P4 layers with hashes and provider-neutral context packs."
+  goals:
+  - "Assemble stable P0\u2013P4 layers with hashes and provider-neutral context packs."
+  dependencies:
+  - T-72-01
+  deliverables:
+  - Prompt compiler
+  - Prefix fixtures
+  acceptance_criteria:
+  - Sibling common-prefix ratios meet configured targets
+  - Volatile fields occur in late layers
+  - Cache-disabled semantic fixtures still pass
+  test_surface:
+  - unit
+  - agent_fixture
+  - cost
+  owner_role: Agent platform engineer
+  estimate_class: M
+  risk_level: medium
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-72-03
+  work_package_id: WP-72
+  title: Implement preflight work/cost forecast and circuit breakers
+  description: Estimate obligation-bound work under zero/conservative/observed cache and enforce budgets.
+  goals:
+  - Estimate obligation-bound work under zero/conservative/observed cache and enforce budgets.
+  dependencies:
+  - T-72-02
+  deliverables:
+  - Forecast service
+  - Budget controls
+  acceptance_criteria:
+  - Oversized runs require partition/scope decision
+  - Budget stops create paused_incomplete
+  - Circuit breakers preserve checkpoints and evidence
+  test_surface:
+  - cost
+  - performance
+  - recovery
+  owner_role: Platform engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []

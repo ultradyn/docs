@@ -1,0 +1,11 @@
+digraph G {
+ graph [rankdir=LR,bgcolor="transparent",pad=0.25,nodesep=0.45,ranksep=0.75,fontname="Arial"];
+ node [shape=box,style="rounded,filled",fillcolor="#f8fafc",color="#475569",fontname="Arial",fontsize=10,margin="0.13,0.09"];
+ edge [color="#64748b",fontname="Arial",fontsize=9,arrowsize=0.7];
+ Operator[label="Ingestion operator"]; Reviewer[label="Documentation reviewer"]; Asker[label="Future Docent asker"];
+ subgraph cluster_runtime {label="Ingestion runtime";color="#64748b";style="rounded"; UI[label="Live dashboard"]; WF[label="Workflow orchestrator"]; AR[label="Fresh-context agent runtime"]; RET[label="Retrieval service"]; GW[label="Graph / claim gateway"]; GIT[label="Git / PR adapter"];}
+ subgraph cluster_source {label="Source custody";color="#94a3b8";style="rounded,dashed"; RAW[label="Immutable source replay capsule",shape=cylinder]; REP[label="Qualified representations"]; UNIT[label="Structural source units"];}
+ subgraph cluster_git {label="Authoritative logical records";color="#334155";style="rounded"; Q[label="Questions + obligations"]; C[label="Claims + reviews"]; A[label="Answers + validity"]; DOC[label="Documents + plans"]; CFG[label="Agents, workflows, policies, fixtures"];}
+ subgraph cluster_projection {label="Disposable projections";color="#94a3b8";style="rounded,dashed"; IDX[label="Exact / lexical / optional vector index"]; EV[label="Events, queues, graph layout"];}
+ Operator->UI; Reviewer->UI; Asker->DOC; UI->WF; WF->AR; WF->RET; WF->GW; WF->GIT; RAW->REP->UNIT; UNIT->IDX; RET->IDX; RET->UNIT; GW->Q; GW->C; GW->A; GW->DOC; GIT->Q [dir=both]; GIT->C [dir=both]; GIT->A [dir=both]; GIT->DOC [dir=both]; GIT->CFG [dir=both]; WF->EV; EV->UI;
+}

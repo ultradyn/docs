@@ -1,0 +1,51 @@
+schema_version: 1
+id: workflow-import-source
+version: 1
+trigger: Operator submits source package and policy profile
+inputs:
+- source_artifact
+- policy_profile
+steps:
+- id: preflight
+  kind: service
+  uses: source.preflight
+  on_success: snapshot
+  on_failure: blocked
+- id: snapshot
+  kind: service
+  uses: source.create_snapshot
+  on_success: extract
+  on_failure: failed
+- id: extract
+  kind: service
+  uses: source.extract_and_map
+  on_success: audit
+  on_failure: failed
+  retry:
+    max_attempts: 2
+    strategy: fixed
+- id: audit
+  kind: service
+  uses: source.audit_representations
+  on_success: units
+  on_failure: waiting_human
+- id: units
+  kind: service
+  uses: source.build_units
+  on_success: index
+  on_failure: failed
+- id: index
+  kind: service
+  uses: index.build
+  on_success: coverage
+  on_failure: failed
+- id: coverage
+  kind: service
+  uses: coverage.initialize
+  on_success: imported
+  on_failure: failed
+terminal_states:
+- imported
+- blocked
+- waiting_human
+- failed

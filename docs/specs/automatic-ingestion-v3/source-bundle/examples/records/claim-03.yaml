@@ -1,0 +1,32 @@
+schema_version: 1
+id: clm-01J00000000000000000000003
+run_id: run-01J00000000000000000000001
+statement: Acorn Relay is not intended to be a general public message broker.
+claim_type: constraint
+scope:
+  version: current
+authority: official
+lifecycle: current
+status: accepted
+evidence_refs:
+- snapshot_id: snap-01J00000000000000000000001
+  source_file_id: file-01J00000000000000000000001
+  source_unit_id: unit-01J00000000000000000000003
+  file_sha256: ac5f488c2b07b7eca06eb365bcefd667a8831815d02579f0fa6a3d2bb49369a3
+  unit_sha256: 7e85bbc05c8c38646a99f8c875c6b22f9125973558de795f4216f644d2ea34d4
+  normalized_path: README.md
+  locator:
+    kind: line
+    line_start: 7
+    line_end: 7
+  relation: primary
+  authority: official
+  lifecycle: current
+  extraction_tier: A_exact
+qualifier_claim_ids: []
+contradicts_claim_ids: []
+supersedes_claim_ids: []
+created_from:
+  question_id: q-01J00000000000000000000001
+  evidence_packet_id: evp-01J00000000000000000000001
+semantic_fingerprint: 73c91fc3d07f62ae2156a0a601c28f95d5d020a72225fda87461e5ad66b06f2e

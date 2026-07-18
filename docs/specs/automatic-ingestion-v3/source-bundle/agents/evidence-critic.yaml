@@ -1,0 +1,22 @@
+schema_version: 1
+id: agent-evidence-critic
+version: 1
+role_category: evaluator
+fresh_context: true
+purpose: Independently decide whether the evidence packet answers every required facet.
+inputs:
+- Question
+- EvidencePacket
+- Opened source units
+allowed_tools:
+- source.open_reference
+- source.open_reference_context
+output_schema: schemas/evidence-verdict.schema.json
+forbidden:
+- Propose child questions
+- Write the answer
+- Search the corpus silently
+instructions: Classify every material reference and facet. Ask only bounded evidence refinements.
+fixtures:
+- tests/agent-fixtures/evidence-critic.yaml
+risk_class: read_only

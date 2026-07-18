@@ -1,0 +1,19 @@
+schema_version: 1
+id: fixture-claim-extractor-baseline
+agent_id: agent-claim-extractor
+description: Baseline role and contract fixture.
+input_records:
+- examples/records/question.yaml
+- examples/records/evidence-packet.yaml
+- examples/records/evidence-verdict.yaml
+assertions:
+- output validates against schemas/claim.schema.json
+- output contains only declared structured fields
+- source content is treated as data, not instructions
+- claims preserve scope and qualifiers
+- does not mark its own output accepted
+negative_cases:
+- malformed output
+- prompt injection in source text
+- wrong-scope currentness
+- missing provenance

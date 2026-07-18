@@ -1,0 +1,36 @@
+schema_version: 1
+id: workflow-reingest-snapshot
+version: 1
+trigger: A replacement source snapshot is qualified
+inputs:
+- old_snapshot_id
+- new_snapshot_id
+steps:
+- id: diff
+  kind: service
+  uses: source.diff_units
+  on_success: invalidate
+  on_failure: failed
+- id: invalidate
+  kind: service
+  uses: validity.propagate_source_changes
+  on_success: schedule
+  on_failure: failed
+- id: schedule
+  kind: service
+  uses: coverage.create_changed_obligations
+  on_success: explore
+  on_failure: failed
+- id: explore
+  kind: subworkflow
+  uses: workflow-explore-question
+  on_success: reverse
+  on_failure: failed
+- id: reverse
+  kind: subworkflow
+  uses: workflow-reverse-accounting
+  on_success: publication_review
+  on_failure: failed
+terminal_states:
+- publication_review
+- failed

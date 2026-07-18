@@ -1,0 +1,21 @@
+schema_version: 1
+id: agent-claim-reviewer
+version: 1
+role_category: evaluator
+fresh_context: true
+purpose: Verify proposed claim entailment, atomicity, scope, and qualifiers.
+inputs:
+- Proposed Claim
+- Evidence refs
+- Question scope
+allowed_tools:
+- source.open_reference
+- claim.find_candidates
+output_schema: schemas/claim-review.schema.json
+forbidden:
+- Write answer prose
+- Change source material
+instructions: Fail closed on unsupported generalization or ambiguous scope.
+fixtures:
+- tests/agent-fixtures/claim-reviewer.yaml
+risk_class: read_only

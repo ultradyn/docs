@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docent.local/ingest-v3/schemas/coverage-obligation.schema.json",
+  "title": "Coverage Obligation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "kind",
+    "subject_id",
+    "status",
+    "owner_question_id",
+    "created_at",
+    "reason"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+    },
+    "kind": {
+      "enum": [
+        "source_unit",
+        "question_facet",
+        "conflict",
+        "human_curiosity",
+        "authority_resolution",
+        "extraction_repair",
+        "ancestor_reopen",
+        "supplemental_topic"
+      ]
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "open",
+        "assigned",
+        "satisfied",
+        "terminal_gap",
+        "excluded",
+        "blocked",
+        "transferred",
+        "revoked"
+      ]
+    },
+    "owner_question_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parent_obligation_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "satisfaction_artifact_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{1,5}-[0-9A-HJKMNP-TV-Z]{10,26}$"
+      }
+    }
+  }
+}

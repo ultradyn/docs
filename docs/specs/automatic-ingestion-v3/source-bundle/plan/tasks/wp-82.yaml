@@ -1,0 +1,98 @@
+schema_version: 1
+id: WP-82
+phase: 8
+title: Production readiness and staged rollout
+description: Turn pilot evidence into a supportable production service and operating model.
+goals:
+- Controlled release with recovery and governance
+- Ongoing drift/quality monitoring
+dependencies:
+- WP-63
+- WP-70
+- WP-71
+- WP-72
+- WP-81
+exit_gate:
+- All WP-82 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-82-01
+  work_package_id: WP-82
+  title: Finalize release thresholds and operating policies
+  description: Set quality confidence bounds, supported formats, data profiles, budgets, review rules, and SLIs.
+  goals:
+  - Set quality confidence bounds, supported formats, data profiles, budgets, review rules, and SLIs.
+  dependencies:
+  - T-63-03
+  - T-70-04
+  - T-71-03
+  - T-72-03
+  - T-81-03
+  deliverables:
+  - Release policy
+  - Runbook
+  acceptance_criteria:
+  - Every threshold has pilot evidence and owner
+  - Unsupported formats/policies fail clearly
+  - Manual escalation/on-call ownership is defined
+  test_surface:
+  - human_factors
+  - security
+  - observability
+  owner_role: Product owner
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-82-02
+  work_package_id: WP-82
+  title: Run disaster recovery and deletion drills
+  description: Exercise source/runtime/index loss, provider outage, Git conflict, and authorized deletion.
+  goals:
+  - Exercise source/runtime/index loss, provider outage, Git conflict, and authorized deletion.
+  dependencies:
+  - T-82-01
+  deliverables:
+  - Drill reports
+  - Remediation actions
+  acceptance_criteria:
+  - Accepted logical state reconstructs from Git + replay capsule
+  - Deletion dependency closure completes
+  - Recovery time/objectives meet policy
+  test_surface:
+  - recovery
+  - security
+  - privacy
+  owner_role: SRE lead
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-82-03
+  work_package_id: WP-82
+  title: Roll out in controlled cohorts
+  description: Start with trusted A-tier corpora, monitor, expand formats/teams, and review incidents.
+  goals:
+  - Start with trusted A-tier corpora, monitor, expand formats/teams, and review incidents.
+  dependencies:
+  - T-82-02
+  deliverables:
+  - Rollout plan
+  - Cohort dashboards
+  - Post-launch review
+  acceptance_criteria:
+  - Each cohort has exit criteria
+  - Auto-promotion remains disabled until evidence supports it
+  - Model/parser/index drift triggers regression suites
+  test_surface:
+  - e2e
+  - observability
+  - human_factors
+  owner_role: Product owner
+  estimate_class: L
+  risk_level: critical
+  status: planned
+  notes: []

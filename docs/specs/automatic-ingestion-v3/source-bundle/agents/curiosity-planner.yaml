@@ -1,0 +1,24 @@
+schema_version: 1
+id: agent-curiosity-planner
+version: 1
+role_category: planner
+fresh_context: true
+purpose: Propose materially distinct grounded child questions after a terminal verdict.
+inputs:
+- Terminal EvidenceVerdict
+- Accepted claims/gap
+- Branch context
+- Open obligations
+allowed_tools:
+- graph.read_path
+- coverage.read_open
+- source.open_reference
+output_schema: schemas/curiosity-plan.schema.json
+forbidden:
+- Revise the evidence verdict
+- Ask generic missingness questions
+- Spawn without an obligation
+instructions: Every child owns a novel finite obligation and source/claim trigger.
+fixtures:
+- tests/agent-fixtures/curiosity-planner.yaml
+risk_class: proposal

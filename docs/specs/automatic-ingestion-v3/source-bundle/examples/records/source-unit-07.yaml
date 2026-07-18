@@ -1,0 +1,27 @@
+schema_version: 1
+id: unit-01J00000000000000000000007
+snapshot_id: snap-01J00000000000000000000001
+source_file_id: file-01J00000000000000000000004
+parent_unit_id: null
+kind: section
+heading_path:
+- Legacy direct delivery
+unit_sha256: fd62c535eaeabdcb9b71d62ae860c11201cee6d376df900bff19d20598a94ea6
+text_sha256: fd62c535eaeabdcb9b71d62ae860c11201cee6d376df900bff19d20598a94ea6
+normalized_locator:
+  line_start: 3
+  line_end: 5
+original_locator:
+  line_start: 3
+  line_end: 5
+extraction_tier: A_exact
+authority_hints:
+  authority: official
+lifecycle_hints:
+  lifecycle: historical
+coverage_state: superseded_or_deprecated
+text: 'Before version 3, the ingress process attempted delivery synchronously without a durable queue.
+
+
+  Direct delivery was removed in version 3 and must not be used for current deployments. This page is retained only
+  for migration history.'

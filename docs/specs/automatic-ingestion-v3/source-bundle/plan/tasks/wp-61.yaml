@@ -1,0 +1,94 @@
+schema_version: 1
+id: WP-61
+phase: 6
+title: Information architecture and canonical homes
+description: Transform claim/question demand into reader-oriented document structure.
+goals:
+- One canonical home per durable fact
+- Task/audience-oriented document map
+dependencies:
+- WP-22
+- WP-50
+- WP-60
+exit_gate:
+- All WP-61 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-61-01
+  work_package_id: WP-61
+  title: Define document types and IA rules
+  description: Specify overview/concept/procedure/reference/decision/troubleshooting/glossary/history templates and canonical-home
+    policy.
+  goals:
+  - Specify overview/concept/procedure/reference/decision/troubleshooting/glossary/history templates and canonical-home
+    policy.
+  dependencies:
+  - T-22-03
+  - T-50-03
+  - T-60-03
+  deliverables:
+  - IA style contract
+  - Document type schemas
+  acceptance_criteria:
+  - Rules distinguish question landing pages from canonical fact homes
+  - Cross-link/summary behavior is explicit
+  - Historical/scoped variants have a home
+  test_surface:
+  - contract
+  - human_factors
+  owner_role: Documentation architect
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-61-02
+  work_package_id: WP-61
+  title: Implement Information Architect agent
+  description: Map stabilized claims/questions into an approved DocumentPlan.
+  goals:
+  - Map stabilized claims/questions into an approved DocumentPlan.
+  dependencies:
+  - T-61-01
+  deliverables:
+  - IA agent
+  - Plan fixtures
+  acceptance_criteria:
+  - Several overlapping questions can map to one concept section
+  - Every selected claim has one canonical home or explicit omission
+  - Plan contains audiences/tasks/prerequisites
+  test_surface:
+  - agent_fixture
+  - human_factors
+  - claim
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-61-03
+  work_package_id: WP-61
+  title: Build document-plan review workbench
+  description: Allow human review of canonical homes, duplicates, redirects, and publication mode.
+  goals:
+  - Allow human review of canonical homes, duplicates, redirects, and publication mode.
+  dependencies:
+  - T-61-02
+  deliverables:
+  - Review UI/API
+  - Decision records
+  acceptance_criteria:
+  - Reviewer can trace every claim/question to proposed location
+  - Changes create a new plan version
+  - No prose generation starts from unapproved plan in canonical mode
+  test_surface:
+  - integration
+  - human_factors
+  - workflow
+  owner_role: Product engineer
+  estimate_class: M
+  risk_level: medium
+  status: planned
+  notes: []

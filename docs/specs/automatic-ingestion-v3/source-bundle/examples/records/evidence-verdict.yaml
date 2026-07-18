@@ -1,0 +1,43 @@
+schema_version: 1
+id: evv-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+branch_id: br-01J00000000000000000000001
+question_id: q-01J00000000000000000000001
+evidence_packet_id: evp-01J00000000000000000000001
+reference_reviews:
+- source_unit_id: unit-01J00000000000000000000001
+  classification: necessary_primary
+  reason: Directly defines the project.
+- source_unit_id: unit-01J00000000000000000000002
+  classification: necessary_primary
+  reason: Provides the high-level component chain.
+- source_unit_id: unit-01J00000000000000000000003
+  classification: necessary_qualifying
+  reason: Prevents overbroad characterization as a public broker.
+- source_unit_id: unit-01J00000000000000000000004
+  classification: necessary_primary
+  reason: Describes the main runtime components.
+facet_states:
+- facet_id: purpose
+  state: satisfied
+  source_unit_ids:
+  - unit-01J00000000000000000000001
+  claim_ids: []
+  reason: Direct definition.
+- facet_id: components
+  state: satisfied
+  source_unit_ids:
+  - unit-01J00000000000000000000002
+  - unit-01J00000000000000000000004
+  claim_ids: []
+  reason: Components and responsibilities are listed.
+- facet_id: boundary
+  state: satisfied
+  source_unit_ids:
+  - unit-01J00000000000000000000003
+  claim_ids: []
+  reason: Product boundary is explicit.
+verdict: accepted
+criticisms: []
+follow_up_request: null
+visible_summary: The evidence is minimal, current, and complete for the three required facets.

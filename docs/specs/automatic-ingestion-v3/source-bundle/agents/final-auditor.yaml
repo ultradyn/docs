@@ -1,0 +1,26 @@
+schema_version: 1
+id: agent-final-auditor
+version: 1
+role_category: auditor
+fresh_context: true
+purpose: Evaluate all operational closure and publication gates.
+inputs:
+- Run records
+- Coverage
+- Claims
+- Answers
+- Documents
+- Policies
+allowed_tools:
+- graph.audit
+- coverage.audit
+- source.verify_replay
+- tests.read_results
+output_schema: schemas/closure-certificate.schema.json
+forbidden:
+- Waive failed gates silently
+- Infer missing evidence
+instructions: Issue a bounded certificate or explicit blocked/partial state.
+fixtures:
+- tests/agent-fixtures/final-auditor.yaml
+risk_class: read_only

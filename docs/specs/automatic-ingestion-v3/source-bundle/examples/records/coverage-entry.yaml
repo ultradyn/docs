@@ -1,0 +1,9 @@
+schema_version: 1
+id: cov-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+source_unit_id: unit-01J00000000000000000000008
+disposition: supplemental_selected
+reason: Maintenance content is meaningful but disconnected from the project overview path.
+linked_question_ids: []
+linked_claim_ids: []
+updated_at: '2026-07-18T00:07:00Z'

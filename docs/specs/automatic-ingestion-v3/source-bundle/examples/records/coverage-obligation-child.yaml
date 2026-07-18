@@ -1,0 +1,11 @@
+schema_version: 1
+id: obl-01J00000000000000000000002
+run_id: run-01J00000000000000000000001
+kind: source_unit
+subject_id: unit-01J00000000000000000000006
+status: open
+owner_question_id: null
+parent_obligation_id: obl-01J00000000000000000000001
+created_at: '2026-07-18T00:05:30Z'
+reason: Retry policy source unit deserves a grounded operational question.
+satisfaction_artifact_ids: []

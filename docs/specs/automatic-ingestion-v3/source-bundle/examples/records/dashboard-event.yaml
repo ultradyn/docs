@@ -1,0 +1,16 @@
+schema_version: 1
+id: evt-01J00000000000000000000001
+run_id: run-01J00000000000000000000001
+sequence: 1
+type: claim.reviewed
+at: '2026-07-18T00:04:00Z'
+actor:
+  kind: agent
+  id: agent-claim-reviewer
+correlation_id: example-overview
+causation_id: evv-01J00000000000000000000001
+visibility: operator
+payload:
+  claim_id: clm-01J00000000000000000000001
+  decision: accept
+idempotency_key: example-claim-1-review

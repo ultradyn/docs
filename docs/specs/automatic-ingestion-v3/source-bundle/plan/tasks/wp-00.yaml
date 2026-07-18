@@ -1,0 +1,86 @@
+schema_version: 1
+id: WP-00
+phase: 0
+title: Architecture baseline and decision control
+description: "Freeze the v3 boundaries, terminology, source\u2013claim\u2013question\u2013answer model, and agent-role\
+  \ separation before implementation begins."
+goals:
+- One shared vocabulary and normative architecture
+- No implementation ambiguity about authoritative versus projected state
+dependencies: []
+exit_gate:
+- All WP-00 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-00-01
+  work_package_id: WP-00
+  title: Approve v3 architecture decisions
+  description: Review and approve the v3 change summary, domain boundaries, completion predicate, and deferred features.
+  goals:
+  - Review and approve the v3 change summary, domain boundaries, completion predicate, and deferred features.
+  dependencies: []
+  deliverables:
+  - Approved ADR set
+  - Decision log with owners
+  acceptance_criteria:
+  - Every open architecture choice is accepted, deferred with trigger, or assigned an owner/date
+  - The two v3 changes are represented in all affected diagrams and specifications
+  - No normative document contradicts the authoritative-state boundary
+  test_surface:
+  - contract
+  - human_factors
+  owner_role: Product architect
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-00-02
+  work_package_id: WP-00
+  title: Define repository and package conventions
+  description: Specify paths, naming, ULIDs, append-only records, generated maps, and source replay references.
+  goals:
+  - Specify paths, naming, ULIDs, append-only records, generated maps, and source replay references.
+  dependencies:
+  - T-00-01
+  deliverables:
+  - Repository skeleton
+  - Naming and immutability conventions
+  acceptance_criteria:
+  - A sample run can be placed without path ambiguity
+  - Immutable and mutable artifact classes are explicit
+  - Generated/index artifacts are excluded from ordinary Git
+  test_surface:
+  - schema
+  - integration
+  - migration
+  owner_role: Platform engineer
+  estimate_class: S
+  risk_level: medium
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-00-03
+  work_package_id: WP-00
+  title: Create decision-change workflow
+  description: Define how architecture, schema, workflow, agent, and policy changes are proposed and reviewed.
+  goals:
+  - Define how architecture, schema, workflow, agent, and policy changes are proposed and reviewed.
+  dependencies:
+  - T-00-02
+  deliverables:
+  - Change workflow
+  - Risk classification rules
+  acceptance_criteria:
+  - High-impact evaluator/model changes require appropriate review
+  - Every decision change records version and migration impact
+  - Fixtures are required for agent contract changes
+  test_surface:
+  - workflow
+  - contract
+  owner_role: Maintainer
+  estimate_class: S
+  risk_level: medium
+  status: planned
+  notes: []

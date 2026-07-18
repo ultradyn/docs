@@ -1,0 +1,8 @@
+digraph G {
+ graph [rankdir=TB,bgcolor="transparent",pad=0.25,nodesep=0.45,ranksep=0.55,fontname="Arial"];
+ node [shape=box,style="rounded,filled",fillcolor="#f8fafc",color="#475569",fontname="Arial",fontsize=10];
+ edge [color="#64748b",fontname="Arial",fontsize=9,arrowsize=0.7];
+ S[label="Source snapshot",fillcolor="#eef2ff"]; F[label="Source files"]; U[label="Structural source units"]; E[label="Evidence packets + verdicts",fillcolor="#fff7ed"]; C[label="Accepted claims",fillcolor="#ecfdf5"]; Q[label="Question demand graph",fillcolor="#fefce8"]; A[label="Question-specific answers"]; P[label="Information architecture plan"]; D[label="Reader-facing documentation",fillcolor="#ecfdf5"];
+ S->F->U->E->C; Q->E [label="asks for evidence"]; C->A [label="composed into"]; Q->A [label="goals + facets"]; C->P [label="canonical homes"]; Q->P [label="demand + navigation"]; P->D; C->D [label="traceable claims"];
+ C->Q [style=dashed,label="answers facets"]; D->Q [style=dashed,label="resolves questions"];
+}

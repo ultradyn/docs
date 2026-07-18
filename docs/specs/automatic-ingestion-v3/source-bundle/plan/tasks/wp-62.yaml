@@ -1,0 +1,89 @@
+schema_version: 1
+id: WP-62
+phase: 6
+title: Document generation, citation, and navigation review
+description: Produce and verify reader-facing documentation from sealed claims and approved IA.
+goals:
+- Supported, non-duplicative prose
+- Demonstrably navigable documentation
+dependencies:
+- WP-61
+exit_gate:
+- All WP-62 tasks satisfy acceptance criteria and required tests pass.
+- Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.
+tasks:
+- schema_version: 1
+  id: T-62-01
+  work_package_id: WP-62
+  title: Implement Document Writer agent and traceability
+  description: Write document sections from claim packs and emit sentence/claim mapping.
+  goals:
+  - Write document sections from claim packs and emit sentence/claim mapping.
+  dependencies:
+  - T-61-03
+  deliverables:
+  - Document Writer
+  - Traceability records
+  acceptance_criteria:
+  - Writer has no research tools
+  - Material sentences reference accepted claims
+  - Current/historical/deprecated distinctions are preserved
+  test_surface:
+  - agent_fixture
+  - claim
+  - security
+  owner_role: Agent engineer
+  estimate_class: M
+  risk_level: high
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-62-02
+  work_package_id: WP-62
+  title: Implement deterministic and fresh citation review
+  description: Check links, canonical homes, claim validity, entailment, qualifiers, and unsupported editorial content.
+  goals:
+  - Check links, canonical homes, claim validity, entailment, qualifiers, and unsupported editorial content.
+  dependencies:
+  - T-62-01
+  deliverables:
+  - Citation reviewer
+  - Doc validation pipeline
+  acceptance_criteria:
+  - Unsupported new facts block review
+  - Duplicate canonical facts are flagged
+  - All links/section IDs resolve
+  test_surface:
+  - claim
+  - integration
+  - workflow
+  owner_role: Evaluation engineer
+  estimate_class: M
+  risk_level: critical
+  status: planned
+  notes: []
+- schema_version: 1
+  id: T-62-03
+  work_package_id: WP-62
+  title: Implement representative navigation tests
+  description: Run fresh reader tasks and compare to raw source baseline.
+  goals:
+  - Run fresh reader tasks and compare to raw source baseline.
+  dependencies:
+  - T-62-02
+  deliverables:
+  - Navigation test harness
+  - Task fixture library
+  acceptance_criteria:
+  - Task success/time/path length are recorded
+  - Misleading dead ends become blocking findings
+  - Canonical promotion requires configured threshold
+  test_surface:
+  - human_factors
+  - e2e
+  - performance
+  owner_role: UX researcher
+  estimate_class: L
+  risk_level: high
+  status: planned
+  notes: []
