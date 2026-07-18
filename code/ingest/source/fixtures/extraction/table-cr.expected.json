@@ -1,85 +1,85 @@
 {
   "kind": "csv",
-  "normalizedText": "name,note\nAda,\"line 1\nline 2, with \"\"quote\"\"\"\n",
+  "normalizedText": "a,b\n1,2\n",
   "locatorMap": [
     {
       "kind": "cell",
       "cell": { "row": 1, "column": 1 },
       "normalized": {
         "utf16Start": 0,
-        "utf16End": 4,
+        "utf16End": 1,
         "lineStart": 1,
-        "lineEnd": 1,
         "columnStart": 1,
-        "columnEnd": 5
+        "lineEnd": 1,
+        "columnEnd": 2
       },
       "original": {
         "byteStart": 0,
-        "byteEnd": 4,
+        "byteEnd": 1,
         "lineStart": 1,
         "columnStart": 1,
         "lineEnd": 1,
-        "columnEnd": 5
+        "columnEnd": 2
       }
     },
     {
       "kind": "cell",
       "cell": { "row": 1, "column": 2 },
       "normalized": {
-        "utf16Start": 5,
-        "utf16End": 9,
+        "utf16Start": 2,
+        "utf16End": 3,
         "lineStart": 1,
+        "columnStart": 3,
         "lineEnd": 1,
-        "columnStart": 6,
-        "columnEnd": 10
+        "columnEnd": 4
       },
       "original": {
-        "byteStart": 5,
-        "byteEnd": 9,
+        "byteStart": 2,
+        "byteEnd": 3,
         "lineStart": 1,
-        "columnStart": 6,
+        "columnStart": 3,
         "lineEnd": 1,
-        "columnEnd": 10
+        "columnEnd": 4
       }
     },
     {
       "kind": "cell",
       "cell": { "row": 2, "column": 1 },
       "normalized": {
-        "utf16Start": 10,
-        "utf16End": 13,
+        "utf16Start": 4,
+        "utf16End": 5,
         "lineStart": 2,
-        "lineEnd": 2,
         "columnStart": 1,
-        "columnEnd": 4
+        "lineEnd": 2,
+        "columnEnd": 2
       },
       "original": {
-        "byteStart": 11,
-        "byteEnd": 14,
+        "byteStart": 4,
+        "byteEnd": 5,
         "lineStart": 2,
         "columnStart": 1,
         "lineEnd": 2,
-        "columnEnd": 4
+        "columnEnd": 2
       }
     },
     {
       "kind": "cell",
       "cell": { "row": 2, "column": 2 },
       "normalized": {
-        "utf16Start": 14,
-        "utf16End": 45,
+        "utf16Start": 6,
+        "utf16End": 7,
         "lineStart": 2,
-        "lineEnd": 3,
-        "columnStart": 5,
-        "columnEnd": 24
+        "columnStart": 3,
+        "lineEnd": 2,
+        "columnEnd": 4
       },
       "original": {
-        "byteStart": 15,
-        "byteEnd": 47,
+        "byteStart": 6,
+        "byteEnd": 7,
         "lineStart": 2,
-        "columnStart": 5,
-        "lineEnd": 3,
-        "columnEnd": 24
+        "columnStart": 3,
+        "lineEnd": 2,
+        "columnEnd": 4
       }
     }
   ],

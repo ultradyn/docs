@@ -5,6 +5,7 @@ import type {
   QuestionId,
   SnapshotId,
   SourceFileId,
+  SourceRepresentationId,
   SourceUnitId,
 } from "./types.js";
 
@@ -30,6 +31,12 @@ export const SourceFileIdSchema = z
   .string()
   .regex(/^file-[a-f0-9]{64}$/u)
   .transform((value) => value as SourceFileId);
+// The current IdGenerator has no representation kind; keep this injected
+// identity strict and branded without inventing a second allocation scheme.
+export const SourceRepresentationIdSchema = z
+  .string()
+  .min(1)
+  .transform((value) => value as SourceRepresentationId);
 export const SourceUnitIdSchema = prefixedUlid("unit").transform(
   (value) => value as SourceUnitId,
 );

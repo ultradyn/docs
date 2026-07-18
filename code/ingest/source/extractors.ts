@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   ExtractionWarning,
   IngestResult,
@@ -6,6 +8,11 @@ import type {
   SourceRepresentation,
   SourceRepresentationId,
   SourceRepresentationKind,
+} from "../../domain/ingest/index.js";
+import {
+  SourceFileSchema,
+  SourceRepresentationIdSchema,
+  SourceRepresentationSchema,
 } from "../../domain/ingest/index.js";
 import { parseDocument } from "yaml";
 
@@ -118,43 +125,69 @@ function freezeRepresentation(
 
 interface Coordinate {
   readonly byte: number;
+  readonly normalizedOffset: number;
   readonly line: number;
   readonly column: number;
 }
 
-function coordinates(text: string): readonly Coordinate[] {
-  const result: Coordinate[] = [];
-  let byte = 0;
+/** One precomputed table supports all source and normalized boundary lookups. */
+function coordinateTable(
+  text: string,
+  initialByteOffset: number,
+): readonly Coordinate[] {
+  const result = new Array<Coordinate>(text.length + 1);
+  let byte = initialByteOffset;
+  let normalizedOffset = 0;
   let line = 1;
   let column = 1;
-  for (let index = 0; index < text.length;) {
-    result[index] = { byte, line, column };
-    if (text[index] === "\r" && text[index + 1] === "\n") {
+  let index = 0;
+  while (index < text.length) {
+    result[index] = { byte, normalizedOffset, line, column };
+    const character = text[index]!;
+    if (character === "\r") {
       byte += 1;
-      result[index + 1] = { byte, line, column: column + 1 };
-      byte += 1;
-      index += 2;
+      if (text[index + 1] === "\n") {
+        result[index + 1] = {
+          byte,
+          normalizedOffset,
+          line,
+          column: column + 1,
+        };
+        byte += 1;
+        index += 2;
+      } else {
+        index += 1;
+      }
+      normalizedOffset += 1;
       line += 1;
       column = 1;
       continue;
     }
-    const codePoint = text.codePointAt(index);
-    if (codePoint === undefined) break;
+    if (character === "\n") {
+      byte += 1;
+      normalizedOffset += 1;
+      index += 1;
+      line += 1;
+      column = 1;
+      continue;
+    }
+    const codePoint = text.codePointAt(index)!;
     const value = String.fromCodePoint(codePoint);
     const width = value.length;
     if (width === 2) {
-      result[index + 1] = { byte, line, column: column + 1 };
+      result[index + 1] = {
+        byte: byte + Buffer.byteLength(character),
+        normalizedOffset: normalizedOffset + 1,
+        line,
+        column: column + 1,
+      };
     }
     byte += Buffer.byteLength(value);
+    normalizedOffset += width;
+    column += width;
     index += width;
-    if (value === "\n" || value === "\r") {
-      line += 1;
-      column = 1;
-    } else {
-      column += width;
-    }
   }
-  result[text.length] = { byte, line, column };
+  result[text.length] = { byte, normalizedOffset, line, column };
   return result;
 }
 
@@ -209,94 +242,210 @@ function byteLocation(
   return { byteOffset, line, column };
 }
 
-function jsonErrorUtf16Offset(text: string): number {
-  let index = 0;
-  const whitespace = /\s/u;
-  const parseValue = (): void => {
-    while (whitespace.test(text[index] ?? "")) index += 1;
-    const character = text[index];
-    if (character === '"') {
-      index += 1;
-      while (index < text.length) {
-        if (text[index] === "\\") index += 2;
-        else if (text[index] === '"') {
-          index += 1;
-          return;
-        } else index += 1;
-      }
-      return;
+type JsonFrame =
+  | { kind: "root"; state: "value" | "end" }
+  | {
+      kind: "array";
+      state: "value-or-end" | "value" | "comma-or-end";
     }
-    if (character === "{") {
-      index += 1;
-      while (true) {
-        while (whitespace.test(text[index] ?? "")) index += 1;
-        if (text[index] === "}") {
-          index += 1;
-          return;
-        }
-        parseValue();
-        while (whitespace.test(text[index] ?? "")) index += 1;
-        if (text[index] !== ":") throw new Error(String(index));
-        index += 1;
-        parseValue();
-        while (whitespace.test(text[index] ?? "")) index += 1;
-        if (text[index] === "}") {
-          index += 1;
-          return;
-        }
-        if (text[index] !== ",") throw new Error(String(index));
-        index += 1;
-      }
-    }
-    if (character === "[") {
-      index += 1;
-      while (true) {
-        while (whitespace.test(text[index] ?? "")) index += 1;
-        if (text[index] === "]") {
-          index += 1;
-          return;
-        }
-        parseValue();
-        while (whitespace.test(text[index] ?? "")) index += 1;
-        if (text[index] === "]") {
-          index += 1;
-          return;
-        }
-        if (text[index] !== ",") throw new Error(String(index));
-        index += 1;
-      }
-    }
-    const match =
-      /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/u.exec(
-        text.slice(index),
-      );
-    if (!match) throw new Error(String(index));
-    index += match[0].length;
-  };
-  try {
-    parseValue();
-    while (whitespace.test(text[index] ?? "")) index += 1;
-    return index;
-  } catch (error) {
-    return Number(error instanceof Error ? error.message : index);
-  }
+  | {
+      kind: "object";
+      state: "key-or-end" | "key" | "colon" | "value" | "comma-or-end";
+    };
+
+function jsonWhitespace(character: string | undefined): boolean {
+  return (
+    character === " " ||
+    character === "\t" ||
+    character === "\r" ||
+    character === "\n"
+  );
 }
 
-function normalizedOffset(text: string, sourceOffset: number): number {
-  return text.slice(0, sourceOffset).replace(/\r\n|\r/gu, "\n").length;
+function scanJsonString(text: string, start: number): number {
+  for (let index = start + 1; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (character === '"') return index + 1;
+    if (character.charCodeAt(0) <= 0x1f) return -index - 1;
+    if (character !== "\\") continue;
+    index += 1;
+    if (index >= text.length) return -text.length - 1;
+    const escape = text[index]!;
+    if ('"\\/bfnrt'.includes(escape)) continue;
+    if (escape !== "u") return -index - 1;
+    for (let digit = 0; digit < 4; digit += 1) {
+      index += 1;
+      if (index >= text.length || !/[0-9a-f]/iu.test(text[index]!)) {
+        return -Math.min(index, text.length) - 1;
+      }
+    }
+  }
+  return -text.length - 1;
+}
+
+function scanJsonNumber(text: string, start: number): number {
+  let index = start;
+  if (text[index] === "-") index += 1;
+  if (text[index] === "0") index += 1;
+  else if (/[1-9]/u.test(text[index] ?? "")) {
+    while (/\d/u.test(text[index] ?? "")) index += 1;
+  } else return -Math.min(index, text.length) - 1;
+  if (text[index] === ".") {
+    index += 1;
+    if (!/\d/u.test(text[index] ?? "")) {
+      return -Math.min(index, text.length) - 1;
+    }
+    while (/\d/u.test(text[index] ?? "")) index += 1;
+  }
+  if (text[index] === "e" || text[index] === "E") {
+    index += 1;
+    if (text[index] === "+" || text[index] === "-") index += 1;
+    if (!/\d/u.test(text[index] ?? "")) {
+      return -Math.min(index, text.length) - 1;
+    }
+    while (/\d/u.test(text[index] ?? "")) index += 1;
+  }
+  return index;
+}
+
+function scanJsonLiteral(text: string, start: number, literal: string): number {
+  for (let offset = 0; offset < literal.length; offset += 1) {
+    if (text[start + offset] !== literal[offset]) {
+      return -Math.min(start + offset, text.length) - 1;
+    }
+  }
+  return start + literal.length;
+}
+
+/** Bounded, iterative JSON grammar pass used only to locate native failures. */
+function nativeJsonErrorOffset(error: unknown): number | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const value = /(?:at position|position) (\d+)/u.exec(error.message)?.[1];
+  if (value === undefined) return undefined;
+  const offset = Number(value);
+  return Number.isSafeInteger(offset) && offset >= 0 ? offset : undefined;
+}
+
+function jsonErrorUtf16Offset(text: string, error: unknown): number {
+  const nativeOffset = nativeJsonErrorOffset(error);
+  if (nativeOffset !== undefined) return Math.min(nativeOffset, text.length);
+  const stack: JsonFrame[] = [{ kind: "root", state: "value" }];
+  let index = 0;
+
+  const valueComplete = (frame: JsonFrame): void => {
+    if (frame.kind === "root") frame.state = "end";
+    else frame.state = "comma-or-end";
+  };
+
+  const parseValue = (frame: JsonFrame): number | undefined => {
+    const character = text[index];
+    if (character === "{") {
+      valueComplete(frame);
+      stack.push({ kind: "object", state: "key-or-end" });
+      return index + 1;
+    }
+    if (character === "[") {
+      valueComplete(frame);
+      stack.push({ kind: "array", state: "value-or-end" });
+      return index + 1;
+    }
+    let end: number;
+    if (character === '"') end = scanJsonString(text, index);
+    else if (character === "t") end = scanJsonLiteral(text, index, "true");
+    else if (character === "f") end = scanJsonLiteral(text, index, "false");
+    else if (character === "n") end = scanJsonLiteral(text, index, "null");
+    else if (character === "-" || /\d/u.test(character ?? "")) {
+      end = scanJsonNumber(text, index);
+    } else return undefined;
+    if (end < 0) return end;
+    valueComplete(frame);
+    return end;
+  };
+
+  while (stack.length > 0) {
+    while (jsonWhitespace(text[index])) index += 1;
+    const frame = stack.at(-1)!;
+    const character = text[index];
+    if (frame.kind === "root") {
+      if (frame.state === "end") return index;
+      const end = parseValue(frame);
+      if (end === undefined) return index;
+      if (end < 0) return -end - 1;
+      index = end;
+      continue;
+    }
+    if (frame.kind === "array") {
+      if (frame.state === "comma-or-end") {
+        if (character === ",") {
+          frame.state = "value";
+          index += 1;
+        } else if (character === "]") {
+          stack.pop();
+          index += 1;
+        } else return index;
+        continue;
+      }
+      if (frame.state === "value-or-end" && character === "]") {
+        stack.pop();
+        index += 1;
+        continue;
+      }
+      const end = parseValue(frame);
+      if (end === undefined) return index;
+      if (end < 0) return -end - 1;
+      index = end;
+      continue;
+    }
+    if (frame.state === "comma-or-end") {
+      if (character === ",") {
+        frame.state = "key";
+        index += 1;
+      } else if (character === "}") {
+        stack.pop();
+        index += 1;
+      } else return index;
+      continue;
+    }
+    if (frame.state === "key-or-end" && character === "}") {
+      stack.pop();
+      index += 1;
+      continue;
+    }
+    if (frame.state === "key" || frame.state === "key-or-end") {
+      if (character !== '"') return index;
+      const end = scanJsonString(text, index);
+      if (end < 0) return -end - 1;
+      frame.state = "colon";
+      index = end;
+      continue;
+    }
+    if (frame.state === "colon") {
+      if (character !== ":") return index;
+      frame.state = "value";
+      index += 1;
+      continue;
+    }
+    const end = parseValue(frame);
+    if (end === undefined) return index;
+    if (end < 0) return -end - 1;
+    index = end;
+  }
+  while (jsonWhitespace(text[index])) index += 1;
+  return index;
+}
+
+interface CsvFailure {
+  readonly offset: number;
+  readonly unterminated: boolean;
 }
 
 function csvLocators(
   text: string,
-  initialByteOffset: number,
-): LocatorSpan[] | undefined {
-  const positions = coordinates(text).map((coordinate) => ({
-    ...coordinate,
-    byte: coordinate.byte + initialByteOffset,
-  }));
+  positions: readonly Coordinate[],
+): { readonly locators: LocatorSpan[] } | { readonly failure: CsvFailure } {
   const locators: LocatorSpan[] = [];
   let row = 1;
-  let column = 1;
+  let cellColumn = 1;
   let fieldStart = 0;
   let index = 0;
   let quoted = false;
@@ -306,21 +455,16 @@ function csvLocators(
   const emit = (fieldEnd: number): void => {
     const start = positions[fieldStart]!;
     const end = positions[fieldEnd]!;
-    const normalizedStart = normalizedOffset(text, fieldStart);
-    const normalizedEnd = normalizedOffset(text, fieldEnd);
     locators.push({
       kind: "cell",
-      cell: { row, column },
+      cell: { row, column: cellColumn },
       normalized: {
-        utf16Start: normalizedStart,
-        utf16End: normalizedEnd,
-        lineStart: positions[fieldStart]!.line,
-        columnStart:
-          normalizedStart -
-          normalizedOffset(text, text.lastIndexOf("\n", fieldStart - 1) + 1) +
-          1,
-        columnEnd: positions[fieldEnd]!.column,
-        lineEnd: positions[fieldEnd]!.line,
+        utf16Start: start.normalizedOffset,
+        utf16End: end.normalizedOffset,
+        lineStart: start.line,
+        columnStart: start.column,
+        lineEnd: end.line,
+        columnEnd: end.column,
       },
       original: {
         byteStart: start.byte,
@@ -333,16 +477,18 @@ function csvLocators(
     });
   };
 
-  const endRecord = (): boolean => {
-    if (expectedColumns === undefined) expectedColumns = column;
-    else if (column !== expectedColumns) return false;
+  const endRecord = (offset: number): CsvFailure | undefined => {
+    if (expectedColumns === undefined) expectedColumns = cellColumn;
+    else if (cellColumn !== expectedColumns) {
+      return { offset, unterminated: false };
+    }
     row += 1;
-    column = 1;
-    return true;
+    cellColumn = 1;
+    return undefined;
   };
 
   while (index < text.length) {
-    const character = text[index];
+    const character = text[index]!;
     if (index === fieldStart && character === '"') {
       quoted = true;
       index += 1;
@@ -359,17 +505,19 @@ function csvLocators(
       } else index += 1;
       continue;
     }
+    if (character === '"')
+      return { failure: { offset: index, unterminated: false } };
     if (
       closedQuote &&
       character !== "," &&
       character !== "\r" &&
       character !== "\n"
     ) {
-      return undefined;
+      return { failure: { offset: index, unterminated: false } };
     }
     if (character === ",") {
       emit(index);
-      column += 1;
+      cellColumn += 1;
       index += 1;
       fieldStart = index;
       closedQuote = false;
@@ -377,7 +525,8 @@ function csvLocators(
     }
     if (character === "\r" || character === "\n") {
       emit(index);
-      if (!endRecord()) return undefined;
+      const failure = endRecord(index);
+      if (failure) return { failure };
       if (character === "\r" && text[index + 1] === "\n") index += 2;
       else index += 1;
       fieldStart = index;
@@ -386,15 +535,180 @@ function csvLocators(
     }
     index += 1;
   }
-  if (quoted) return undefined;
+  if (quoted) return { failure: { offset: fieldStart, unterminated: true } };
   if (fieldStart < text.length || text.endsWith(",")) {
     emit(text.length);
-    if (!endRecord()) return undefined;
+    const failure = endRecord(text.length);
+    if (failure) return { failure };
   }
-  return locators;
+  return { locators };
+}
+
+function malformedStructure(message: string): ExtractATierResult {
+  return { ok: false, code: "MALFORMED_STRUCTURE", message };
+}
+
+const YAML_NESTING_LIMIT = 256;
+const YAML_MAX_BYTES = 16 * 1024 * 1024;
+
+type YamlPreflightFailure = {
+  readonly kind: "nesting" | "alias" | "indentation-tab";
+  readonly offset: number;
+};
+
+interface YamlLineLexical {
+  readonly code: string;
+  readonly structuralOffsets: ReadonlySet<number>;
+}
+
+function yamlLineLexical(content: string): YamlLineLexical {
+  let inSingleQuoted = false;
+  let inDoubleQuoted = false;
+  let escaped = false;
+  const structuralOffsets = new Set<number>();
+  let commentOffset = content.length;
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index]!;
+    if (inDoubleQuoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inDoubleQuoted = false;
+      continue;
+    }
+    if (inSingleQuoted) {
+      if (character === "'" && content[index + 1] === "'") index += 1;
+      else if (character === "'") inSingleQuoted = false;
+      continue;
+    }
+    if (character === '"') inDoubleQuoted = true;
+    else if (character === "'") inSingleQuoted = true;
+    else if (
+      character === "#" &&
+      (index === 0 || /[ \t]/u.test(content[index - 1]!))
+    ) {
+      commentOffset = index;
+      break;
+    } else structuralOffsets.add(index);
+  }
+  return {
+    code: content.slice(0, commentOffset).trimEnd(),
+    structuralOffsets,
+  };
+}
+
+function yamlLineCollectionOffsets(
+  lexical: YamlLineLexical,
+): readonly number[] {
+  const withoutComment = lexical.code;
+  const offsets: number[] = [];
+  let cursor = 0;
+  while (
+    withoutComment[cursor] === "-" &&
+    (cursor + 1 === withoutComment.length ||
+      /[ \t]/u.test(withoutComment[cursor + 1] ?? ""))
+  ) {
+    offsets.push(cursor);
+    cursor += 1;
+    while (withoutComment[cursor] === " ") cursor += 1;
+  }
+  const remainder = withoutComment.slice(cursor);
+  if (/^(?:[^:]+|"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'):\s*$/u.test(remainder)) {
+    offsets.push(cursor);
+  }
+  return offsets;
+}
+
+function yamlPreflight(text: string): YamlPreflightFailure | undefined {
+  let flowDepth = 0;
+  const blockIndents: number[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const lineStart = index;
+    let lineEnd = index;
+    while (
+      lineEnd < text.length &&
+      text[lineEnd] !== "\r" &&
+      text[lineEnd] !== "\n"
+    ) {
+      lineEnd += 1;
+    }
+    let contentStart = lineStart;
+    while (contentStart < lineEnd && text[contentStart] === " ") {
+      contentStart += 1;
+    }
+    if (text[contentStart] === "\t") {
+      return { kind: "indentation-tab", offset: contentStart };
+    }
+    const content = text.slice(contentStart, lineEnd);
+    const lexical = yamlLineLexical(content);
+    const significant = lexical.code.trim();
+    if (significant !== "" && !significant.startsWith("#")) {
+      const indentation = contentStart - lineStart;
+      while (
+        blockIndents.length > 0 &&
+        indentation <= Math.floor(blockIndents.at(-1)!)
+      ) {
+        blockIndents.pop();
+      }
+      const collectionOffsets = yamlLineCollectionOffsets(lexical);
+      for (const collectionOffset of collectionOffsets) {
+        blockIndents.push(indentation + collectionOffset / 1_000);
+        if (blockIndents.length + flowDepth > YAML_NESTING_LIMIT) {
+          return {
+            kind: "nesting",
+            offset: contentStart + collectionOffset,
+          };
+        }
+      }
+    }
+
+    for (const relativeOffset of lexical.structuralOffsets) {
+      const character = content[relativeOffset]!;
+      const cursor = contentStart + relativeOffset;
+      if (
+        character === "*" &&
+        (relativeOffset === 0 ||
+          /[\s[{,:?-]/u.test(content[relativeOffset - 1]!)) &&
+        !jsonWhitespace(content[relativeOffset + 1])
+      ) {
+        return { kind: "alias", offset: cursor };
+      }
+      if (character === "[" || character === "{") {
+        flowDepth += 1;
+        if (blockIndents.length + flowDepth > YAML_NESTING_LIMIT) {
+          return { kind: "nesting", offset: cursor };
+        }
+      } else if (character === "]" || character === "}") {
+        flowDepth = Math.max(0, flowDepth - 1);
+      }
+    }
+    index = lineEnd;
+    if (text[index] === "\r" && text[index + 1] === "\n") index += 2;
+    else if (index < text.length) index += 1;
+  }
+  return undefined;
 }
 
 export function extractATier(input: ExtractATierInput): ExtractATierResult {
+  const sourceFileResult = SourceFileSchema.safeParse(input.sourceFile);
+  if (
+    !sourceFileResult.success ||
+    input.sourceFile.size !== input.bytes.byteLength
+  ) {
+    return malformedStructure("Invalid extraction input: source file");
+  }
+  if (
+    createHash("sha256").update(input.bytes).digest("hex") !==
+    input.sourceFile.sha256
+  ) {
+    return malformedStructure("Invalid extraction input: source file bytes");
+  }
+  if (!Number.isSafeInteger(input.version) || input.version <= 0) {
+    return malformedStructure(
+      "Invalid extraction input: representation version",
+    );
+  }
+
   const canonicalMediaType = input.sourceFile.mediaType
     .split(";", 1)[0]!
     .trim()
@@ -405,6 +719,15 @@ export function extractATier(input: ExtractATierInput): ExtractATierResult {
       ok: false,
       code: "UNSUPPORTED_MEDIA",
       message: `Unsupported A-tier media type: ${input.sourceFile.mediaType}`,
+    };
+  }
+
+  if (kind === "yaml" && input.bytes.byteLength > YAML_MAX_BYTES) {
+    return {
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: size limit exceeded",
+      location: { byteOffset: YAML_MAX_BYTES, line: 1, column: 1 },
     };
   }
 
@@ -446,8 +769,8 @@ export function extractATier(input: ExtractATierInput): ExtractATierResult {
   if (kind === "json") {
     try {
       JSON.parse(decoded);
-    } catch {
-      const utf16Offset = jsonErrorUtf16Offset(decoded);
+    } catch (error) {
+      const utf16Offset = jsonErrorUtf16Offset(decoded, error);
       const byteOffset =
         initialByteOffset + Buffer.byteLength(decoded.slice(0, utf16Offset));
       return {
@@ -459,12 +782,45 @@ export function extractATier(input: ExtractATierInput): ExtractATierResult {
     }
   }
   if (kind === "yaml") {
-    const document = parseDocument(decoded, {
-      prettyErrors: false,
-      strict: true,
-    });
-    if (document.errors.length > 0) {
-      const utf16Offset = document.errors[0]!.pos[0]!;
+    const preflightFailure = yamlPreflight(decoded);
+    if (preflightFailure) {
+      const byteOffset =
+        initialByteOffset +
+        Buffer.byteLength(decoded.slice(0, preflightFailure.offset));
+      return {
+        ok: false,
+        code: "MALFORMED_STRUCTURE",
+        message:
+          preflightFailure.kind === "alias"
+            ? "Malformed YAML structure: aliases are disabled"
+            : preflightFailure.kind === "indentation-tab"
+              ? "Malformed YAML structure: tabs in indentation"
+              : "Malformed YAML structure: nesting limit exceeded",
+        location: byteLocation(input.bytes, byteOffset),
+      };
+    }
+    let document;
+    try {
+      document = parseDocument(decoded, {
+        customTags: [],
+        merge: false,
+        prettyErrors: false,
+        resolveKnownTags: false,
+        schema: "core",
+        strict: true,
+        uniqueKeys: true,
+      });
+    } catch {
+      return {
+        ok: false,
+        code: "MALFORMED_STRUCTURE",
+        message: "Malformed YAML structure",
+        location: byteLocation(input.bytes, initialByteOffset),
+      };
+    }
+    const problem = document.errors[0] ?? document.warnings[0];
+    if (problem) {
+      const utf16Offset = problem.pos[0];
       const byteOffset =
         initialByteOffset + Buffer.byteLength(decoded.slice(0, utf16Offset));
       return {
@@ -480,24 +836,25 @@ export function extractATier(input: ExtractATierInput): ExtractATierResult {
   let normalizedText = "";
   let locatorMap: LocatorSpan[] = [];
   if (kind === "csv") {
-    const parsed = csvLocators(decoded, initialByteOffset);
-    if (!parsed) {
-      const lastRecord = Math.max(
-        decoded.lastIndexOf("\n", decoded.length - 2),
-        decoded.lastIndexOf("\r", decoded.length - 2),
-      );
-      const utf16Offset = lastRecord < 0 ? 0 : lastRecord + 1;
-      const byteOffset =
-        initialByteOffset + Buffer.byteLength(decoded.slice(0, utf16Offset));
+    const positions = coordinateTable(decoded, initialByteOffset);
+    const parsed = csvLocators(decoded, positions);
+    if ("failure" in parsed) {
+      const position = positions[parsed.failure.offset]!;
       return {
         ok: false,
         code: "MALFORMED_STRUCTURE",
-        message: "Malformed CSV structure",
-        location: byteLocation(input.bytes, byteOffset),
+        message: parsed.failure.unterminated
+          ? "Malformed CSV structure: unterminated quoted field"
+          : "Malformed CSV structure",
+        location: {
+          byteOffset: position.byte,
+          line: position.line,
+          column: position.column,
+        },
       };
     }
     normalizedText = decoded.replace(/\r\n|\r/gu, "\n");
-    locatorMap = parsed;
+    locatorMap = parsed.locators;
   }
   for (const line of kind === "csv" ? [] : lines) {
     const normalizedStart = normalizedText.length;
@@ -524,21 +881,41 @@ export function extractATier(input: ExtractATierInput): ExtractATierResult {
     });
   }
 
-  return {
-    ok: true,
-    value: freezeRepresentation({
-      schemaVersion: 1,
-      id: input.identities.derive({
-        sourceFileId: input.sourceFile.id,
-        version: input.version,
-        kind,
-      }),
+  let derivedId: SourceRepresentationId;
+  try {
+    derivedId = input.identities.derive({
       sourceFileId: input.sourceFile.id,
       version: input.version,
       kind,
-      normalizedText,
-      locatorMap,
-      warnings,
-    }),
+    });
+  } catch {
+    return malformedStructure(
+      "Invalid extraction configuration: representation identity",
+    );
+  }
+  const idResult = SourceRepresentationIdSchema.safeParse(derivedId);
+  if (!idResult.success) {
+    return malformedStructure(
+      "Invalid extraction configuration: representation identity",
+    );
+  }
+  const representationResult = SourceRepresentationSchema.safeParse({
+    schemaVersion: 1,
+    id: idResult.data,
+    sourceFileId: input.sourceFile.id,
+    version: input.version,
+    kind,
+    normalizedText,
+    locatorMap,
+    warnings,
+  });
+  if (!representationResult.success) {
+    return malformedStructure("Invalid extraction output");
+  }
+  return {
+    ok: true,
+    value: freezeRepresentation(
+      representationResult.data as SourceRepresentation,
+    ),
   };
 }

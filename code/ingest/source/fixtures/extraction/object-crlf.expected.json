@@ -1,0 +1,64 @@
+{
+  "kind": "json",
+  "normalizedText": "{\n  \"é\": 1\n}\n",
+  "locatorMap": [
+    {
+      "kind": "line",
+      "normalized": {
+        "utf16Start": 0,
+        "utf16End": 1,
+        "lineStart": 1,
+        "columnStart": 1,
+        "lineEnd": 1,
+        "columnEnd": 2
+      },
+      "original": {
+        "byteStart": 0,
+        "byteEnd": 1,
+        "lineStart": 1,
+        "columnStart": 1,
+        "lineEnd": 1,
+        "columnEnd": 2
+      }
+    },
+    {
+      "kind": "line",
+      "normalized": {
+        "utf16Start": 2,
+        "utf16End": 10,
+        "lineStart": 2,
+        "columnStart": 1,
+        "lineEnd": 2,
+        "columnEnd": 9
+      },
+      "original": {
+        "byteStart": 3,
+        "byteEnd": 12,
+        "lineStart": 2,
+        "columnStart": 1,
+        "lineEnd": 2,
+        "columnEnd": 9
+      }
+    },
+    {
+      "kind": "line",
+      "normalized": {
+        "utf16Start": 11,
+        "utf16End": 12,
+        "lineStart": 3,
+        "columnStart": 1,
+        "lineEnd": 3,
+        "columnEnd": 2
+      },
+      "original": {
+        "byteStart": 14,
+        "byteEnd": 15,
+        "lineStart": 3,
+        "columnStart": 1,
+        "lineEnd": 3,
+        "columnEnd": 2
+      }
+    }
+  ],
+  "warnings": []
+}

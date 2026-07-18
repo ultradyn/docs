@@ -1,0 +1,26 @@
+{
+  "kind": "code",
+  "normalizedText": "export const π = 1;\n",
+  "locatorMap": [
+    {
+      "kind": "line",
+      "normalized": {
+        "utf16Start": 0,
+        "utf16End": 19,
+        "lineStart": 1,
+        "columnStart": 1,
+        "lineEnd": 1,
+        "columnEnd": 20
+      },
+      "original": {
+        "byteStart": 0,
+        "byteEnd": 20,
+        "lineStart": 1,
+        "columnStart": 1,
+        "lineEnd": 1,
+        "columnEnd": 20
+      }
+    }
+  ],
+  "warnings": []
+}

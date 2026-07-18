@@ -58,7 +58,7 @@ describe("ingestion schema registry", () => {
   it("registers the canonical strict SourceRepresentation schema without a placeholder", () => {
     const valid = {
       schemaVersion: 1,
-      id: "representation-derived-by-injected-service",
+      id: "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
       sourceFileId: `file-${"a".repeat(64)}`,
       version: 1,
       kind: "text",
@@ -95,6 +95,11 @@ describe("ingestion schema registry", () => {
         schemaVersion: 1,
         id: valid.id,
       }).success,
+    ).toBe(false);
+    expect(
+      ingestSchemaRegistry
+        .get("SourceRepresentation", 1)
+        .safeParse({ ...valid, id: "" }).success,
     ).toBe(false);
     expect(
       ingestSchemaRegistry.get("SourceRepresentation", 1).safeParse({

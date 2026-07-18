@@ -10,7 +10,10 @@ import type {
   SourceFileId,
   SourceRepresentationId,
 } from "../../domain/ingest/index.js";
-import { SourceRepresentationSchema } from "../../domain/ingest/index.js";
+import {
+  SourceRepresentationSchema,
+  type SourceRepresentationKind,
+} from "../../domain/ingest/index.js";
 import { extractATier } from "./index.js";
 
 const fixtures = new URL("./fixtures/extraction/", import.meta.url);
@@ -31,13 +34,17 @@ function sourceFile(mediaType: string, bytes: Uint8Array): SourceFile {
   };
 }
 
+const REPRESENTATION_ID =
+  "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV" as SourceRepresentationId;
+
 const identities = {
   derive(input: {
     sourceFileId: SourceFileId;
     version: number;
-    kind: string;
+    kind: SourceRepresentationKind;
   }): SourceRepresentationId {
-    return `fixture:${input.sourceFileId}:${input.version}:${input.kind}` as SourceRepresentationId;
+    void input;
+    return REPRESENTATION_ID;
   },
 };
 
@@ -67,7 +74,7 @@ describe("extractATier", () => {
       ok: true,
       value: {
         schemaVersion: 1,
-        id: `fixture:file-${"a".repeat(64)}:1:markdown`,
+        id: REPRESENTATION_ID,
         sourceFileId: `file-${"a".repeat(64)}`,
         version: 1,
         kind: "markdown",
@@ -117,8 +124,10 @@ describe("extractATier", () => {
     });
     if (!result.ok) throw new Error(result.message);
     expect({
+      kind: result.value.kind,
       normalizedText: result.value.normalizedText,
       locatorMap: result.value.locatorMap,
+      warnings: result.value.warnings,
     }).toEqual(await expectedFixture("markdown-crlf.expected.json"));
   });
 
@@ -215,7 +224,7 @@ describe("extractATier", () => {
       ok: true,
       value: {
         schemaVersion: 1,
-        id: `fixture:file-${"a".repeat(64)}:1:csv`,
+        id: REPRESENTATION_ID,
         sourceFileId: `file-${"a".repeat(64)}`,
         version: 1,
         kind: "csv",
@@ -307,9 +316,39 @@ describe("extractATier", () => {
     });
     if (!result.ok) throw new Error(result.message);
     expect({
+      kind: result.value.kind,
       normalizedText: result.value.normalizedText,
       locatorMap: result.value.locatorMap,
+      warnings: result.value.warnings,
     }).toEqual(await expectedFixture("quoted-multiline.expected.json"));
+  });
+
+  it("maps CR-only CSV records in normalized and exact original coordinates", async () => {
+    const bytes = await fixture("table-cr.csv");
+    const result = extractATier({
+      sourceFile: sourceFile("text/csv", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+    if (!result.ok) throw new Error(result.message);
+
+    expect({
+      kind: result.value.kind,
+      normalizedText: result.value.normalizedText,
+      locatorMap: result.value.locatorMap,
+      warnings: result.value.warnings,
+    }).toEqual(await expectedFixture("table-cr.expected.json"));
+    expect(result.value.locatorMap[2]).toMatchObject({
+      cell: { row: 2, column: 1 },
+      normalized: { lineStart: 2, columnStart: 1 },
+      original: { byteStart: 4, lineStart: 2, columnStart: 1 },
+    });
+    expect(result.value.locatorMap[3]).toMatchObject({
+      cell: { row: 2, column: 2 },
+      normalized: { lineStart: 2, columnStart: 3 },
+      original: { byteStart: 6, lineStart: 2, columnStart: 3 },
+    });
   });
 
   it("uses physical normalized line coordinates after a multiline CSV cell", () => {
@@ -326,6 +365,75 @@ describe("extractATier", () => {
       cell: { row: 3, column: 1 },
       normalized: { lineStart: 4, columnStart: 1, lineEnd: 4, columnEnd: 2 },
     });
+  });
+
+  it.each([
+    ['a"b,c', 1, 1, 2],
+    ['a,"x"z', 5, 1, 6],
+    ['a,"open', 2, 1, 3],
+  ] as const)(
+    "rejects strict CSV grammar at the exact offending coordinate for %j",
+    (content, byteOffset, line, column) => {
+      const bytes = new TextEncoder().encode(content);
+      expect(
+        extractATier({
+          sourceFile: sourceFile("text/csv", bytes),
+          bytes,
+          version: 1,
+          identities,
+        }),
+      ).toEqual({
+        ok: false,
+        code: "MALFORMED_STRUCTURE",
+        message:
+          content === 'a,"open'
+            ? "Malformed CSV structure: unterminated quoted field"
+            : "Malformed CSV structure",
+        location: { byteOffset, line, column },
+      });
+    },
+  );
+
+  it("accepts quoted delimiters, newlines, and escaped quotes", () => {
+    const bytes = new TextEncoder().encode('a,"x,y\nz""q"\n');
+    const result = extractATier({
+      sourceFile: sourceFile("text/csv", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        normalizedText: 'a,"x,y\nz""q"\n',
+        locatorMap: [
+          { cell: { row: 1, column: 1 } },
+          {
+            cell: { row: 1, column: 2 },
+            original: { byteStart: 2, byteEnd: 12, lineEnd: 2 },
+          },
+        ],
+      },
+    });
+  });
+
+  it("extracts many tiny CSV fields without quadratic latency", () => {
+    const fields = 50_000;
+    const bytes = new TextEncoder().encode(`${"x,".repeat(fields - 1)}x\n`);
+    const started = performance.now();
+    const result = extractATier({
+      sourceFile: sourceFile("text/csv", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+    const elapsedMs = performance.now() - started;
+
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) throw new Error(result.message);
+    expect(result.value.locatorMap).toHaveLength(fields);
+    expect(elapsedMs).toBeLessThan(2_000);
   });
 
   it("does not invent a trailing newline absent from original bytes", () => {
@@ -429,6 +537,394 @@ describe("extractATier", () => {
     },
   );
 
+  it("locates the offending repeated JSON token rather than its first valid occurrence", () => {
+    const bytes = new TextEncoder().encode("[{},}]");
+    const result = extractATier({
+      sourceFile: sourceFile("application/json", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed JSON structure",
+      location: { byteOffset: 4, line: 1, column: 5 },
+    });
+  });
+
+  it("locates a repeated token after a valid JSON string occurrence", () => {
+    const bytes = new TextEncoder().encode('["}",}]');
+    const result = extractATier({
+      sourceFile: sourceFile("application/json", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed JSON structure",
+      location: { byteOffset: 5, line: 1, column: 6 },
+    });
+  });
+
+  it("locates a malformed non-ASCII JSON token at its UTF-8 boundary", () => {
+    const bytes = new TextEncoder().encode('{"a":🙂}');
+    const result = extractATier({
+      sourceFile: sourceFile("application/json", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed JSON structure",
+      location: { byteOffset: 5, line: 1, column: 6 },
+    });
+  });
+
+  it("rejects deeply nested malformed JSON without recursion overflow", () => {
+    const content = `${"[".repeat(100_000)}x`;
+    const bytes = new TextEncoder().encode(content);
+    const result = extractATier({
+      sourceFile: sourceFile("application/json", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed JSON structure",
+      location: { byteOffset: 100_000, line: 1, column: 100_001 },
+    });
+  });
+
+  it("rejects excessive YAML block nesting before invoking the parser", () => {
+    const content = `${"- ".repeat(1_000)}x`;
+    const bytes = new TextEncoder().encode(content);
+    const result = extractATier({
+      sourceFile: sourceFile("application/yaml", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+      location: { byteOffset: 512, line: 1, column: 513 },
+    });
+  });
+
+  it("rejects excessive indentation-based YAML nesting", () => {
+    const content = `${Array.from({ length: 257 }, (_, depth) => `${" ".repeat(depth * 2)}-`).join("\n")}\n${" ".repeat(514)}x\n`;
+    const bytes = new TextEncoder().encode(content);
+    const result = extractATier({
+      sourceFile: sourceFile("application/yaml", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+      location: { line: 257, column: 513 },
+    });
+  });
+
+  it("accepts mixed YAML sequence-map nesting at the collection limit", () => {
+    const content = `${Array.from({ length: 128 }, (_, depth) => `${" ".repeat(depth * 4)}- key:`).join("\n")}\n${" ".repeat(512)}value\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("rejects mixed YAML sequence-map nesting beyond the collection limit", () => {
+    const content = `${Array.from({ length: 129 }, (_, depth) => `${" ".repeat(depth * 4)}- key:`).join("\n")}\n${" ".repeat(516)}value\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+      location: { line: 129 },
+    });
+  });
+
+  it.each(['"key # literal"', "'key # literal'"])(
+    "rejects deeply nested %s YAML keys without treating embedded hash as comment",
+    (key) => {
+      const content = `${Array.from({ length: 257 }, (_, depth) => `${" ".repeat(depth * 2)}${key}:`).join("\n")}\n${" ".repeat(514)}value\n`;
+      const bytes = new TextEncoder().encode(content);
+      expect(
+        extractATier({
+          sourceFile: sourceFile("application/yaml", bytes),
+          bytes,
+          version: 1,
+          identities,
+        }),
+      ).toMatchObject({
+        ok: false,
+        code: "MALFORMED_STRUCTURE",
+        message: "Malformed YAML structure: nesting limit exceeded",
+      });
+    },
+  );
+
+  it("rejects quoted-key YAML mappings beyond the collection limit", () => {
+    const content = `${Array.from({ length: 257 }, (_, depth) => `${" ".repeat(depth * 2)}"key":`).join("\n")}\n${" ".repeat(514)}value\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+    });
+  });
+
+  it("rejects same-line sequence-map nesting beyond the collection limit", () => {
+    const content = `${Array.from({ length: 86 }, (_, depth) => `${" ".repeat(depth * 4)}- - key:`).join("\n")}\n${" ".repeat(344)}value\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+    });
+  });
+
+  it("ignores flow-like text after a separated YAML comment marker", () => {
+    const content = `${Array.from({ length: 255 }, (_, depth) => `${" ".repeat(depth * 2)}key:`).join("\n")}\n${" ".repeat(510)}value: scalar # comment [[ignored]]\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("does not treat an unseparated hash in a YAML key as a comment", () => {
+    const content = `${Array.from({ length: 255 }, (_, depth) => `${" ".repeat(depth * 2)}key:`).join("\n")}\n${" ".repeat(510)}value#literal: [[x]]\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+    });
+  });
+
+  it("rejects combined block and flow nesting beyond the collection limit", () => {
+    const content = `${Array.from({ length: 255 }, (_, depth) => `${" ".repeat(depth * 2)}key:`).join("\n")}\n${" ".repeat(510)}value: [[x]]\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+    });
+  });
+
+  it("accepts deeply nested YAML mappings at the collection limit", () => {
+    const content = `${Array.from({ length: 256 }, (_, depth) => `${" ".repeat(depth * 2)}key:`).join("\n")}\n${" ".repeat(512)}value\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("rejects deeply nested YAML mappings beyond the collection limit", () => {
+    const content = `${Array.from({ length: 257 }, (_, depth) => `${" ".repeat(depth * 2)}key:`).join("\n")}\n${" ".repeat(514)}value\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+      location: { line: 257 },
+    });
+  });
+
+  it("rejects alternating map-sequence-map nesting beyond the collection limit", () => {
+    const lines: string[] = [];
+    let indentation = 0;
+    for (let group = 0; group < 86; group += 1) {
+      lines.push(`${" ".repeat(indentation)}map:`);
+      indentation += 2;
+      lines.push(`${" ".repeat(indentation)}- nested:`);
+      indentation += 2;
+    }
+    lines.push(`${" ".repeat(indentation)}value`);
+    const bytes = new TextEncoder().encode(`${lines.join("\n")}\n`);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+    });
+  });
+
+  it("accepts shallow mixed YAML mappings and sequences", () => {
+    const bytes = new TextEncoder().encode(
+      "root:\n  items:\n    - name: one\n      values:\n        - a\n        - b\n",
+    );
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("rejects tabs in YAML indentation", () => {
+    const bytes = new TextEncoder().encode("root:\n\t- value\n");
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: tabs in indentation",
+      location: { byteOffset: 6, line: 2, column: 1 },
+    });
+  });
+
+  it("accepts YAML block nesting at the configured limit", () => {
+    const content = `${Array.from({ length: 256 }, (_, depth) => `${" ".repeat(depth * 2)}-`).join("\n")}\n${" ".repeat(512)}x\n`;
+    const bytes = new TextEncoder().encode(content);
+    expect(
+      extractATier({
+        sourceFile: sourceFile("application/yaml", bytes),
+        bytes,
+        version: 1,
+        identities,
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("rejects excessive YAML flow nesting before invoking the parser", () => {
+    const content = `${"[".repeat(1_000)}x`;
+    const bytes = new TextEncoder().encode(content);
+    const result = extractATier({
+      sourceFile: sourceFile("application/yaml", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: nesting limit exceeded",
+      location: { byteOffset: 256, line: 1, column: 257 },
+    });
+  });
+
+  it("rejects YAML aliases before resolution", () => {
+    const bytes = new TextEncoder().encode("value: *anchor\n");
+    const result = extractATier({
+      sourceFile: sourceFile("application/yaml", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Malformed YAML structure: aliases are disabled",
+      location: { byteOffset: 7, line: 1, column: 8 },
+    });
+  });
+
+  it("rejects unresolved custom YAML tags rather than treating them as data", () => {
+    const bytes = new TextEncoder().encode("command: !exec run\n");
+    const result = extractATier({
+      sourceFile: sourceFile("application/yaml", bytes),
+      bytes,
+      version: 1,
+      identities,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      location: { byteOffset: 9, line: 1, column: 10 },
+    });
+  });
+
   it("accepts an empty file and represents it without invented source spans", () => {
     const bytes = new Uint8Array();
 
@@ -529,6 +1025,89 @@ describe("extractATier", () => {
       ).toMatchObject({ ok: true, value: { kind } });
     },
   );
+
+  it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid representation version %s as malformed deterministic configuration",
+    (version) => {
+      const bytes = new TextEncoder().encode("schema\n");
+      expect(
+        extractATier({
+          sourceFile: sourceFile("text/plain", bytes),
+          bytes,
+          version,
+          identities,
+        }),
+      ).toEqual({
+        ok: false,
+        code: "MALFORMED_STRUCTURE",
+        message: "Invalid extraction input: representation version",
+      });
+    },
+  );
+
+  it("rejects a source file whose digest does not verify the supplied bytes", () => {
+    const bytes = new TextEncoder().encode("schema\n");
+    const file = sourceFile("text/plain", bytes);
+    file.sha256 = "0".repeat(64) as Sha256;
+    expect(
+      extractATier({ sourceFile: file, bytes, version: 1, identities }),
+    ).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Invalid extraction input: source file bytes",
+    });
+  });
+
+  it("rejects a noncanonical source file before extracting", () => {
+    const bytes = new TextEncoder().encode("schema\n");
+    const file = sourceFile("text/plain", bytes);
+    file.size += 1;
+    expect(
+      extractATier({ sourceFile: file, bytes, version: 1, identities }),
+    ).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Invalid extraction input: source file",
+    });
+  });
+
+  it("maps a throwing identity deriver to malformed deterministic configuration", () => {
+    const bytes = new TextEncoder().encode("schema\n");
+    expect(
+      extractATier({
+        sourceFile: sourceFile("text/plain", bytes),
+        bytes,
+        version: 1,
+        identities: {
+          derive(): SourceRepresentationId {
+            throw new Error("deterministic deriver failure");
+          },
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Invalid extraction configuration: representation identity",
+    });
+  });
+
+  it("rejects an invalid identity deriver result", () => {
+    const bytes = new TextEncoder().encode("schema\n");
+    expect(
+      extractATier({
+        sourceFile: sourceFile("text/plain", bytes),
+        bytes,
+        version: 1,
+        identities: {
+          derive: () => "" as SourceRepresentationId,
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      code: "MALFORMED_STRUCTURE",
+      message: "Invalid extraction configuration: representation identity",
+    });
+  });
 
   it("exposes a strict runtime schema for representation records", () => {
     const bytes = new TextEncoder().encode("schema\n");

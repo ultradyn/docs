@@ -2,7 +2,11 @@ import { z } from "zod";
 export { CoverageObligationRecordSchema as CoverageObligationSchema } from "./coverage-obligation.js";
 export { PolicyProfileSchema } from "./policy-profile.js";
 export { IngestionQuestionLinkSchema } from "./question-link.js";
-import { SnapshotIdSchema, SourceFileIdSchema } from "./id-schemas.js";
+import {
+  SnapshotIdSchema,
+  SourceFileIdSchema,
+  SourceRepresentationIdSchema,
+} from "./id-schemas.js";
 
 const IdSchema = z.string().min(1);
 const Sha256Schema = z
@@ -15,7 +19,7 @@ export const SourceFileSchema = z
     snapshotId: SnapshotIdSchema,
     logicalPath: z.string().min(1),
     mediaType: z.string().min(1),
-    size: z.number().int().nonnegative(),
+    size: z.number().safe().int().nonnegative(),
     sha256: Sha256Schema,
   })
   .strict();
@@ -80,9 +84,9 @@ const LocatorSpanSchema = z
 export const SourceRepresentationSchema = z
   .object({
     schemaVersion: z.literal(1),
-    id: z.string().min(1),
+    id: SourceRepresentationIdSchema,
     sourceFileId: SourceFileIdSchema,
-    version: z.number().int().positive(),
+    version: z.number().safe().int().positive(),
     kind: z.enum(["markdown", "text", "code", "json", "yaml", "csv"]),
     normalizedText: z.string(),
     locatorMap: z.array(LocatorSpanSchema),
