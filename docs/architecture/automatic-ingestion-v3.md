@@ -4,6 +4,37 @@ Ultradyn Docs adopts the verified v3 ingestion design through ADR 0005. The
 byte-preserved, inert source bundle remains provenance only; repository-native
 contracts and fixtures are reviewed adaptations.
 
+## Load-bearing diagrams
+
+**Change A — layered knowledge model.** Claims sit between evidence and all promotable prose; questions remain the demand/navigation layer feeding evidence and answer composition, never a fact container.
+
+```mermaid
+flowchart TB
+  Snapshot --> Files --> Units --> Evidence --> Claims
+  Questions --> Evidence
+  Claims --> Answers[Answer compositions]
+  Questions --> Answers
+  Claims --> Plan[Information architecture]
+  Questions --> Plan
+  Plan --> Documents
+```
+
+**Change B — Evidence Critic / Curiosity Planner split.** Bounded evidence judgment cannot create future work; obligation-bound curiosity runs only after a terminal verdict.
+
+```mermaid
+flowchart TB
+  Q[Question + obligations] --> R[Researcher]
+  R --> EC[Evidence Critic]
+  EC -->|needs more| R
+  EC -->|accepted| CE[Claim Extractor]
+  CE --> CR[Claim Reviewer]
+  CR --> CP[Curiosity Planner]
+  EC -->|gap / special terminal| CP
+  CP --> NG{Novel obligation?}
+  NG -->|yes| Children[Child questions]
+  NG -->|no| Reject[Reject / rewrite]
+```
+
 ## Authority boundaries
 
 The canonical `QuestionRecord.state` remains the only question lifecycle.
