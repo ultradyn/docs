@@ -1,5 +1,6 @@
 import { z } from "zod";
 export { PolicyProfileSchema } from "./policy-profile.js";
+export { IngestionQuestionLinkSchema } from "./question-link.js";
 
 const IdSchema = z.string().min(1);
 const Sha256Schema = z
@@ -34,9 +35,6 @@ export const SourceUnitSchema = z
   .strict();
 export const SearchReceiptSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
-export const IngestionQuestionLinkSchema = z
-  .object({ schemaVersion: z.literal(1), questionId: IdSchema })
   .strict();
 export const CoverageObligationSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
