@@ -49,5 +49,6 @@ tasks:
       file: T004-t-01-04-define-minimal-ingesti.todo
       id: T004
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: T-01-04 — Define minimal ingestion policy-profile contract
