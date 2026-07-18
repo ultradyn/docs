@@ -41,7 +41,7 @@ tasks:
       file: T003-t-10-03-implement-replay-capsu.todo
       id: T003
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-10-03 — Implement replay capsule custody and verification
     - complexity: medium

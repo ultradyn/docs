@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-18T16:04:35Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-18T17:49:38Z"
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P2.M1.E1.T002
+duration_minutes: 105.05387005555
 estimate_hours: 8
 id: P2.M1.E1.T003
 priority: critical
 started_at: "2026-07-18T16:04:35Z"
-status: in_progress
+status: done
 tags: []
 title: T-10-03 — Implement replay capsule custody and verification
-updated_at: "2026-07-18T16:04:35Z"
+updated_at: "2026-07-18T17:49:38Z"
 ---
 Bundle provenance: WP-10 / T-10-03 (rescoped: deletion split into T-10-04 per DESIGN.md C12)
 
