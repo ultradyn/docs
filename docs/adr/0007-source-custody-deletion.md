@@ -1,6 +1,8 @@
 # ADR 0007: Authorised source-custody deletion versus append-only portable history
 
-Status: proposed (requires Max's ratification per DECISION_LOG D9 before acceptance)
+Status: proposed
+
+Accepting this ADR records **architecture only**. It confers no authority to erase anything. D9 ratification is **not** a prerequisite for accepting the architecture, but it **is** mandatory — together with every capability gate below — before any destructive execution.
 
 ## Context
 
@@ -34,6 +36,8 @@ ADR 0002 places raw text artifacts in Git. It follows that **exact source text a
 
 Class 3 is a human-run, Max-authorised history-remediation procedure (bundle §7 concurs), outside agent authority. Agents may only detect, quarantine, and file the incident. Until remediation completes, dependent records are invalidated and the affected content is quarantined from further use.
 
+**Git history is distributed, and the inventory must say so.** The expected custody inventory for class 3 explicitly covers clones, forks, remotes, reflogs, mirrors, CI caches and artifacts, and backups. Copies that cannot be reached are recorded as residual or unknown — which means **true erasure cannot be claimed** for content that reached a distributed history. Remediating the origin repository is necessary, never sufficient.
+
 ### Authority and the immutability boundary
 
 A deletion request requires an authorised human actor and a recorded legal-hold check. Agents cannot originate or approve deletions (SEC-003 least privilege).
@@ -44,7 +48,21 @@ Ordinary custody stays immutable. `RawArtifactStore` and `ReplayCapsuleStore` ke
 
 Accepting this ADR and ratifying D9 do **not** by themselves permit physical deletion. The workflow depends on producers that may not exist yet — the graph/validity gateway, the invalidation path, provider adapters, and a certificate signer. Deletion is therefore **fail-closed on capability**: if any required producer is missing, unavailable, or of unknown status, no erasure proceeds.
 
-T-10-04 may build the framework once this ADR is accepted. **Destructive execution stays blocked** until every required producer and adapter exists, with deterministic fake cases covering their failure modes.
+Backlog task **T-10-04 includes destructive implementation and a deletion drill, and remains blocked** — accepting this ADR does not open it, rescope it, or license any part of it to begin. Destructive execution requires all of: an accepted ADR, ratified D9 retention policy, and every required producer and adapter present with deterministic fake cases covering their failure modes. If non-destructive framework work is wanted earlier, it must be a **separately scoped future task**, not a quiet reinterpretation of T-10-04.
+
+### Execution protocol: crash and idempotency semantics
+
+Deletion is irreversible, so the protocol is built around a single explicit commit point. Everything before it is reversible; nothing after it pretends to be.
+
+**PREPARE (reversible).** Establish an authorised actor and a recorded legal-hold decision. Compute both the exact dependency closure **and** a complete *expected* custody inventory — every object, replica, provider, key, and Git location. Validate expected custody and policy revisions and every capability adapter. Acquire a deterministic lock. Persist a durable operation intent/journal with a stable operation ID and per-target sub-operation IDs. Freeze affected use. **No erasure begins until the journal and freeze are durable and revalidated.**
+
+**EXECUTE (the irreversible commit point).** Persist an execution-authorised marker, then revalidate revisions, holds, and gates. Perform each target operation under its stable sub-operation ID, durably recording the request *before* the call and the outcome or receipt *after* it, so a crash between the two is detectable rather than invisible. Retries **query and reconcile** provider state; they never assume a prior call succeeded.
+
+Once the first erasure or key destruction occurs, **recovery may never roll back or present the operation as untouched.** It continues, reconciles, and records residuals and unknowns.
+
+**FINALISE.** Always apply fail-closed invalidation and quarantine. Append portable tombstones where applicable. Reconcile every item in the expected inventory. Produce the signed certificate and evidence. Only then unfreeze unaffected scope and close the journal.
+
+**Crash recovery** resumes from the journal and verifies every recorded transition. When an operation ends partial, affected content **remains frozen and invalid**; a partial certificate is permitted and a complete certificate is forbidden.
 
 ### Deletion certificate
 
@@ -59,7 +77,13 @@ The certificate is content-addressed and signed, with an explicit signer and tru
 - whether Git-history remediation is required (and therefore whether class-3 work remains outstanding);
 - timestamps, policy version, idempotency key, and operation ID.
 
-A certificate **may not claim completeness while any required outcome is unknown.** Partial or unverified erasure is reported as partial.
+**Signature envelope.** The certificate is wrapped in a versioned canonical envelope carrying: schema version, algorithm, signer identity, key ID, trust-root and policy version, signed payload digest, signature, and signing time. This ADR does not pick a vendor or key, but the contract fields and the trust policy are mandatory, and **verification, rotation, and revocation rules are a required signer-adapter gate** — an adapter without them does not satisfy the capability gate.
+
+**Expected, not merely observed.** The signed payload carries the **complete expected custody inventory** (as both digest and list) with per-object, per-replica, per-provider, and per-key outcomes — not only the targets that happened to be visited. An inventory that silently omits what was never reached is how a deletion comes to look complete when it is not.
+
+**Completeness predicate.** A certificate may claim completeness only when *every* expected item is confirmed either erased or permissibly retained, with **no residual, no unknown, no outstanding class-3 remediation**, all invalidations and tombstones confirmed, and the signature verified. Any unknown outcome forbids a completeness claim; the result is a partial certificate.
+
+**Portable projection versus protected evidence.** A **non-secret redacted projection** is the canonical Git audit state: actor and authority reference, closure and inventory digests, policy version, outcome summary, residual and unknown flags, and the signer envelope — and no sensitive locations or secrets. The full evidence, provider receipts, and location detail stay in protected machine-local or approved external audit custody, linked by content digest under governed retention. Portability is **never** claimed when the underlying evidence is unavailable.
 
 ### Cryptographic erasure
 
@@ -71,7 +95,7 @@ Until Max sets policy (D9): retain everything, append-only, no automatic expiry.
 
 ## Consequences
 
-T-10-04 **may implement a fail-closed deletion framework** once this ADR is accepted; destructive execution additionally requires ratified D9 retention policy and satisfied capability gates. Physical erasure is confined to class-1 custody objects across every replica; portable history stays append-only via tombstones; and removal of source text from Git is an explicit human incident procedure rather than a feature pathway. Deletion certificates make omission auditable, including what was *not* erased.
+Accepting this ADR settles the architecture and **unlocks no work**. T-10-04 stays blocked as scoped. Physical erasure is confined to class-1 custody objects across every replica; portable history stays append-only via tombstones; and removal of source text from Git is an explicit human incident procedure rather than a feature pathway. Deletion certificates make omission auditable, including what was *not* erased.
 
 The cost is stated plainly: **"deleted" source content generally remains recoverable from portable Git history unless the class-3 exceptional lane is invoked.** This is a deliberate trade favouring auditability. Rights-holders requiring true erasure of text in Git must trigger the incident lane, and any process that promises erasure while writing only tombstones is misrepresenting what happened.
 
@@ -81,4 +105,8 @@ Max to decide: retention schedules, the legal bases for retention, retention cla
 
 ## Implementation status
 
-Proposed only; no implementation. Gates backlog T-10-04, which remains blocked until this ADR is accepted, D9 is ratified, and capability gates are satisfied. Cross-referenced from DESIGN.md C12, DECISION_LOG (deferred-features register), and BLOCKED_TASKS "Automatic ingestion (v3)".
+Proposed only; no implementation. Accepting this ADR records architecture and starts nothing.
+
+Backlog **T-10-04 remains blocked as currently scoped** — it includes destructive implementation and a deletion drill, so it requires an accepted ADR **and** ratified D9 **and** every capability gate satisfied. Acceptance alone must not be read as licence to begin it, and it must not be quietly rescoped into framework-only work; that would need a separate, explicitly non-destructive task.
+
+Cross-referenced from DESIGN.md C12, DECISION_LOG (D9 and the deferred-features register), BLOCKED_TASKS "Automatic ingestion (v3)", and the R0/R1 implementation plan's T-10-04 section.

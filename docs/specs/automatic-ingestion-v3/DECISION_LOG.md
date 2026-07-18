@@ -19,7 +19,7 @@ Deliverable of backlog task P1.M1.E1.T001 (bundle T-00-01). Disposition of every
 | D6  | Claim granularity guidelines          | **Deferred**                                                                              | Trigger: M3 pilot annotation evidence                                                        |
 | D7  | Navigation-test tasks, first project  | **Deferred**                                                                              | Trigger: M6 gate defines the navigation-test tasks for this repo's docs corpus               |
 | D8  | Vector retrieval threshold            | **Deferred**                                                                              | Trigger: dedicated ADR + bundle replay-evidence gate; nothing may depend on optional T-12-04 |
-| D9  | Replay-capsule retention/legal policy | **Assigned — _ratify Max_**                                                               | Owner: Max; date: M6 (publication) gate; interim default: append-only retention              |
+| D9  | Replay-capsule retention/legal policy | **Assigned — _ratify Max_**                                                               | Owner: Max; date: M6 (publication) gate; interim default: append-only retention. NOT a prerequisite for accepting ADR 0007's architecture, but MANDATORY before any destructive execution, alongside every capability gate. |
 | D10 | Claim registry layout                 | **Accepted: one file per claim**                                                          | Revisit trigger: M7 scale evidence (partitioned JSONL)                                       |
 
 ## Repo-adaptation decisions (accepted)
@@ -31,7 +31,7 @@ Language = TypeScript only; terminology = Ultradyn Docs (Docent is the former pr
 - Perspective sweeps: **reserve** (bundle FR-CUR-007); trigger: reserve activation policy.
 - Semantic/vector retrieval: deferred (D8).
 - Rich graph UI at 10k scale, generic engine/leases, prompt compiler/forecast/budget, adversarial generator, pilots/shadow runs, production cohorts: dependency-gated M7/M8 stubs (DESIGN M7/M8 gate language).
-- Source-custody deletion: **blocked** behind the C12 ADR; execution home T-10-04; owner: T-10-04 claimant + _ratify Max_.
+- Source-custody deletion: **blocked** behind the C12 ADR (drafted as ADR 0007, status proposed); execution home T-10-04; owner: T-10-04 claimant + _ratify Max_. Accepting ADR 0007 records architecture ONLY and unlocks no work: T-10-04 includes destructive implementation and a deletion drill, so it stays blocked until the ADR is accepted AND D9 is ratified AND every capability producer/adapter exists with deterministic fakes. Framework-only work, if wanted earlier, requires a separately scoped non-destructive task rather than rescoping T-10-04.
 - Obligation `deferred` disposition (C11): **accepted** in T-20-02 — terminal for its obligation, while the canonical question lifecycle remains independent; it neither silently answers that question nor blocks unrelated closure.
 
 ## AC3 verification — authoritative-state boundary

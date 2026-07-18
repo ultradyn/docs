@@ -480,7 +480,17 @@ export interface SourceFile {
 
 **IDs:** Backlog `P2.M1.E1.T004`; synthetic C12 split from bundle `T-10-03` deletion/purge criteria
 
-**Depends on:** T-10-03 and acceptance of a new C12 source-custody deletion ADR. This task is blocked and no downstream task may depend on it.
+**Depends on:** T-10-03 and acceptance of the C12 source-custody deletion ADR (drafted as ADR 0007, status proposed). This task is blocked and no downstream task may depend on it.
+
+**DO NOT EXECUTE this task** until ALL of the following hold. ADR acceptance alone is explicitly insufficient, because this task includes destructive implementation and a deletion drill:
+
+1. **ADR 0007 accepted** — records the architecture; confers no authority to erase.
+2. **D9 ratified by Max** — retention schedules, legal bases, retention classes, and legal-hold recording/release.
+3. **Every capability producer and adapter present** — graph/validity gateway, invalidation path, provider adapters, and a certificate signer whose adapter implements verification, rotation, and revocation. Any missing or unknown-status producer means no erasure (fail-closed).
+
+**Required protocol and test gates when it does run.** The implementation must follow ADR 0007's PREPARE / EXECUTE / FINALISE protocol with a single explicit irreversible commit point, and deterministic fakes must cover at minimum: crash between journal write and freeze; crash between request-recorded and outcome-recorded for a provider call; retry that must reconcile rather than assume success; partial completion leaving content frozen and invalid with a partial certificate and no completeness claim; unreachable replica producing a residual; unknown provider outcome forbidding completeness; and expected-inventory items never visited still appearing in the certificate. Erasure must remain a separate human-authorised capability — `RawArtifactStore` and `ReplayCapsuleStore` must not gain a delete member.
+
+If non-destructive framework work is wanted before those gates clear, create a separately scoped task; do not silently rescope this one.
 
 **Files (conditional after ADR acceptance):**
 
