@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import {
   IngestionQuestionLinkSchema,
   QuestionLinkInputSchema,
@@ -29,6 +31,8 @@ export interface QuestionLinkService {
 
 export function createInMemoryQuestionLinkStore(): QuestionLinkStore {
   const links = new Map<string, IngestionQuestionLink>();
+  const holder = new AsyncLocalStorage<true>();
+  let queue: Promise<unknown> = Promise.resolve();
   return {
     get: async (questionId) => links.get(questionId),
     create: async (input) => {
@@ -36,6 +40,16 @@ export function createInMemoryQuestionLinkStore(): QuestionLinkStore {
       if (links.has(link.questionId)) return false;
       links.set(link.questionId, link);
       return true;
+    },
+    locked: <T>(operation: () => Promise<T>): Promise<T> => {
+      if (holder.getStore()) return operation();
+      const run = () => holder.run(true, operation);
+      const result = queue.then(run, run);
+      queue = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
     },
   };
 }
@@ -64,50 +78,59 @@ export function createQuestionLinkService(options: {
         );
       }
 
-      let record: QuestionRecord | undefined;
-      try {
-        record = await questions.getQuestion(parsed.data.questionId);
-      } catch (error) {
-        if (error instanceof QuestionNotFoundError) {
+      // Revision capture and publication run inside the store's exclusive
+      // section, so a concurrent lifecycle transition (which takes the same
+      // canonical repository lock) cannot interleave a stale createdRevision.
+      return links.locked(async () => {
+        let record: QuestionRecord | undefined;
+        try {
+          record = await questions.getQuestion(parsed.data.questionId);
+        } catch (error) {
+          if (error instanceof QuestionNotFoundError) {
+            return failure(
+              "QUESTION_NOT_FOUND",
+              `Unknown question ${parsed.data.questionId}.`,
+            );
+          }
+          throw error;
+        }
+        if (!record) {
           return failure(
             "QUESTION_NOT_FOUND",
             `Unknown question ${parsed.data.questionId}.`,
           );
         }
-        throw error;
-      }
-      if (!record) {
-        return failure(
-          "QUESTION_NOT_FOUND",
-          `Unknown question ${parsed.data.questionId}.`,
-        );
-      }
 
-      // The link records provenance beside the canonical question; it must
-      // agree with — never replace — the record's own origin (N6). "reverse"
-      // links target canonical raw records: reverse-ingested roots are created as
-      // raw records by a system actor.
-      const kind = record.origin.kind;
-      if (
-        (parsed.data.origin === "human" && kind !== "raw") ||
-        (parsed.data.origin === "ingestion-generated" && kind !== "generated") ||
-        (parsed.data.origin === "reverse" && kind !== "raw")
-      ) {
-        return failure(
-          "ORIGIN_MISMATCH",
-          `Link origin ${parsed.data.origin} contradicts canonical origin ${kind}.`,
-        );
-      }
+        // The link records provenance beside the canonical question; it must
+        // agree with — never replace — the record's own origin (N6). "reverse"
+        // links target canonical raw records: reverse-ingested roots are
+        // created as raw records by a system actor.
+        const kind = record.origin.kind;
+        if (
+          (parsed.data.origin === "human" && kind !== "raw") ||
+          (parsed.data.origin === "ingestion-generated" &&
+            kind !== "generated") ||
+          (parsed.data.origin === "reverse" && kind !== "raw")
+        ) {
+          return failure(
+            "ORIGIN_MISMATCH",
+            `Link origin ${parsed.data.origin} contradicts canonical origin ${kind}.`,
+          );
+        }
 
-      const link = IngestionQuestionLinkSchema.parse({
-        schemaVersion: 1,
-        ...parsed.data,
-        createdRevision: record.revision,
+        const link = IngestionQuestionLinkSchema.parse({
+          schemaVersion: 1,
+          ...parsed.data,
+          createdRevision: record.revision,
+        });
+        if (!(await links.create(link))) {
+          return failure(
+            "LINK_EXISTS",
+            `Question ${record.id} is already linked.`,
+          );
+        }
+        return { ok: true, value: link };
       });
-      if (!(await links.create(link))) {
-        return failure("LINK_EXISTS", `Question ${record.id} is already linked.`);
-      }
-      return { ok: true, value: link };
     },
 
     async read(questionId) {

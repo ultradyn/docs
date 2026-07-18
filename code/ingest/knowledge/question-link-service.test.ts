@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -232,6 +232,29 @@ describe("filesystem QuestionLinkStore", () => {
     }
   });
 
+  it("locks via the canonical machine-local lock root, not the portable tree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    const lockRoot = await mkdtemp(join(tmpdir(), "ultradyn-lock-root-"));
+    try {
+      const store = createFileQuestionLinkStore(root, { lockRoot });
+      await store.locked(async () => {
+        await store.create(storedHumanLink);
+      });
+      await expect(lstat(join(root, ".ultradyn"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      await expect(
+        lstat(lockRoot).then((metadata) => metadata.isDirectory()),
+      ).resolves.toBe(true);
+      await expect(store.get(HUMAN_QUESTION_ID)).resolves.toEqual(
+        storedHumanLink,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(lockRoot, { recursive: true, force: true });
+    }
+  });
+
   it("refuses stored records whose questionId does not match the requested ID", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
     const directory = join(root, "ingest", "question-links");
@@ -340,6 +363,42 @@ describe("QuestionLinkService", () => {
     if (!reverseOnGenerated.ok) {
       expect(reverseOnGenerated.code).toBe("ORIGIN_MISMATCH");
     }
+  });
+
+  it("captures createdRevision inside the store's exclusive section", async () => {
+    const record = humanQuestion();
+    let lockHeld = false;
+    let readWhileLocked: boolean | undefined;
+    let createdWhileLocked: boolean | undefined;
+    const links = createInMemoryQuestionLinkStore();
+    const service = createQuestionLinkService({
+      questions: {
+        getQuestion: (id) => {
+          readWhileLocked = lockHeld;
+          return Promise.resolve(id === record.id ? record : undefined);
+        },
+      },
+      links: {
+        get: (questionId) => links.get(questionId),
+        create: (link) => {
+          createdWhileLocked = lockHeld;
+          return links.create(link);
+        },
+        locked: async (operation) => {
+          lockHeld = true;
+          try {
+            return await operation();
+          } finally {
+            lockHeld = false;
+          }
+        },
+      },
+    });
+
+    const result = await service.link(humanLinkInput);
+    expect(result.ok).toBe(true);
+    expect(readWhileLocked).toBe(true);
+    expect(createdWhileLocked).toBe(true);
   });
 
   it("never mutates the canonical question record", async () => {

@@ -17,6 +17,12 @@ export interface IngestionQuestionLink {
 export interface QuestionLinkStore {
   get(questionId: string): Promise<IngestionQuestionLink | undefined>;
   create(link: IngestionQuestionLink): Promise<boolean>;
+  /**
+   * Runs `operation` under the store's exclusive section so a caller can make
+   * a read-validate-create sequence atomic against concurrent mutators.
+   * Reentrant for callers already inside the section.
+   */
+  locked<T>(operation: () => Promise<T>): Promise<T>;
 }
 
 const NonEmptyStringSchema = z.string().trim().min(1);

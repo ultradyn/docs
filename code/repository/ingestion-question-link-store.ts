@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { constants } from "node:fs";
 import {
   link as hardlink,
@@ -9,21 +10,49 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 
-import lockfile from "proper-lockfile";
-
 import {
   IngestionQuestionLinkSchema,
   type IngestionQuestionLink,
   type QuestionLinkStore,
 } from "../domain/ingest/question-link.js";
 import { resolveContainedPathNoSymlinks } from "../shared/safe-path.js";
+import {
+  withRepositoryLock,
+  type RepositoryLockOptions,
+} from "./knowledge-repository.js";
 
 function errorCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException).code;
 }
 
 class FileQuestionLinkStore implements QuestionLinkStore {
-  constructor(private readonly root: string) {}
+  readonly #holder = new AsyncLocalStorage<true>();
+  #queue: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    private readonly root: string,
+    private readonly lockOptions: RepositoryLockOptions = {},
+  ) {}
+
+  // The canonical machine-local repository lock (same lockfile as
+  // KnowledgeRepository for this root), so link publication and question
+  // lifecycle mutations share one mutual-exclusion domain. Reentrant within
+  // the holding async context; serialized in-process via a queue.
+  locked<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.#holder.getStore()) return operation();
+    const run = () =>
+      withRepositoryLock(
+        this.root,
+        () => this.#holder.run(true, operation),
+        this.lockOptions,
+      );
+    const result = this.#queue.then(run, run);
+    this.#queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
 
   async get(questionId: string): Promise<IngestionQuestionLink | undefined> {
     const path = join(await this.#directory(), fileName(questionId));
@@ -60,7 +89,7 @@ class FileQuestionLinkStore implements QuestionLinkStore {
     const directory = await this.#directory();
     const destination = join(directory, fileName(link.questionId));
     const temporary = join(directory, temporaryName(link.questionId));
-    return this.#locked(async () => {
+    return this.locked(async () => {
       // rm targets the temp name itself (never its referent), clearing stale
       // partial writes and squatted symlinks alike; O_EXCL then guarantees a
       // fresh regular file even if the name reappears in between.
@@ -123,28 +152,6 @@ class FileQuestionLinkStore implements QuestionLinkStore {
     }
   }
 
-  async #locked<T>(operation: () => Promise<T>): Promise<T> {
-    const lockRoot = await resolveContainedPathNoSymlinks(
-      this.root,
-      join(this.root, ".ultradyn", "locks"),
-    );
-    await mkdir(lockRoot, { recursive: true, mode: 0o700 });
-    const lockfilePath = await resolveContainedPathNoSymlinks(
-      this.root,
-      join(lockRoot, "ingest-question-links.lock"),
-    );
-    const release = await lockfile.lock(this.root, {
-      realpath: false,
-      lockfilePath,
-      stale: 30_000,
-      retries: { retries: 4, factor: 1.25, minTimeout: 10, maxTimeout: 250 },
-    });
-    try {
-      return await operation();
-    } finally {
-      await release();
-    }
-  }
 }
 
 function fileName(questionId: string): string {
@@ -155,6 +162,9 @@ function temporaryName(questionId: string): string {
   return `.${encodeURIComponent(questionId)}.json.tmp`;
 }
 
-export function createFileQuestionLinkStore(root: string): QuestionLinkStore {
-  return new FileQuestionLinkStore(root);
+export function createFileQuestionLinkStore(
+  root: string,
+  lockOptions: RepositoryLockOptions = {},
+): QuestionLinkStore {
+  return new FileQuestionLinkStore(root, lockOptions);
 }

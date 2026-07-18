@@ -1868,35 +1868,50 @@ export class KnowledgeRepository {
   }
 
   async #locked<T>(operation: () => Promise<T>): Promise<T> {
-    await mkdir(this.#lockRoot, { recursive: true, mode: 0o700 });
-    const lockRootMetadata = await lstat(this.#lockRoot);
-    if (lockRootMetadata.isSymbolicLink() || !lockRootMetadata.isDirectory()) {
-      throw new Error("Repository lock root must be a real directory.");
-    }
-    const uid = process.getuid?.();
-    if (uid !== undefined && lockRootMetadata.uid !== uid) {
-      throw new Error(
-        "Repository lock root must be owned by the current user.",
-      );
-    }
-    await chmod(this.#lockRoot, 0o700);
-    const lockfilePath = repositoryLockPath(this.root, this.#lockRoot);
-    const release = await lockfile.lock(this.root, {
-      realpath: false,
-      lockfilePath,
-      stale: 30_000,
-      retries: {
-        retries: this.#lockRetries,
-        factor: 1.25,
-        minTimeout: 10,
-        maxTimeout: 250,
-      },
+    return withRepositoryLock(this.root, operation, {
+      lockRoot: this.#lockRoot,
+      lockRetries: this.#lockRetries,
     });
-    try {
-      return await operation();
-    } finally {
-      await release();
-    }
+  }
+}
+
+export interface RepositoryLockOptions {
+  lockRoot?: string;
+  lockRetries?: number;
+}
+
+export async function withRepositoryLock<T>(
+  repositoryRoot: string,
+  operation: () => Promise<T>,
+  options: RepositoryLockOptions = {},
+): Promise<T> {
+  const lockRoot = resolve(options.lockRoot ?? defaultRepositoryLockRoot());
+  await mkdir(lockRoot, { recursive: true, mode: 0o700 });
+  const lockRootMetadata = await lstat(lockRoot);
+  if (lockRootMetadata.isSymbolicLink() || !lockRootMetadata.isDirectory()) {
+    throw new Error("Repository lock root must be a real directory.");
+  }
+  const uid = process.getuid?.();
+  if (uid !== undefined && lockRootMetadata.uid !== uid) {
+    throw new Error("Repository lock root must be owned by the current user.");
+  }
+  await chmod(lockRoot, 0o700);
+  const lockfilePath = repositoryLockPath(repositoryRoot, lockRoot);
+  const release = await lockfile.lock(repositoryRoot, {
+    realpath: false,
+    lockfilePath,
+    stale: 30_000,
+    retries: {
+      retries: options.lockRetries ?? 20,
+      factor: 1.25,
+      minTimeout: 10,
+      maxTimeout: 250,
+    },
+  });
+  try {
+    return await operation();
+  } finally {
+    await release();
   }
 }
 
