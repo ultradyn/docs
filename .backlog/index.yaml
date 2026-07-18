@@ -45,7 +45,7 @@ phases:
       description: Dependency-gated grounded exploration and convergence.
       estimate_hours: 400
       id: P3
-      locked: false
+      locked: true
       name: R2 Exploration
       path: 03-r2-exploration
       priority: high
@@ -55,7 +55,7 @@ phases:
       description: Dependency-gated reader-facing publication and operations.
       estimate_hours: 400
       id: P4
-      locked: false
+      locked: true
       name: R3 Publication
       path: 04-r3-publication
       priority: high
@@ -65,7 +65,7 @@ phases:
       description: Dependency-gated adversarial validation and staged rollout.
       estimate_hours: 400
       id: P5
-      locked: false
+      locked: true
       name: R4 Production
       path: 05-r4-production
       priority: high

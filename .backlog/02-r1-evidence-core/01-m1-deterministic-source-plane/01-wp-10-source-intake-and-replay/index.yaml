@@ -39,5 +39,6 @@ tasks:
       file: T003-t-10-03-implement-replay-capsu.todo
       id: T003
       priority: critical
-      status: pending
+      status: blocked
+      tags: []
       title: T-10-03 — Implement replay capsule lifecycle
