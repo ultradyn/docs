@@ -1,4 +1,9 @@
 export {
+  scoreIngestRun,
+  type IngestMetricCounts,
+  type IngestMetrics,
+} from "./ingest-metrics.js";
+export {
   nodeFileReader,
   validateIngestBundle,
   type BundleValidationReport,

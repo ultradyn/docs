@@ -8,6 +8,7 @@ describe("integration public module surface", () => {
       "ChangeRequestBlockedError",
       "LocalChangeRequestManager",
       "nodeFileReader",
+      "scoreIngestRun",
       "validateIngestBundle",
     ]);
   });
