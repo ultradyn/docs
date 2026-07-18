@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-18T10:44:28Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-18T11:23:32Z"
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P1.M1.E3.T002
+duration_minutes: 39.0805299812
 estimate_hours: 8
 id: P1.M1.E3.T003
 priority: high
 started_at: "2026-07-18T10:44:28Z"
-status: in_progress
+status: done
 tags: []
 title: T-02-03 — Build fixture runner and result store
-updated_at: "2026-07-18T10:44:28Z"
+updated_at: "2026-07-18T11:23:32Z"
 ---
 Bundle provenance: WP-02 / T-02-03
 

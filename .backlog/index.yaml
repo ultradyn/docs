@@ -25,11 +25,11 @@ phases:
       description: Contracts, fixtures, and a measured evaluation laboratory.
       estimate_hours: 400
       id: P1
-      locked: false
+      locked: true
       name: R0 Lab
       path: 01-r0-lab
       priority: high
-      status: pending
+      status: done
       weeks: 12
     - depends_on: []
       description: Deterministic source, evidence, claim, and answer-composition core.

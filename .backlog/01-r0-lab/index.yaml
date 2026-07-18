@@ -2,7 +2,7 @@ complexity: medium
 depends_on: []
 estimate_hours: 400
 id: P1
-locked: false
+locked: true
 milestones:
     - complexity: high
       depends_on: []
@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: M0 — Contracts and lab ready
       path: 01-m0-contracts-and-lab-ready
-      status: pending
+      status: done
 name: R0 Lab
 stats:
     blocked: 0
@@ -20,5 +20,5 @@ stats:
     in_progress: 0
     pending: 10
     total_tasks: 10
-status: pending
+status: done
 weeks: 12

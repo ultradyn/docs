@@ -27,7 +27,7 @@ epics:
       locked: false
       name: WP-02 — Evaluation baseline and corpus laboratory
       path: 03-wp-02-evaluation-baseline-and
-      status: pending
+      status: done
 estimate_hours: 120
 id: P1.M1
 locked: false
@@ -38,4 +38,4 @@ stats:
     in_progress: 0
     pending: 10
     total_tasks: 10
-status: pending
+status: done
