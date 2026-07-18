@@ -36,10 +36,11 @@ export type QuestionId = string & { readonly __questionId: unique symbol };
 export type ObligationId = string & { readonly __obligationId: unique symbol };
 export type EvidencePacketId = string & { readonly __packetId: unique symbol };
 export type ClaimId = string & { readonly __claimId: unique symbol };
-export type GraphRevision = number & { readonly __graphRevision: unique symbol };
+export type GraphRevision = number & {
+  readonly __graphRevision: unique symbol;
+};
 export type IngestResult<T, C extends string> =
-  | { ok: true; value: T }
-  | { ok: false; code: C; message: string };
+  { ok: true; value: T } | { ok: false; code: C; message: string };
 ```
 
 All task-level interfaces below are exported from the named module `index.ts` and re-exported only from `code/ingest/index.ts` or `code/domain/ingest/index.ts`.
@@ -55,12 +56,14 @@ All task-level interfaces below are exported from the named module `index.ts` an
 **Depends on:** none
 
 **Files:**
+
 - Create: `docs/architecture/automatic-ingestion-v3.md`
 - Create: `code/integration/ingest-architecture.test.ts`
 - Modify: `docs/architecture.md`
 - Test: `code/integration/ingest-architecture.test.ts`
 
 **Interfaces:**
+
 - Consumes: ADR-0001 canonical lifecycle/raw immutability, ADR-0002 Git/local split, ADR-0005 ingestion adoption, ADR-0006 ledger precedence.
 - Produces: normative headings `Authority boundaries`, `Agent isolation`, `Completion predicate`, and `Deferred activation`; architecture test helper `readArchitecture(): Promise<string>` local to the test.
 
@@ -81,12 +84,14 @@ A question is never complete because ingestion exhausted a search. Completion re
 **Depends on:** T-00-01
 
 **Files:**
+
 - Modify: `docs/architecture/automatic-ingestion-v3.md`
 - Modify: `docs/engineering/tdd-seams.md`
 - Modify: `code/integration/ingest-architecture.test.ts`
 - Test: `code/integration/ingest-architecture.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing `Knowledge repository`, `Raw artifact store`, `Provider contract`, `Agent runtime`, and `Change request` seams.
 - Produces: agreed seams `Source custody`, `Source representation`, `Ingestion knowledge repository`, `Ingestion graph gateway`, `Ingestion fixture runner`; fixed roots `sources/snapshots/`, `ingest/claims/`, `.ultradyn/runtime/ingest/`.
 
@@ -102,11 +107,13 @@ A question is never complete because ingestion exhausted a search. Completion re
 **Depends on:** T-00-02
 
 **Files:**
+
 - Create: `docs/engineering/ingestion-change-control.md`
 - Modify: `code/integration/ingest-architecture.test.ts`
 - Test: `code/integration/ingest-architecture.test.ts`
 
 **Interfaces:**
+
 - Consumes: repository change-request seam and deterministic agent fixtures.
 - Produces: `IngestionChangeClass = "schema" | "workflow" | "agent" | "policy" | "architecture"`; review matrix requiring migration impact, paired valid/invalid fixtures, and fresh-context verification.
 
@@ -122,6 +129,7 @@ A question is never complete because ingestion exhausted a search. Completion re
 **Depends on:** T-00-03
 
 **Files:**
+
 - Create: `code/domain/ingest/types.ts`
 - Create: `code/domain/ingest/schemas.ts`
 - Create: `code/domain/ingest/schema-registry.ts`
@@ -131,6 +139,7 @@ A question is never complete because ingestion exhausted a search. Completion re
 - Test: `code/domain/ingest/schema-registry.test.ts`
 
 **Interfaces:**
+
 - Consumes: Zod and the existing portable schema-validation surface in `code/domain/schemas.ts`.
 - Produces: `IngestSchemaName`, `IngestSchemaRegistry.get(name, version): z.ZodType`, `validateIngestRecord<T>(name, version, input): IngestResult<T, "UNKNOWN_SCHEMA" | "INVALID_RECORD">`, `registerIngestSchemas(): void`, plus branded IDs from the fixed vocabulary.
 
@@ -139,16 +148,27 @@ A question is never complete because ingestion exhausted a search. Completion re
 
 ```ts
 export type IngestSchemaName =
-  | "PolicyProfile" | "SourceSnapshot" | "SourceFile" | "SourceUnit"
-  | "SearchReceipt" | "IngestionQuestionLink" | "CoverageObligation"
-  | "EvidencePacket" | "EvidenceVerdict" | "Claim" | "ClaimReview"
-  | "GraphEvent" | "SealedClaimPack" | "AnswerComposition";
+  | "PolicyProfile"
+  | "SourceSnapshot"
+  | "SourceFile"
+  | "SourceUnit"
+  | "SearchReceipt"
+  | "IngestionQuestionLink"
+  | "CoverageObligation"
+  | "EvidencePacket"
+  | "EvidenceVerdict"
+  | "Claim"
+  | "ClaimReview"
+  | "GraphEvent"
+  | "SealedClaimPack"
+  | "AnswerComposition";
 export interface IngestSchemaRegistry {
   get(name: IngestSchemaName, version: 1): z.ZodType;
 }
 ```
 
 Register only curated repo-native schemas; do not enumerate or parse the preserved bundle.
+
 - [ ] **Pass:** targeted Vitest passes; then `VITEST_MAX_THREADS=2 pnpm check` passes.
 - [ ] **Commit:** `git commit -m "feat(ingest): add curated schema registry"`.
 
@@ -159,6 +179,7 @@ Register only curated repo-native schemas; do not enumerate or parse the preserv
 **Depends on:** T-01-01
 
 **Files:**
+
 - Create: `code/agents/ingest-manifest.ts`
 - Create: `code/agents/ingest-manifest.test.ts`
 - Create: `scaffold/agents/ingest-workflow.schema.json`
@@ -166,16 +187,33 @@ Register only curated repo-native schemas; do not enumerate or parse the preserv
 - Test: `code/agents/ingest-manifest.test.ts`
 
 **Interfaces:**
+
 - Consumes: `IngestSchemaRegistry`, existing agent definition loader and input-policy vocabulary.
 - Produces:
 
 ```ts
-export type IngestAgentRole = "researcher" | "evidence-critic" | "claim-extractor" | "claim-reviewer" | "answer-composer";
+export type IngestAgentRole =
+  | "researcher"
+  | "evidence-critic"
+  | "claim-extractor"
+  | "claim-reviewer"
+  | "answer-composer";
 export interface IngestAgentManifest {
-  role: IngestAgentRole; outputSchema: string; tools: readonly string[];
-  freshContext: boolean; next: readonly string[];
+  role: IngestAgentRole;
+  outputSchema: string;
+  tools: readonly string[];
+  freshContext: boolean;
+  next: readonly string[];
 }
-export function validateIngestManifests(input: readonly IngestAgentManifest[]): IngestResult<true, "DANGLING_REFERENCE" | "EVALUATOR_NOT_FRESH" | "UNREACHABLE_STATE" | "TOOL_DENIED">;
+export function validateIngestManifests(
+  input: readonly IngestAgentManifest[],
+): IngestResult<
+  true,
+  | "DANGLING_REFERENCE"
+  | "EVALUATOR_NOT_FRESH"
+  | "UNREACHABLE_STATE"
+  | "TOOL_DENIED"
+>;
 ```
 
 - [ ] **Red:** test a dangling schema, `evidence-critic` with `freshContext:false`, Answer Composer with `source.search`, and a nonterminal state with no successor. Run targeted Vitest. **Expected failure:** `validateIngestManifests is not exported`.
@@ -190,6 +228,7 @@ export function validateIngestManifests(input: readonly IngestAgentManifest[]): 
 **Depends on:** T-01-02
 
 **Files:**
+
 - Create: `code/integration/ingest-bundle-validator.ts`
 - Create: `code/integration/ingest-bundle-validator.test.ts`
 - Create: `code/integration/fixtures/ingest-bundle/{valid,broken-link,cycle,committed-index}/`
@@ -197,6 +236,7 @@ export function validateIngestManifests(input: readonly IngestAgentManifest[]): 
 - Test: `code/integration/ingest-bundle-validator.test.ts`
 
 **Interfaces:**
+
 - Consumes: `validateIngestManifests`, portable schemas, injected `FileReader` system boundary.
 - Produces: `validateIngestBundle(root: string, io: FileReader): Promise<BundleValidationReport>` where `BundleValidationReport = { ok:boolean; schemaErrors:string[]; brokenLinks:string[]; cycles:string[][]; forbiddenArtifacts:string[] }`.
 
@@ -212,6 +252,7 @@ export function validateIngestManifests(input: readonly IngestAgentManifest[]): 
 **Depends on:** T-01-01
 
 **Files:**
+
 - Create: `code/domain/ingest/policy-profile.ts`
 - Create: `code/domain/ingest/policy-profile.test.ts`
 - Create: `scaffold/schemas/ingest/policy-profile.schema.json`
@@ -220,15 +261,23 @@ export function validateIngestManifests(input: readonly IngestAgentManifest[]): 
 - Test: `code/domain/ingest/policy-profile.test.ts`
 
 **Interfaces:**
+
 - Consumes: schema registry.
 - Produces:
 
 ```ts
 export type DataClass = "public" | "internal" | "confidential" | "prohibited";
 export interface PolicyProfile {
-  schemaVersion: 1; id: string; approved: boolean; dataClass: DataClass;
-  include: readonly string[]; exclude: readonly string[];
-  allowedMediaTypes: readonly string[]; maxFiles: number; maxFileBytes: number; maxExpandedBytes: number;
+  schemaVersion: 1;
+  id: string;
+  approved: boolean;
+  dataClass: DataClass;
+  include: readonly string[];
+  exclude: readonly string[];
+  allowedMediaTypes: readonly string[];
+  maxFiles: number;
+  maxFileBytes: number;
+  maxExpandedBytes: number;
 }
 export const PolicyProfileSchema: z.ZodType<PolicyProfile>;
 ```
@@ -245,6 +294,7 @@ export const PolicyProfileSchema: z.ZodType<PolicyProfile>;
 **Depends on:** T-01-03
 
 **Files:**
+
 - Create: `code/integration/fixtures/ingest-corpus/tiny/source/`
 - Create: `code/integration/fixtures/ingest-corpus/tiny/expected-graph.json`
 - Create: `code/integration/fixtures/ingest-corpus/small/source/`
@@ -253,6 +303,7 @@ export const PolicyProfileSchema: z.ZodType<PolicyProfile>;
 - Test: `code/integration/ingest-corpus.test.ts`
 
 **Interfaces:**
+
 - Consumes: curated examples and this repository’s documentation; no runtime source-bundle path.
 - Produces: `ExpectedCorpusGraph = { files; units; questions; claims; duplicates; contradictions; unsupportedQuestions }` with stable literal IDs/digests.
 
@@ -268,6 +319,7 @@ export const PolicyProfileSchema: z.ZodType<PolicyProfile>;
 **Depends on:** T-02-01
 
 **Files:**
+
 - Create: `code/integration/ingest-metrics.ts`
 - Create: `code/integration/ingest-metrics.test.ts`
 - Create: `docs/engineering/ingestion-labelling-guide.md`
@@ -275,6 +327,7 @@ export const PolicyProfileSchema: z.ZodType<PolicyProfile>;
 - Test: `code/integration/ingest-metrics.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ExpectedCorpusGraph` and observed fixture outcomes.
 - Produces: `IngestMetrics = { evidenceRecall:number; evidencePrecision:number; falseNoEvidenceRate:number; claimEntailmentRate:number; falseMergeRate:number; contradictionRecall:number; sourceCoverage:number; answerSufficiency:number }`; `scoreIngestRun(expected, observed): IngestMetrics`.
 
@@ -290,6 +343,7 @@ export const PolicyProfileSchema: z.ZodType<PolicyProfile>;
 **Depends on:** T-02-02
 
 **Files:**
+
 - Create: `code/integration/ingest-fixture-runner.ts`
 - Create: `code/integration/ingest-fixture-runner.test.ts`
 - Create: `code/integration/fixtures/ingest-results/baseline.json`
@@ -297,13 +351,28 @@ export const PolicyProfileSchema: z.ZodType<PolicyProfile>;
 - Test: `code/integration/ingest-fixture-runner.test.ts`
 
 **Interfaces:**
+
 - Consumes: `scoreIngestRun`, injected public seam adapters, deterministic fake providers.
 - Produces:
 
 ```ts
-export interface IngestFixtureVersions { model:string; prompt:string; tools:string; index:string; schemas:string }
-export interface IngestFixtureResult { corpus:"tiny"|"small"; versions:IngestFixtureVersions; cacheEnabled:false; metrics:IngestMetrics; decisiveDiffs:string[] }
-export function runIngestFixture(input: IngestFixtureInput): Promise<IngestFixtureResult>;
+export interface IngestFixtureVersions {
+  model: string;
+  prompt: string;
+  tools: string;
+  index: string;
+  schemas: string;
+}
+export interface IngestFixtureResult {
+  corpus: "tiny" | "small";
+  versions: IngestFixtureVersions;
+  cacheEnabled: false;
+  metrics: IngestMetrics;
+  decisiveDiffs: string[];
+}
+export function runIngestFixture(
+  input: IngestFixtureInput,
+): Promise<IngestFixtureResult>;
 ```
 
 - [ ] **Red:** assert cache is disabled, versions are required, stable runs serialise identically, and changing one verdict reports its JSON pointer. Run targeted Vitest. **Expected failure:** runner module is missing.
@@ -322,6 +391,7 @@ export function runIngestFixture(input: IngestFixtureInput): Promise<IngestFixtu
 **Depends on:** T-01-04, T-02-03
 
 **Files:**
+
 - Create: `code/ingest/source/preflight.ts`
 - Create: `code/ingest/source/preflight.test.ts`
 - Create: `code/ingest/source/fixtures/{valid,traversal,symlink,bomb,prohibited}/`
@@ -330,6 +400,7 @@ export function runIngestFixture(input: IngestFixtureInput): Promise<IngestFixtu
 - Test: `code/ingest/source/preflight.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PolicyProfile`, injected `ArchiveReader` returning metadata without extraction.
 - Produces: `preflightPackage(input:{ archivePath:string; policy:PolicyProfile; archive:ArchiveReader }): Promise<IngestResult<PreflightManifest,"PATH_TRAVERSAL"|"LINK_ESCAPE"|"LIMIT_EXCEEDED"|"MEDIA_DENIED"|"POLICY_DENIED">>`; manifest entries include `{logicalPath,mediaType,size,included,reason}`.
 
@@ -345,6 +416,7 @@ export function runIngestFixture(input: IngestFixtureInput): Promise<IngestFixtu
 **Depends on:** T-10-01
 
 **Files:**
+
 - Create: `code/domain/ingest/source-records.ts`
 - Create: `code/ingest/source/snapshot-service.ts`
 - Create: `code/ingest/source/snapshot-service.test.ts`
@@ -353,12 +425,27 @@ export function runIngestFixture(input: IngestFixtureInput): Promise<IngestFixtu
 - Test: `code/ingest/source/snapshot-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: successful `PreflightManifest`, injected append-only `RawArtifactStore`, `HashService`, and `IdGenerator`.
 - Produces: `SourceFile`, `SourceSnapshot`, and `SourceSnapshotService.create(input): Promise<IngestResult<SourceSnapshot,"DIGEST_MISMATCH"|"PARTIAL_WRITE"|"SNAPSHOT_CONFLICT">>`; `SourceSnapshotService.verify(id): Promise<ReplayReceipt>`.
 
 ```ts
-export interface SourceSnapshot { schemaVersion:1; id:SnapshotId; packageSha256:Sha256; policyId:string; files:readonly SourceFile[]; qualified:true }
-export interface SourceFile { id:SourceFileId; snapshotId:SnapshotId; logicalPath:string; mediaType:string; size:number; sha256:Sha256 }
+export interface SourceSnapshot {
+  schemaVersion: 1;
+  id: SnapshotId;
+  packageSha256: Sha256;
+  policyId: string;
+  files: readonly SourceFile[];
+  qualified: true;
+}
+export interface SourceFile {
+  id: SourceFileId;
+  snapshotId: SnapshotId;
+  logicalPath: string;
+  mediaType: string;
+  size: number;
+  sha256: Sha256;
+}
 ```
 
 - [ ] **Red:** assert same package+policy returns the same snapshot, every digest is verified, and an injected third-file write failure leaves no qualified manifest. Run targeted Vitest. **Expected failure:** `SourceSnapshotService` missing.
@@ -373,12 +460,14 @@ export interface SourceFile { id:SourceFileId; snapshotId:SnapshotId; logicalPat
 **Depends on:** T-10-02
 
 **Files:**
+
 - Create: `code/ingest/source/replay-capsule.ts`
 - Create: `code/ingest/source/replay-capsule.test.ts`
 - Modify: `code/ingest/source/index.ts`
 - Test: `code/ingest/source/replay-capsule.test.ts`
 
 **Interfaces:**
+
 - Consumes: `SourceSnapshot`, append-only raw store.
 - Produces: `ReplayCapsuleStore.seal(snapshot): Promise<ReplayReceipt>`, `.verify(snapshotId): Promise<ReplayReceipt>`, `.export(snapshotId, destination): Promise<ReplayReceipt>`, `.retention(snapshotId): Promise<RetentionState>`; no deletion method.
 
@@ -394,6 +483,7 @@ export interface SourceFile { id:SourceFileId; snapshotId:SnapshotId; logicalPat
 **Depends on:** T-10-03 and acceptance of a new C12 source-custody deletion ADR. This task is blocked and no downstream task may depend on it.
 
 **Files (conditional after ADR acceptance):**
+
 - Create: `docs/adr/NNNN-source-custody-deletion.md`
 - Create: `code/ingest/source/replay-deletion.ts`
 - Create: `code/ingest/source/replay-deletion.test.ts`
@@ -401,6 +491,7 @@ export interface SourceFile { id:SourceFileId; snapshotId:SnapshotId; logicalPat
 - Test: `code/ingest/source/replay-deletion.test.ts`
 
 **Interfaces:**
+
 - Consumes: accepted C12 ADR, `ReplayCapsuleStore`, `InvalidationService.plan(event): InvalidationPlan`, authenticated `Actor`, and append-only portable history.
 - Produces only after ADR acceptance: `ReplayDeletionRequest { snapshotId:SnapshotId; actorId:string; reason:string; expectedCapsuleSha256:Sha256 }`; `ReplayDeletionReceipt { snapshotId:SnapshotId; capsuleSha256:Sha256; authorisedBy:string; deletedAt:string; invalidated:InvalidationPlan }`; `AuthorisedReplayDeletion.delete(request, actor): Promise<IngestResult<ReplayDeletionReceipt,"ADR_NOT_ACCEPTED"|"UNAUTHORISED"|"DIGEST_MISMATCH"|"DEPENDENCY_INVALIDATION_FAILED">>`.
 
@@ -409,20 +500,39 @@ export interface SourceFile { id:SourceFileId; snapshotId:SnapshotId; logicalPat
 ```ts
 it("authorises custody-byte deletion while retaining portable tombstones", async () => {
   const result = await deletion.delete(request, authorisedActor);
-  expect(result).toMatchObject({ ok: true, value: { snapshotId, capsuleSha256 } });
+  expect(result).toMatchObject({
+    ok: true,
+    value: { snapshotId, capsuleSha256 },
+  });
   expect(await rawStore.exists(snapshotId)).toBe(false);
-  expect(await history.readSourceTombstone(snapshotId)).toMatchObject({ snapshotId, capsuleSha256 });
-  expect(result.ok && result.value.invalidated.staleClaimIds).toEqual([claimId]);
+  expect(await history.readSourceTombstone(snapshotId)).toMatchObject({
+    snapshotId,
+    capsuleSha256,
+  });
+  expect(result.ok && result.value.invalidated.staleClaimIds).toEqual([
+    claimId,
+  ]);
 });
 ```
 
 Run: `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2`. **Expected failure after the gate opens:** module resolution fails for `./replay-deletion.js`; before ADR acceptance, the expected state is backlog `blocked` and no command is run.
+
 - [ ] **Green (run only after the ADR is accepted):** implement the accepted custody boundary exactly; require actor authorisation and matching digest, calculate/apply dependency closure before deleting local capsule bytes, then append a portable tombstone without deleting or rewriting raw-history records.
 
 ```ts
 export interface AuthorisedReplayDeletion {
-  delete(request: ReplayDeletionRequest, actor: Actor): Promise<IngestResult<ReplayDeletionReceipt,
-    "ADR_NOT_ACCEPTED" | "UNAUTHORISED" | "DIGEST_MISMATCH" | "DEPENDENCY_INVALIDATION_FAILED">>;
+  delete(
+    request: ReplayDeletionRequest,
+    actor: Actor,
+  ): Promise<
+    IngestResult<
+      ReplayDeletionReceipt,
+      | "ADR_NOT_ACCEPTED"
+      | "UNAUTHORISED"
+      | "DIGEST_MISMATCH"
+      | "DEPENDENCY_INVALIDATION_FAILED"
+    >
+  >;
 }
 ```
 
@@ -436,6 +546,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-10-03
 
 **Files:**
+
 - Create: `code/domain/ingest/representation-records.ts`
 - Create: `code/ingest/source/extractors.ts`
 - Create: `code/ingest/source/extractors.test.ts`
@@ -444,6 +555,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/source/extractors.test.ts`
 
 **Interfaces:**
+
 - Consumes: verified `SourceFile` bytes.
 - Produces: `SourceRepresentation = { id; sourceFileId; version; kind:"markdown"|"text"|"code"|"json"|"yaml"|"csv"; normalizedText; locatorMap:readonly LocatorSpan[]; warnings:readonly ExtractionWarning[] }`; `extractATier(input): IngestResult<SourceRepresentation,"UNSUPPORTED_MEDIA"|"MALFORMED_ENCODING"|"MALFORMED_STRUCTURE">`.
 
@@ -459,6 +571,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-11-01
 
 **Files:**
+
 - Create: `code/domain/ingest/representation-audit.ts`
 - Create: `code/ingest/source/representation-auditor.ts`
 - Create: `code/ingest/source/representation-auditor.test.ts`
@@ -466,6 +579,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/source/representation-auditor.test.ts`
 
 **Interfaces:**
+
 - Consumes: `SourceRepresentation`.
 - Produces: `FormatTier = "A"|"B"|"C"|"D"`; `RepresentationAudit = { representationId; tier; structuralPass; mappingPass; humanVerified; claimEligible; findings }`; `auditRepresentation(rep, capability): RepresentationAudit`.
 
@@ -481,6 +595,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-11-02 (audit, not repair)
 
 **Files:**
+
 - Create: `code/domain/ingest/source-unit.ts`
 - Create: `code/ingest/source/unitizer.ts`
 - Create: `code/ingest/source/unitizer.test.ts`
@@ -488,6 +603,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/source/unitizer.test.ts`
 
 **Interfaces:**
+
 - Consumes: claim-eligible `RepresentationAudit` and representation.
 - Produces: `SourceUnit = { id; snapshotId; sourceFileId; representationId; kind:"document"|"section"|"paragraph"|"list"|"table"|"code"; parentId?; headingPath; normalizedLocator; originalLocator; textSha256 }`; `unitizeRepresentation(input): IngestResult<readonly SourceUnit[],"AUDIT_REQUIRED"|"TEXT_DROPPED">`.
 
@@ -503,12 +619,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-11-02; may run in parallel with T-12-01
 
 **Files:**
+
 - Create: `code/ingest/source/representation-repair.ts`
 - Create: `code/ingest/source/representation-repair.test.ts`
 - Modify: `code/ingest/source/index.ts`
 - Test: `code/ingest/source/representation-repair.test.ts`
 
 **Interfaces:**
+
 - Consumes: failed `RepresentationAudit`, `SourceRepresentation`, append-only store, unitizer invalidation port.
 - Produces: `RepresentationRepairService.propose(input): Promise<RepresentationRepair>` and `.approve(id, reviewer): Promise<SourceRepresentation>`; new representation has `supersedesId` and monotonically increasing version.
 
@@ -524,6 +642,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-12-01
 
 **Files:**
+
 - Create: `code/ingest/retrieval/exact-map.ts`
 - Create: `code/ingest/retrieval/exact-map.test.ts`
 - Create: `code/ingest/retrieval/index.ts`
@@ -531,6 +650,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/retrieval/exact-map.test.ts`
 
 **Interfaces:**
+
 - Consumes: `readonly SourceUnit[]`.
 - Produces: `ExactMap.build(units): ExactMapProjection`; `ExactMap.lookup(alias): { kind:"unique"; unit:SourceUnitId } | { kind:"ambiguous"; candidates:readonly {unit:SourceUnitId;reason:string}[] } | { kind:"missing" }` for IDs, paths, titles, headings, acronyms, and error codes.
 
@@ -546,6 +666,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-12-02
 
 **Files:**
+
 - Create: `code/domain/ingest/search-receipt.ts`
 - Create: `code/ingest/retrieval/lexical-index.ts`
 - Create: `code/ingest/retrieval/lexical-index.test.ts`
@@ -553,6 +674,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/retrieval/lexical-index.test.ts`
 
 **Interfaces:**
+
 - Consumes: `SourceUnit`, `ExactMapProjection`, MiniSearch.
 - Produces: `LexicalRetrieval.build(snapshotId, units): Promise<void>` and `.search(request:SearchRequest): Promise<IngestResult<SearchResponse,"INDEX_UNAVAILABLE">>`; response always contains `SearchReceipt { snapshotId,indexVersion,query,filters,candidateIds,selectedIds,failures }`.
 
@@ -568,12 +690,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-12-03; **no downstream task may depend on this task**
 
 **Files:**
+
 - Create: `code/integration/ingest-semantic-benchmark.ts`
 - Create: `code/integration/ingest-semantic-benchmark.test.ts`
 - Create: `docs/engineering/automatic-ingestion-semantic-benchmark.md`
 - Test: `code/integration/ingest-semantic-benchmark.test.ts`
 
 **Interfaces:**
+
 - Consumes: lexical fixture results and externally supplied candidate result JSON; no production vector adapter.
 - Produces: `compareRetrievalRuns(lexical, candidate): { recallDelta; precisionDelta; p95LatencyDeltaMs; costDeltaAud; activation:"disabled" }`.
 
@@ -589,6 +713,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-10-03, T-11-03
 
 **Files:**
+
 - Modify: `code/domain/ingest/policy-profile.ts`
 - Create: `code/ingest/policy/policy-service.ts`
 - Create: `code/ingest/policy/policy-service.test.ts`
@@ -597,6 +722,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/policy/policy-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: minimal `PolicyProfile`.
 - Produces: fields `allowedProviders`, `allowedRegions`, `retention`, `logging`, `cache`, `maxQuoteBytes`, `publication`; `PolicyService.approve(profile, actor): ApprovedPolicyProfile`; `.assertRunAllowed(id): IngestResult<ApprovedPolicyProfile,"POLICY_UNAPPROVED">`.
 
@@ -612,6 +738,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-13-01, T-12-03
 
 **Files:**
+
 - Create: `code/ingest/policy/policy-gate.ts`
 - Create: `code/ingest/policy/policy-gate.test.ts`
 - Modify: `code/ingest/policy/index.ts`
@@ -619,6 +746,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/policy/policy-gate.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ApprovedPolicyProfile`, `SearchResponse`, provider capability request.
 - Produces: `PolicyGate.filterRetrieval(response, principal): FilteredSearchResponse`; `.authoriseModel(input:{profile,provider,region,unitIds}): IngestResult<ModelExposure,"ACCESS_DENIED"|"PROVIDER_DENIED"|"REGION_DENIED">`; `policyNamespace(profileId, principalId): string`.
 
@@ -634,12 +762,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-13-02
 
 **Files:**
+
 - Create: `code/ingest/policy/content-scanner.ts`
 - Create: `code/ingest/policy/content-scanner.test.ts`
 - Modify: `code/ingest/policy/index.ts`
 - Test: `code/ingest/policy/content-scanner.test.ts`
 
 **Interfaces:**
+
 - Consumes: source representations, actual diff text from existing change-request manager, injected `ContentScannerAdapter` fake.
 - Produces: `scanContent(input): Promise<ScanResult>` where findings have action `"block"|"redact"|"quarantine"`; `applyAuthorisedRedaction(rep, findings): SourceRepresentation` preserving locator mapping.
 
@@ -659,6 +789,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-01-03, T-12-03 (not T-12-04)
 
 **Files:**
+
 - Create: `code/domain/ingest/question-link.ts`
 - Create: `code/ingest/knowledge/question-link-service.ts`
 - Create: `code/ingest/knowledge/question-link-service.test.ts`
@@ -667,6 +798,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/knowledge/question-link-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing `QuestionRepository` public commands and `QuestionRecord` with canonical `state`, `askers`, `tier`, `revision`, raw/generated origin.
 - Produces: `IngestionQuestionLink { questionId; snapshotId; origin:"human"|"ingestion-generated"|"reverse"; systemActor?; rawArtifactId; generation; sourceUnitIds; createdRevision }`; `QuestionLinkService.link(input)` and `.read(questionId)`.
 
@@ -682,6 +814,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-20-01
 
 **Files:**
+
 - Create: `code/domain/ingest/coverage-obligation.ts`
 - Create: `code/ingest/knowledge/obligation-service.ts`
 - Create: `code/ingest/knowledge/obligation-service.test.ts`
@@ -689,6 +822,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/knowledge/obligation-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: `QuestionId`, deterministic `IdGenerator`, append-only event writer.
 - Produces: `ObligationStatus = "open"|"assigned"|"satisfied"|"terminal_gap"|"excluded"|"deferred"|"blocked"|"transferred"|"revoked"`; `CoverageObligation { id; questionId; trigger; ownerQuestionId; status; version }`; create/assign/transfer/resolve commands with expected version.
 
@@ -704,12 +838,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-20-02
 
 **Files:**
+
 - Create: `code/ingest/knowledge/question-admissibility.ts`
 - Create: `code/ingest/knowledge/question-admissibility.test.ts`
 - Modify: `code/ingest/knowledge/index.ts`
 - Test: `code/ingest/knowledge/question-admissibility.test.ts`
 
 **Interfaces:**
+
 - Consumes: `CoverageObligation`, conservative lexical candidates, `IngestionQuestionLink`.
 - Produces: `assessQuestionProposal(input): AdmissionDecision` where generated acceptance requires `triggerSourceUnitIds`, novel `obligationId`, concrete wording, and non-authoritative routing result; human questions always return `{admitted:true, kind:"demand"}`.
 
@@ -725,6 +861,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-12-03, T-20-03
 
 **Files:**
+
 - Create: `code/domain/ingest/evidence-packet.ts`
 - Create: `code/ingest/knowledge/evidence-service.ts`
 - Create: `code/ingest/knowledge/evidence-service.test.ts`
@@ -732,6 +869,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/knowledge/evidence-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: `SearchReceipt`, source hash verifier, Question link.
 - Produces: `EvidenceReference { snapshotId;fileId;unitId;fileSha256;unitSha256;role;facetIds }`; `EvidencePacket { id;questionId;version;references;receiptId;limits }`; `EvidenceService.appendPacket(input)` and `.verifyReferences(packetId)`.
 
@@ -747,6 +885,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-21-01
 
 **Files:**
+
 - Create: `code/domain/ingest/evidence-verdict.ts`
 - Create: `code/ingest/knowledge/evidence-verdict-service.ts`
 - Create: `code/ingest/knowledge/evidence-verdict-service.test.ts`
@@ -754,6 +893,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/knowledge/evidence-verdict-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: verified `EvidencePacket`.
 - Produces: `ReferenceClass = "material"|"supporting"|"irrelevant"|"obsolete"|"conflicting"`; `FacetState = "satisfied"|"unsatisfied"|"uncertain"`; `EvidenceVerdictState = "refine"|"accepted"|"no_supported_answer"|"search_incomplete"|"contradiction"`; append-only `EvidenceVerdict` and `EvidenceVerdictService.apply`.
 
@@ -769,12 +909,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-21-02
 
 **Files:**
+
 - Create: `code/ingest/knowledge/evidence-loop-policy.ts`
 - Create: `code/ingest/knowledge/evidence-loop-policy.test.ts`
 - Modify: `code/ingest/knowledge/index.ts`
 - Test: `code/ingest/knowledge/evidence-loop-policy.test.ts`
 
 **Interfaces:**
+
 - Consumes: ordered packets/verdicts and policy budget.
 - Produces: `evaluateEvidenceLoop(history, budget): "continue" | "search_incomplete" | "human_action"`; novelty key over query, filters, and requested facet.
 
@@ -790,6 +932,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-21-03
 
 **Files:**
+
 - Create: `code/domain/ingest/claim.ts`
 - Create: `code/ingest/knowledge/claim-repository.ts`
 - Create: `code/ingest/knowledge/claim-repository.test.ts`
@@ -797,6 +940,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/knowledge/claim-repository.test.ts`
 
 **Interfaces:**
+
 - Consumes: verified evidence references, Git-authoritative repository writer.
 - Produces: `ClaimState = "proposed"|"accepted"|"disputed"|"stale"|"superseded"`; `Claim { id;text;type;scope;authority;lifecycle;state;evidence;relationships;version }`; `ClaimRepository.create/read/list/transition` using `ingest/claims/<claim-id>.json`.
 
@@ -812,12 +956,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-22-01
 
 **Files:**
+
 - Create: `code/ingest/knowledge/claim-candidates.ts`
 - Create: `code/ingest/knowledge/claim-candidates.test.ts`
 - Modify: `code/ingest/knowledge/index.ts`
 - Test: `code/ingest/knowledge/claim-candidates.test.ts`
 
 **Interfaces:**
+
 - Consumes: claims and MiniSearch as disposable candidate index.
 - Produces: `ClaimCandidate { left;right;relation:"equivalent"|"variant"|"broader"|"narrower"|"contradiction";signals:{text;scope;type;evidenceOverlap};score }`; `findClaimCandidates(claim, limit): readonly ClaimCandidate[]`.
 
@@ -833,6 +979,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-22-02
 
 **Files:**
+
 - Create: `code/domain/ingest/claim-review.ts`
 - Create: `code/ingest/knowledge/claim-review-service.ts`
 - Create: `code/ingest/knowledge/claim-review-service.test.ts`
@@ -840,6 +987,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/knowledge/claim-review-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: proposed claim, `ClaimReview { reviewerRunId;claimId;decision:"accept"|"reject"|"qualify"|"split";... }`, idempotency key.
 - Produces: `ClaimReviewService.apply(review, key): Promise<ClaimReviewApplication>` including accepted/rejected/split claim IDs and provenance links.
 
@@ -852,9 +1000,10 @@ export interface AuthorisedReplayDeletion {
 
 **IDs:** Backlog `P2.M2.E4.T001`; bundle `T-23-01`
 
-**Depends on:** T-20-03, T-21-03, T-22-03
+**Depends on:** WP-20 integration remediation (`P2.M2.E1.T004`), T-21-03, T-22-03
 
 **Files:**
+
 - Create: `code/domain/ingest/graph-event.ts`
 - Create: `code/ingest/gateway/graph-gateway.ts`
 - Create: `code/ingest/gateway/graph-gateway.test.ts`
@@ -863,11 +1012,12 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/gateway/graph-gateway.test.ts`
 
 **Interfaces:**
+
 - Consumes: validated entity commands and injected atomic event writer.
 - Produces: `GraphGateway.apply(command:{expectedRevision:GraphRevision;idempotencyKey:string;operations:readonly GraphOperation[]}): Promise<IngestResult<GraphCommit,"STALE_REVISION"|"INVALID_EDGE"|"MISSING_ENTITY">>`.
 
-- [ ] **Red:** two writes at revision 4 cause one success/one stale result; same idempotency key returns one commit; invalid entity/edge fails without event. Run targeted Vitest. **Expected failure:** gateway missing.
-- [ ] **Green:** lock the logical graph, validate all operations, append one event, atomically advance revision, and return prior result for retries.
+- [ ] **Red:** two writes at revision 4 cause one success/one stale result; same idempotency key returns one commit; invalid entity/edge fails without event. Add authoritative generated-branch cases: caller-supplied/fabricated link, obligation, admitted-wording, or lexical facts cannot override repository state; rejected admission writes no question/link/obligation/event; a successful command atomically creates the canonical generated QuestionRecord, its `IngestionQuestionLink`, exactly one self-owned unresolved `CoverageObligation`, and one graph commit; concurrent/restarted retries expose either the whole prior result or no branch, never partial state. Run targeted Vitest. **Expected failure:** gateway missing.
+- [ ] **Green:** lock the logical graph, reread authoritative question-link/obligation/admitted-wording state inside the transaction, assess the proposal, validate all operations, atomically create the generated question+link+obligation with one graph event, advance revision, and return the prior complete result for idempotent retries. Lower-level repositories/services remain infrastructure, not an automatic-branch entry point; human question creation remains on the canonical lifecycle path.
 - [ ] **Pass:** targeted Vitest passes.
 - [ ] **Commit:** `git commit -m "feat(ingest): serialise graph mutations"`.
 
@@ -878,12 +1028,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-23-01
 
 **Files:**
+
 - Create: `code/ingest/gateway/dependency-graph.ts`
 - Create: `code/ingest/gateway/dependency-graph.test.ts`
 - Modify: `code/ingest/gateway/index.ts`
 - Test: `code/ingest/gateway/dependency-graph.test.ts`
 
 **Interfaces:**
+
 - Consumes: graph events with source→evidence→claim→answer/document edges.
 - Produces: `DependencyGraph.dependenciesOf(id): readonly string[]`, `.condensed(): readonly StrongComponent[]`, `.readiness(id): IngestResult<"ready","MISSING_DEPENDENCY">`.
 
@@ -899,12 +1051,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-23-02
 
 **Files:**
+
 - Create: `code/ingest/gateway/invalidation-service.ts`
 - Create: `code/ingest/gateway/invalidation-service.test.ts`
 - Modify: `code/ingest/gateway/index.ts`
 - Test: `code/ingest/gateway/invalidation-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: dependency graph and mutation event.
 - Produces: `InvalidationService.plan(event): InvalidationPlan { roots;stalePacketIds;staleClaimIds;staleCompositionIds;staleDocumentIds;staleFixtureIds;staleCertificateIds }`; `.apply(plan,key): GraphCommit`.
 
@@ -924,6 +1078,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-12-03, T-13-02, T-21-03, T-02-03
 
 **Files:**
+
 - Create: `code/ingest/agents/researcher-tools.ts`
 - Create: `code/ingest/agents/researcher-tools.test.ts`
 - Create: `code/ingest/agents/index.ts`
@@ -931,6 +1086,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/agents/researcher-tools.test.ts`
 
 **Interfaces:**
+
 - Consumes: exact map, lexical retrieval, policy gate, graph follow, authority lookup.
 - Produces: `ResearcherTools = { exactLookup; lexicalSearch; openUnit; followLinks; authoritySearch }`; every result includes `ToolReceipt {snapshotId,indexVersion,filters,candidateIds,selectedIds}`; no tool accepts instructions from source text.
 
@@ -946,6 +1102,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-30-01
 
 **Files:**
+
 - Create: `scaffold/agents/researcher/{agent.md,schema.json,fixtures/valid.json,fixtures/invalid-answer.json,fixtures/invalid-child.json}`
 - Create: `code/ingest/agents/researcher-agent.ts`
 - Create: `code/ingest/agents/researcher-agent.test.ts`
@@ -953,6 +1110,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/agents/researcher-agent.test.ts`
 
 **Interfaces:**
+
 - Consumes: question/facets, `ResearcherTools`, fresh provider call through existing agent runtime.
 - Produces: `ResearcherProposal { questionId;packet:{references;facetSupport;limits};receiptIds;outcome:"packet"|"no_evidence" }`; `runResearcher(input): Promise<ResearcherProposal>`.
 
@@ -968,12 +1126,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-30-02; **no downstream task may depend on this task**
 
 **Files:**
+
 - Create: `code/integration/researcher-calibration.ts`
 - Create: `code/integration/researcher-calibration.test.ts`
 - Create: `docs/engineering/researcher-retrieval-profile.md`
 - Test: `code/integration/researcher-calibration.test.ts`
 
 **Interfaces:**
+
 - Consumes: cached-disabled tiny/small Researcher fixture outputs.
 - Produces: `RetrievalProfile { maxCandidates;maxOpenedUnits;queryExpansion;rerank:false;version }` and report by question type.
 
@@ -989,6 +1149,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-21-03, T-30-02, T-02-03 (not T-30-03)
 
 **Files:**
+
 - Create: `scaffold/agents/evidence-critic/{agent.md,schema.json,fixtures/valid.json,fixtures/invalid-child.json}`
 - Create: `code/ingest/agents/evidence-critic-agent.ts`
 - Create: `code/ingest/agents/evidence-critic-agent.test.ts`
@@ -996,6 +1157,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/agents/evidence-critic-agent.test.ts`
 
 **Interfaces:**
+
 - Consumes: verbatim question/facets, packet references, only `open_reference(referenceId): Promise<BoundedReferenceView>`, fresh provider call.
 - Produces: `EvidenceCriticProposal { referenceClassifications;facetStates;verdict;refinement?;depthFindings? }`; explicitly no child-question field.
 
@@ -1011,11 +1173,13 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-31-01
 
 **Files:**
+
 - Create: `scaffold/agents/evidence-critic/fixtures/{partial,irrelevant,redundant,wrong-scope,deprecation,conflict,no-evidence,prompt-injection}.json`
 - Create: `code/integration/evidence-critic-fixtures.test.ts`
 - Test: `code/integration/evidence-critic-fixtures.test.ts`
 
 **Interfaces:**
+
 - Consumes: Evidence Critic public agent seam and deterministic fake cases.
 - Produces: versioned regression cases and `EvidenceCriticThresholds { weakPacketAcceptance:0; completeMinimalAcceptance:1; injectionRoleChanges:0 }`.
 
@@ -1031,12 +1195,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-31-02; **no downstream task may depend on this task**
 
 **Files:**
+
 - Create: `code/integration/evidence-role-ablation.ts`
 - Create: `code/integration/evidence-role-ablation.test.ts`
 - Create: `docs/engineering/evidence-role-ablation.md`
 - Test: `code/integration/evidence-role-ablation.test.ts`
 
 **Interfaces:**
+
 - Consumes: recorded split-role and combined-baseline fixture result JSON.
 - Produces: `AblationResult { falseAcceptance;refinementQuality;branchFactor;costAud;outputStability;decision:"retain-split"|"revisit" }`.
 
@@ -1052,6 +1218,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-22-03, T-31-02
 
 **Files:**
+
 - Create: `scaffold/agents/claim-extractor/{agent.md,schema.json,fixtures/valid.json,fixtures/invalid-generalisation.json}`
 - Create: `code/ingest/agents/claim-extractor-agent.ts`
 - Create: `code/ingest/agents/claim-extractor-agent.test.ts`
@@ -1059,6 +1226,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/agents/claim-extractor-agent.test.ts`
 
 **Interfaces:**
+
 - Consumes: accepted evidence verdict/packet only; claim candidate read results.
 - Produces: `ClaimProposal { text;type;scope;authority;lifecycle;evidenceReferenceIds;candidateRelationships }[]`; no state/ID/write authority.
 
@@ -1074,6 +1242,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-32-01
 
 **Files:**
+
 - Create: `scaffold/agents/claim-reviewer/{agent.md,schema.json,fixtures/valid.json,fixtures/reject-overbroad.json,fixtures/split.json}`
 - Create: `code/ingest/agents/claim-reviewer-agent.ts`
 - Create: `code/ingest/agents/claim-reviewer-agent.test.ts`
@@ -1081,6 +1250,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/agents/claim-reviewer-agent.test.ts`
 
 **Interfaces:**
+
 - Consumes: proposed claim, exact evidence text, relationship candidates, fresh provider call; never extractor transcript/context.
 - Produces: `ClaimReviewProposal { decision;entailment;atomicity;scope;qualifiers;authorityEligible;splits? }`, applied only by ClaimReviewService.
 
@@ -1096,12 +1266,14 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-32-02
 
 **Files:**
+
 - Create: `code/integration/claim-granularity.test.ts`
 - Create: `code/integration/fixtures/claim-granularity.json`
 - Create: `docs/engineering/claim-granularity-guide.md`
 - Test: `code/integration/claim-granularity.test.ts`
 
 **Interfaces:**
+
 - Consumes: reviewed pilot claims and two-question reuse labels.
 - Produces: `ClaimGranularityMetrics { reuseRate;fragmentationRate;reviewerAgreement }` and normative rules for procedures/preconditions/interface ordering.
 
@@ -1117,6 +1289,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-22-03, T-23-03, T-31-02, T-32-02 (not T-31-03)
 
 **Files:**
+
 - Create: `code/domain/ingest/sealed-claim-pack.ts`
 - Create: `code/ingest/knowledge/claim-pack-service.ts`
 - Create: `code/ingest/knowledge/claim-pack-service.test.ts`
@@ -1124,6 +1297,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/knowledge/claim-pack-service.test.ts`
 
 **Interfaces:**
+
 - Consumes: accepted ClaimReview applications, dependency graph revision, question goals/facets.
 - Produces: `SealedClaimPack { hash:Sha256;questionId;graphRevision;claimIds;claims;qualifierEdges;citations;gaps }`; `ClaimPackService.build(questionId, revision): IngestResult<SealedClaimPack,"UNACCEPTED_CLAIM"|"STALE_CLAIM"|"MISSING_QUALIFIER">`.
 
@@ -1139,6 +1313,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-60-01
 
 **Files:**
+
 - Create: `code/domain/ingest/answer-composition.ts`
 - Create: `scaffold/agents/answer-composer/{agent.md,schema.json,fixtures/valid.json,fixtures/insufficient.json,fixtures/invalid-unmapped.json}`
 - Create: `code/ingest/agents/answer-composer-agent.ts`
@@ -1147,6 +1322,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/ingest/agents/answer-composer-agent.test.ts`
 
 **Interfaces:**
+
 - Consumes: `SealedClaimPack`, question goals; no retrieval/open-source tools.
 - Produces: `AnswerComposition { id;questionId;claimPackHash;graphRevision;answer;claimOrder;sentenceClaims;citations;goalCoverage;limitations;state:"proposed"|"insufficient_pack" }`; explicit `StructuredAnswerCompatibility.readQuestionContext(questionId)` read-only adapter.
 
@@ -1162,6 +1338,7 @@ export interface AuthorisedReplayDeletion {
 **Depends on:** T-60-02, T-32-03
 
 **Files:**
+
 - Create: `code/ingest/knowledge/answer-validity.ts`
 - Create: `code/ingest/knowledge/answer-validity.test.ts`
 - Create: `code/integration/automatic-ingestion-r1.test.ts`
@@ -1171,6 +1348,7 @@ export interface AuthorisedReplayDeletion {
 - Test: `code/integration/automatic-ingestion-r1.test.ts`
 
 **Interfaces:**
+
 - Consumes: `AnswerComposition`, sealed pack, current graph revision, source/claim hashes, tiny/small fixture runner.
 - Produces: `reviewAnswerComposition(input): AnswerValidity { promotable;unsupportedSentenceIds;staleDependencies;revisionMatch }`; R1 acceptance result covering AS-01..AS-04 with cache disabled.
 
