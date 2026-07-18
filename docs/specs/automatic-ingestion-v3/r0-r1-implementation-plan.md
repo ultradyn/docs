@@ -1,76 +1,1196 @@
 # Automatic Ingestion v3 — R0/R1 Implementation Plan
 
-Scope: bundle milestones M0–M3 (backlog phases P1–P2; 47 atomic tasks). Written before any implementation per the locked process (DESIGN.md §8). Execution truth is the backlog; this plan tells implementers HOW, in repo terms. Elaboration rule: Wave 1 (M0) is planned to task granularity here; M1–M3 sections are planned to contract granularity and are elaborated to task granularity at each milestone gate, appended to this document in the same format.
+> **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-## Ground rules (apply to every task)
+**Goal:** Deliver the R0 laboratory and R1 evidence-core vertical slice for automatic ingestion: immutable source capture, deterministic structural retrieval, evidence and claim records, isolated agent evaluation, and claim-only answer composition over the tiny and small corpora.
 
-- Worktree per slice under `.worktrees/`; `bl claim` **in the main checkout** (bl refuses mutations from worktrees) → commit claim → worktree from the claim tip → implement → parent review → merge → `bl done` in the main checkout.
-- TDD at pre-agreed seams only. New seams MUST be proposed in `docs/engineering/tdd-seams.md` in the same change that first tests them; never mock internal modules.
-- `pnpm check` green before any merge. Limit builds/tests to 2 threads.
-- Deterministic services own IDs/writes/state; agents only propose (ADR 0001/0005). Nothing under `docs/specs/automatic-ingestion-v3/source-bundle/` is imported at runtime (N8).
-- Every commit body references its backlog ID and bundle task ID.
+**Architecture:** `code/ingest/` is one deep production module whose public surface is `code/ingest/index.ts`; deterministic services own identifiers, validation, filesystem writes, transitions, idempotency, and Git-authoritative logical records. Ingestion records are orthogonal to the canonical `QuestionRecord`: they reference questions but never introduce a competing question lifecycle. Machine indexes, run events, leases, and replay bytes remain local; portable accepted records remain diff-friendly Git files.
 
-## Module layout (fixed for R0/R1)
+**Tech stack:** TypeScript/ESM, Node 22/24, pnpm, Vitest, Zod, MiniSearch, Fastify-era repository/provider conventions, deterministic fakes, Git-backed portable state.
 
-- `code/ingest/` — new deep module, one public `index.ts`; submodules `source/` (snapshot, extraction, units), `retrieval/`, `knowledge/` (question-mapping, obligation, evidence, claim), `gateway/` (graph/validity), `policy/`.
-- `code/domain/ingest/` — record contracts (Zod-first; see D-dialect below) + `registerIngestSchemas()` called from the single existing registration point in `code/domain/schemas.ts` (one hot-file edit, batched task).
-- `scaffold/agents/<researcher|evidence-critic|claim-extractor|claim-reviewer|answer-composer>/` — `agent.md` + `schema.json` + paired fixtures, curated adaptations of the bundle YAML (never direct imports).
-- `tests/` colocated per repo convention; corpus lab fixtures under `code/integration/fixtures/ingest-corpus/{tiny,small}/`.
+## Global constraints
 
-**D-dialect decision (N7, taken now):** contracts are authored in Zod (repo-native) as the source of truth; JSON-Schema is emitted for portable validation via the existing portable-schema validator. E-01 includes dialect fixtures proving Draft-2020-12 rejection cases behave identically in the emitted schemas. If emission proves lossy for a construct, fall back per-record to Ajv2020 with an ADR note — do not silently mix dialects.
+- Work in a claimed task worktree under `.worktrees/`; each numbered task is one reviewer-sized red→green slice and one commit.
+- Use only agreed seams from `docs/engineering/tdd-seams.md`. Add the five ingestion seams in T-00-02 before testing them: source custody, source representation, ingestion knowledge repository, ingestion graph gateway, and ingestion fixture runner. Test public exports; never mock an internal module.
+- Limit Vitest to two workers: `pnpm exec vitest run <path> --maxWorkers=2 --minWorkers=1`. Run `VITEST_MAX_THREADS=2 pnpm check` after each milestone and before handoff.
+- The preserved `docs/specs/automatic-ingestion-v3/source-bundle/` is inert, byte-preserved provenance. Production code and curated fixtures must not import, read, glob, copy, or dynamically load it.
+- `QuestionRecord.state` in `question.md` is the only question lifecycle. `IngestionQuestionLink`, `CoverageObligation`, evidence, claims, graph events, and compositions are orthogonal records.
+- Raw artifacts and replay capsules are append-only. T-10-03 deliberately implements seal/verify/export/retention and mutation/deletion rejection; no erase/purge implementation may begin until a new ADR reconciles authorised custody deletion with ADR-0001.
+- IDs, hashes, writes, priority precedence, lifecycle transitions, and idempotency belong to deterministic services. Agents return schema-validated proposals only.
+- Every evaluator invocation uses a fresh provider call. Evidence Critic cannot propose child questions. Claim Reviewer cannot reuse Claim Extractor context. Answer Composer receives a sealed claim pack and has no retrieval tools.
+- `AnswerComposition` is distinct from transcript-derived `answers/structured.md`; compatibility is read-only and explicit.
+- Later publication must reuse the existing change-request manager and its actual-diff Reviewer, diff-only Diff Summarizer, and post-diff Simulated Asker. R0/R1 creates no second publication/worktree subsystem.
+- T-12-04, T-30-03, and T-31-03 are optional, non-gating experiments. No core task consumes their outputs.
+- A deletion-capable API, vectors in production, SQLite, B/C/D-tier extraction, and direct source-bundle loading are outside R0/R1.
 
-## Wave 1 — M0 (parallel slices; zero shared files except the named batch task)
+## Fixed public type vocabulary
 
-### E-01 Schema and validation toolchain (slice S2; owner A)
+These names are introduced by the tasks below and must not drift:
 
-1. **T-01-01 record-contract port (first tranche: source plane).** Files: `code/domain/ingest/{source-snapshot,source-file,source-unit,search-receipt}.ts` + tests. RED: fixture-driven parse/reject tests from `source-bundle/examples/records/*.yaml` (valid) plus mutated invalids (wrong hash length, missing required, extra property — `additionalProperties:false` parity). GREEN: Zod contracts. Verify: examples parse byte-faithfully.
-2. **T-01-02 second tranche (knowledge plane):** question-mapping (N6: system-actor + provenance mapping type, NOT the bundle Question schema), coverage-obligation (C11: explicit `deferred` disposition decision — add `deferred` to the disposition union, with tests proving deferred neither satisfies closure nor blocks), evidence-packet, evidence-verdict, claim, claim-review, answer-composition (C15 distinct record + adapter test against `answers/structured.md` fixtures).
-3. **T-01-03 validation harness:** `registerIngestSchemas()` + emitted JSON-Schema round-trip + dialect fixtures (N7) + `pnpm check` wiring.
-4. **T-01-04 policy-profile contract (N3):** minimal profile shape + validation + fixture; unblocks WP-10 preflight and WP-13.
+```ts
+export type Sha256 = string & { readonly __sha256: unique symbol };
+export type SnapshotId = string & { readonly __snapshotId: unique symbol };
+export type SourceFileId = string & { readonly __sourceFileId: unique symbol };
+export type SourceUnitId = string & { readonly __sourceUnitId: unique symbol };
+export type QuestionId = string & { readonly __questionId: unique symbol };
+export type ObligationId = string & { readonly __obligationId: unique symbol };
+export type EvidencePacketId = string & { readonly __packetId: unique symbol };
+export type ClaimId = string & { readonly __claimId: unique symbol };
+export type GraphRevision = number & { readonly __graphRevision: unique symbol };
+export type IngestResult<T, C extends string> =
+  | { ok: true; value: T }
+  | { ok: false; code: C; message: string };
+```
 
-### E-02 Eval baseline and corpus lab (slice S3; owner B)
+All task-level interfaces below are exported from the named module `index.ts` and re-exported only from `code/ingest/index.ts` or `code/domain/ingest/index.ts`.
 
-1. **T-02-01 corpus import:** curate `tiny` corpus from `source-bundle/examples/source-corpus/` (copied as fixtures — allowed: fixtures are curated adaptations, tagged with provenance) + author `small` corpus from this repo's own docs subset.
-2. **T-02-02 labeled expectations:** per-corpus expected units/questions/claims as fixtures.
-3. **T-02-03 fixture runner:** vitest harness that replays labeled corpora against (initially absent) services and reports coverage; wired into `pnpm check` as a non-blocking report until M1 lands.
+---
 
-### E-00 Architecture baseline (docs residue; folded into S1/parent)
+## R0 / M0 — contracts and laboratory
 
-1. **T-00-01 decision log:** already materially done by DESIGN.md/ADR 0005-0006; task closes by linking them + porting the two most load-bearing diagrams (.mmd) into `docs/architecture.md` with Ultradyn Docs names.
-2. **T-00-02/03:** completion predicate + deferred-features register cross-check against IDEA_REGISTER; outputs land in DESIGN.md addenda.
+### Task T-00-01: Approve and machine-check the v3 architecture baseline
 
-**Shared-file batch task:** the single `code/domain/schemas.ts` registration edit + any `vitest.config.ts`/`pnpm check` wiring happens once, in E-01 T-01-03, after S2/S3 content lands. S3 must not touch those files.
+**IDs:** Backlog `P1.M1.E1.T001`; bundle `T-00-01`
 
-## M1 — Deterministic source plane (contract granularity)
+**Depends on:** none
 
-- **WP-10 intake:** `SourceSnapshotService.create/verify_replay` per `source-bundle/16-runtime-interfaces.md` §1; content-addressed replay capsule in the machine-local data dir (append-only; raw custody per ADR 0001). Preflight (T-10-01) consumes the N3 policy-profile contract; rejects traversal/link-escape/decompression-bomb before extraction (FR-SRC-004) — reuse the repo's existing no-follow/symlink-rejection primitives from the audio/raw-artifact path rather than new ones.
-- **WP-11 extraction:** A-tier Markdown/text only (D3); representation audit (T-11-02) is the dependency for unitization (N4), repair path (T-11-03) creates new immutable representations.
-- **WP-12 units/retrieval:** structural parser → `SourceUnit` records; exact maps/aliases; MiniSearch lexical index with SEARCH RECEIPTS. N5: this is new behavior — do not extend `code/server/retrieval.ts`; build `code/ingest/retrieval/` and leave existing product retrieval untouched. Service failure ≠ corpus absence (FR-RET-005) is a named test.
-- **WP-13 policy:** full profile enforcement at retrieval/model boundaries (dep: lexical retrieval, N4) + secret/PII scan hooks.
-- Seams to propose in `docs/engineering/tdd-seams.md` at M1 start: snapshot store, extractor, unit parser, retrieval index, policy gate.
+**Files:**
+- Create: `docs/architecture/automatic-ingestion-v3.md`
+- Create: `code/integration/ingest-architecture.test.ts`
+- Modify: `docs/architecture.md`
+- Test: `code/integration/ingest-architecture.test.ts`
 
-## M2 — Knowledge core (contract granularity)
+**Interfaces:**
+- Consumes: ADR-0001 canonical lifecycle/raw immutability, ADR-0002 Git/local split, ADR-0005 ingestion adoption, ADR-0006 ledger precedence.
+- Produces: normative headings `Authority boundaries`, `Agent isolation`, `Completion predicate`, and `Deferred activation`; architecture test helper `readArchitecture(): Promise<string>` local to the test.
 
-- **WP-20 questions/obligations:** ingestion-lane question mapping keeps `question.md.state` canonical (C9/C13); obligations with the C11 `deferred` semantics; system-actor provenance (N6).
-- **WP-21 evidence:** packet + verdict stores, idempotency keys, versioned refinement requests.
-- **WP-22 claims:** one file per claim (D10) in the Git-authoritative layout; proposed/accepted separation (FR-CLM-004/005).
-- **WP-23 gateway:** `graph.apply` with expected version + idempotency key; validity checks; projections via filesystem/durable-cursor behind the projection interface (D4). Agents never touch files directly.
+- [ ] **Red:** add a test which reads the addendum and asserts it states: canonical `QuestionRecord.state`; orthogonal ingestion records; inert source bundle; deterministic writes; fresh Evidence Critic and Claim Reviewer calls; distinct `AnswerComposition`; existing change-request manager reuse. Run `pnpm exec vitest run code/integration/ingest-architecture.test.ts --maxWorkers=2 --minWorkers=1`. **Expected failure:** `ENOENT ... docs/architecture/automatic-ingestion-v3.md`.
+- [ ] **Green:** create the addendum and link it from `docs/architecture.md`; include this exact completion rule:
 
-## M3 — Measured vertical slice (contract granularity)
+```md
+A question is never complete because ingestion exhausted a search. Completion remains a canonical QuestionRecord transition and is blocked by any active P1 contradiction. Accepted claims and answer compositions are evidence products, not lifecycle authorities.
+```
 
-- **WP-30 Researcher / WP-31 Evidence Critic / WP-32 Extractor+Reviewer:** scaffold agent definitions + input policies in `code/agents/runtime.ts` conventions; Critic gets only `open_reference` + bounded context (16 §2); role split enforced by output schemas (no child proposals in Critic output — schema test). Optional calibration/ablation tasks (T-30-03/T-31-03) are tagged optional and never block (N2).
-- **WP-60 answer composition:** sealed claim-pack builder (deps: accepted claim reviews — N1), Answer Composer with NO retrieval tools (FR-ANS-001), citation/validity review. `AnswerComposition` record distinct from Structured answer (C15).
-- **M3 exit = R1 internal release gate:** AS-01..AS-04 acceptance scenarios pass on tiny+small corpora with zero-cache replay; fixture runner from E-02 flips to blocking in `pnpm check`.
+- [ ] **Pass:** run the same Vitest command; expect `1 passed` and no source-bundle access.
+- [ ] **Commit:** `git commit -m "docs(ingest): define v3 architecture baseline"`.
 
-## Verification protocol (every wave)
+### Task T-00-02: Define repository conventions and agreed ingestion seams
 
-1. `pnpm check` (2 threads).
-2. `python3 docs/specs/automatic-ingestion-v3/source-bundle/tools/validate_bundle.py` still passes (bundle untouched).
-3. `backlog check` clean; claimed/done states match reality.
-4. Milestone gates additionally run the labeled-corpus fixture report and require the bundle's per-WP acceptance gates (cited in each task body).
+**IDs:** Backlog `P1.M1.E1.T002`; bundle `T-00-02`
+
+**Depends on:** T-00-01
+
+**Files:**
+- Modify: `docs/architecture/automatic-ingestion-v3.md`
+- Modify: `docs/engineering/tdd-seams.md`
+- Modify: `code/integration/ingest-architecture.test.ts`
+- Test: `code/integration/ingest-architecture.test.ts`
+
+**Interfaces:**
+- Consumes: existing `Knowledge repository`, `Raw artifact store`, `Provider contract`, `Agent runtime`, and `Change request` seams.
+- Produces: agreed seams `Source custody`, `Source representation`, `Ingestion knowledge repository`, `Ingestion graph gateway`, `Ingestion fixture runner`; fixed roots `sources/snapshots/`, `ingest/claims/`, `.ultradyn/runtime/ingest/`.
+
+- [ ] **Red:** extend the architecture test to require all five seam rows and explicit Git/local/append-only classifications. Run the targeted Vitest command. **Expected failure:** assertion reports missing `Source custody`.
+- [ ] **Green:** add the five rows to `docs/engineering/tdd-seams.md`; document that canonical logical records are one-file-per-record, replay bytes/events/indexes are local, IDs are content-derived or injected deterministic `IdGenerator.next(kind): string`, and queue folders remain projections.
+- [ ] **Pass:** run the targeted Vitest command; expect all assertions to pass.
+- [ ] **Commit:** `git commit -m "docs(ingest): agree repository seams and paths"`.
+
+### Task T-00-03: Define decision-change and agent-contract review rules
+
+**IDs:** Backlog `P1.M1.E1.T003`; bundle `T-00-03`
+
+**Depends on:** T-00-02
+
+**Files:**
+- Create: `docs/engineering/ingestion-change-control.md`
+- Modify: `code/integration/ingest-architecture.test.ts`
+- Test: `code/integration/ingest-architecture.test.ts`
+
+**Interfaces:**
+- Consumes: repository change-request seam and deterministic agent fixtures.
+- Produces: `IngestionChangeClass = "schema" | "workflow" | "agent" | "policy" | "architecture"`; review matrix requiring migration impact, paired valid/invalid fixtures, and fresh-context verification.
+
+- [ ] **Red:** test that every `IngestionChangeClass` appears with required fixture, migration, and reviewer fields, and that architecture/policy changes name an ADR gate. Run the targeted Vitest command. **Expected failure:** `ENOENT ... ingestion-change-control.md`.
+- [ ] **Green:** author the review matrix and state that the existing change-request manager creates the actual diff and evaluation lane; no ingestion-specific branch manager is permitted.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "docs(ingest): define decision change control"`.
+
+### Task T-01-01: Implement the curated ingestion schema registry
+
+**IDs:** Backlog `P1.M1.E2.T001`; bundle `T-01-01`
+
+**Depends on:** T-00-03
+
+**Files:**
+- Create: `code/domain/ingest/types.ts`
+- Create: `code/domain/ingest/schemas.ts`
+- Create: `code/domain/ingest/schema-registry.ts`
+- Create: `code/domain/ingest/index.ts`
+- Create: `code/domain/ingest/schema-registry.test.ts`
+- Modify: `code/domain/schemas.ts`
+- Test: `code/domain/ingest/schema-registry.test.ts`
+
+**Interfaces:**
+- Consumes: Zod and the existing portable schema-validation surface in `code/domain/schemas.ts`.
+- Produces: `IngestSchemaName`, `IngestSchemaRegistry.get(name, version): z.ZodType`, `validateIngestRecord<T>(name, version, input): IngestResult<T, "UNKNOWN_SCHEMA" | "INVALID_RECORD">`, `registerIngestSchemas(): void`, plus branded IDs from the fixed vocabulary.
+
+- [ ] **Red:** test valid minimal records, a 63-character digest, an extra property, unknown version `2`, and error path `files.0.sha256`. Run `pnpm exec vitest run code/domain/ingest/schema-registry.test.ts --maxWorkers=2 --minWorkers=1`. **Expected failure:** module resolution fails for `./schema-registry.js`.
+- [ ] **Green:** implement a closed registry and exact-object Zod schemas:
+
+```ts
+export type IngestSchemaName =
+  | "PolicyProfile" | "SourceSnapshot" | "SourceFile" | "SourceUnit"
+  | "SearchReceipt" | "IngestionQuestionLink" | "CoverageObligation"
+  | "EvidencePacket" | "EvidenceVerdict" | "Claim" | "ClaimReview"
+  | "GraphEvent" | "SealedClaimPack" | "AnswerComposition";
+export interface IngestSchemaRegistry {
+  get(name: IngestSchemaName, version: 1): z.ZodType;
+}
+```
+
+Register only curated repo-native schemas; do not enumerate or parse the preserved bundle.
+- [ ] **Pass:** targeted Vitest passes; then `VITEST_MAX_THREADS=2 pnpm check` passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): add curated schema registry"`.
+
+### Task T-01-02: Validate agent and workflow manifests
+
+**IDs:** Backlog `P1.M1.E2.T002`; bundle `T-01-02`
+
+**Depends on:** T-01-01
+
+**Files:**
+- Create: `code/agents/ingest-manifest.ts`
+- Create: `code/agents/ingest-manifest.test.ts`
+- Create: `scaffold/agents/ingest-workflow.schema.json`
+- Modify: `code/agents/index.ts`
+- Test: `code/agents/ingest-manifest.test.ts`
+
+**Interfaces:**
+- Consumes: `IngestSchemaRegistry`, existing agent definition loader and input-policy vocabulary.
+- Produces:
+
+```ts
+export type IngestAgentRole = "researcher" | "evidence-critic" | "claim-extractor" | "claim-reviewer" | "answer-composer";
+export interface IngestAgentManifest {
+  role: IngestAgentRole; outputSchema: string; tools: readonly string[];
+  freshContext: boolean; next: readonly string[];
+}
+export function validateIngestManifests(input: readonly IngestAgentManifest[]): IngestResult<true, "DANGLING_REFERENCE" | "EVALUATOR_NOT_FRESH" | "UNREACHABLE_STATE" | "TOOL_DENIED">;
+```
+
+- [ ] **Red:** test a dangling schema, `evidence-critic` with `freshContext:false`, Answer Composer with `source.search`, and a nonterminal state with no successor. Run targeted Vitest. **Expected failure:** `validateIngestManifests is not exported`.
+- [ ] **Green:** validate exact role allowlists; require fresh context for Evidence Critic and Claim Reviewer, and zero retrieval tools for Answer Composer.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(agents): validate ingestion manifests"`.
+
+### Task T-01-03: Implement the TypeScript bundle/link validator
+
+**IDs:** Backlog `P1.M1.E2.T003`; bundle `T-01-03`
+
+**Depends on:** T-01-02
+
+**Files:**
+- Create: `code/integration/ingest-bundle-validator.ts`
+- Create: `code/integration/ingest-bundle-validator.test.ts`
+- Create: `code/integration/fixtures/ingest-bundle/{valid,broken-link,cycle,committed-index}/`
+- Modify: `code/integration/index.ts`
+- Test: `code/integration/ingest-bundle-validator.test.ts`
+
+**Interfaces:**
+- Consumes: `validateIngestManifests`, portable schemas, injected `FileReader` system boundary.
+- Produces: `validateIngestBundle(root: string, io: FileReader): Promise<BundleValidationReport>` where `BundleValidationReport = { ok:boolean; schemaErrors:string[]; brokenLinks:string[]; cycles:string[][]; forbiddenArtifacts:string[] }`.
+
+- [ ] **Red:** assert a known valid curated fixture yields an exact report and the three invalid fixtures identify `missing.md`, `T-A -> T-B -> T-A`, and `.minisearch`. Run targeted Vitest. **Expected failure:** module resolution fails for `ingest-bundle-validator.js`.
+- [ ] **Green:** walk only the provided curated fixture root, sort paths/edges before reporting, reject binary/machine index suffixes, and never special-case the preserved source-bundle path.
+- [ ] **Pass:** targeted Vitest passes and two consecutive report serialisations are byte-identical.
+- [ ] **Commit:** `git commit -m "feat(ingest): validate curated bundles and links"`.
+
+### Task T-01-04: Define the minimal ingestion policy-profile contract (synthetic prerequisite)
+
+**IDs:** Backlog `P1.M1.E2.T004`; synthetic policy-contract task `T-01-04` (no bundle leaf)
+
+**Depends on:** T-01-01
+
+**Files:**
+- Create: `code/domain/ingest/policy-profile.ts`
+- Create: `code/domain/ingest/policy-profile.test.ts`
+- Create: `scaffold/schemas/ingest/policy-profile.schema.json`
+- Modify: `code/domain/ingest/schemas.ts`
+- Modify: `code/domain/ingest/index.ts`
+- Test: `code/domain/ingest/policy-profile.test.ts`
+
+**Interfaces:**
+- Consumes: schema registry.
+- Produces:
+
+```ts
+export type DataClass = "public" | "internal" | "confidential" | "prohibited";
+export interface PolicyProfile {
+  schemaVersion: 1; id: string; approved: boolean; dataClass: DataClass;
+  include: readonly string[]; exclude: readonly string[];
+  allowedMediaTypes: readonly string[]; maxFiles: number; maxFileBytes: number; maxExpandedBytes: number;
+}
+export const PolicyProfileSchema: z.ZodType<PolicyProfile>;
+```
+
+- [ ] **Red:** parse one approved fixture and reject `approved:false`, `prohibited`, negative limits, overlapping include/exclude literals, and unknown keys. Run targeted Vitest. **Expected failure:** `PolicyProfileSchema` import fails.
+- [ ] **Green:** implement strict validation and a refinement that reports `include/exclude overlap`; this contract authorises preflight only, not provider/storage/publication exposure.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): define preflight policy profile"`.
+
+### Task T-02-01: Build the tiny and small labelled corpora
+
+**IDs:** Backlog `P1.M1.E3.T001`; bundle `T-02-01`
+
+**Depends on:** T-01-03
+
+**Files:**
+- Create: `code/integration/fixtures/ingest-corpus/tiny/source/`
+- Create: `code/integration/fixtures/ingest-corpus/tiny/expected-graph.json`
+- Create: `code/integration/fixtures/ingest-corpus/small/source/`
+- Create: `code/integration/fixtures/ingest-corpus/small/expected-graph.json`
+- Create: `code/integration/ingest-corpus.test.ts`
+- Test: `code/integration/ingest-corpus.test.ts`
+
+**Interfaces:**
+- Consumes: curated examples and this repository’s documentation; no runtime source-bundle path.
+- Produces: `ExpectedCorpusGraph = { files; units; questions; claims; duplicates; contradictions; unsupportedQuestions }` with stable literal IDs/digests.
+
+- [ ] **Red:** test that tiny includes overview, procedure, deprecation, contradiction, disconnected note, duplicate, unsupported question, and a disposition for every expected unit; require small to contain at least 20 files and two reusable claims. Run targeted Vitest. **Expected failure:** fixture path does not exist.
+- [ ] **Green:** author both corpora and hand-labelled graphs; record provenance in fixture README files without importing preserved files at runtime.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "test(ingest): add labelled tiny and small corpora"`.
+
+### Task T-02-02: Define executable quality metrics and labelling rules
+
+**IDs:** Backlog `P1.M1.E3.T002`; bundle `T-02-02`
+
+**Depends on:** T-02-01
+
+**Files:**
+- Create: `code/integration/ingest-metrics.ts`
+- Create: `code/integration/ingest-metrics.test.ts`
+- Create: `docs/engineering/ingestion-labelling-guide.md`
+- Modify: `code/integration/index.ts`
+- Test: `code/integration/ingest-metrics.test.ts`
+
+**Interfaces:**
+- Consumes: `ExpectedCorpusGraph` and observed fixture outcomes.
+- Produces: `IngestMetrics = { evidenceRecall:number; evidencePrecision:number; falseNoEvidenceRate:number; claimEntailmentRate:number; falseMergeRate:number; contradictionRecall:number; sourceCoverage:number; answerSufficiency:number }`; `scoreIngestRun(expected, observed): IngestMetrics`.
+
+- [ ] **Red:** use a worked literal confusion matrix and assert exact fractions; assert answer sufficiency and source coverage differ. Run targeted Vitest. **Expected failure:** `scoreIngestRun` is missing.
+- [ ] **Green:** implement denominator-safe metric functions and document adjudication plus inter-rater disagreement resolution.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "test(ingest): define quality metrics and labels"`.
+
+### Task T-02-03: Build the versioned fixture runner and result store
+
+**IDs:** Backlog `P1.M1.E3.T003`; bundle `T-02-03`
+
+**Depends on:** T-02-02
+
+**Files:**
+- Create: `code/integration/ingest-fixture-runner.ts`
+- Create: `code/integration/ingest-fixture-runner.test.ts`
+- Create: `code/integration/fixtures/ingest-results/baseline.json`
+- Modify: `code/integration/index.ts`
+- Test: `code/integration/ingest-fixture-runner.test.ts`
+
+**Interfaces:**
+- Consumes: `scoreIngestRun`, injected public seam adapters, deterministic fake providers.
+- Produces:
+
+```ts
+export interface IngestFixtureVersions { model:string; prompt:string; tools:string; index:string; schemas:string }
+export interface IngestFixtureResult { corpus:"tiny"|"small"; versions:IngestFixtureVersions; cacheEnabled:false; metrics:IngestMetrics; decisiveDiffs:string[] }
+export function runIngestFixture(input: IngestFixtureInput): Promise<IngestFixtureResult>;
+```
+
+- [ ] **Red:** assert cache is disabled, versions are required, stable runs serialise identically, and changing one verdict reports its JSON pointer. Run targeted Vitest. **Expected failure:** runner module is missing.
+- [ ] **Green:** implement dependency injection at public seams, stable key ordering, and literal decisive-field comparison; absent M1 services return `not_implemented` results rather than passing.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "test(ingest): add deterministic fixture runner"`.
+
+---
+
+## R1 / M1 — deterministic source plane
+
+### Task T-10-01: Implement package preflight
+
+**IDs:** Backlog `P2.M1.E1.T001`; bundle `T-10-01`
+
+**Depends on:** T-01-04, T-02-03
+
+**Files:**
+- Create: `code/ingest/source/preflight.ts`
+- Create: `code/ingest/source/preflight.test.ts`
+- Create: `code/ingest/source/fixtures/{valid,traversal,symlink,bomb,prohibited}/`
+- Create: `code/ingest/source/index.ts`
+- Modify: `code/ingest/index.ts`
+- Test: `code/ingest/source/preflight.test.ts`
+
+**Interfaces:**
+- Consumes: `PolicyProfile`, injected `ArchiveReader` returning metadata without extraction.
+- Produces: `preflightPackage(input:{ archivePath:string; policy:PolicyProfile; archive:ArchiveReader }): Promise<IngestResult<PreflightManifest,"PATH_TRAVERSAL"|"LINK_ESCAPE"|"LIMIT_EXCEEDED"|"MEDIA_DENIED"|"POLICY_DENIED">>`; manifest entries include `{logicalPath,mediaType,size,included,reason}`.
+
+- [ ] **Red:** assert traversal, symlink, expanded-byte bomb, and prohibited content fail before `ArchiveReader.extract` is called; assert every included/excluded path is listed. Run targeted Vitest. **Expected failure:** preflight module missing.
+- [ ] **Green:** normalise POSIX paths, reject absolute/`..`/links, calculate counts and sizes from headers, classify every entry, and return a manifest only; do not extract bytes.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): preflight source packages"`.
+
+### Task T-10-02: Create immutable source snapshots
+
+**IDs:** Backlog `P2.M1.E1.T002`; bundle `T-10-02`
+
+**Depends on:** T-10-01
+
+**Files:**
+- Create: `code/domain/ingest/source-records.ts`
+- Create: `code/ingest/source/snapshot-service.ts`
+- Create: `code/ingest/source/snapshot-service.test.ts`
+- Modify: `code/domain/ingest/index.ts`
+- Modify: `code/ingest/source/index.ts`
+- Test: `code/ingest/source/snapshot-service.test.ts`
+
+**Interfaces:**
+- Consumes: successful `PreflightManifest`, injected append-only `RawArtifactStore`, `HashService`, and `IdGenerator`.
+- Produces: `SourceFile`, `SourceSnapshot`, and `SourceSnapshotService.create(input): Promise<IngestResult<SourceSnapshot,"DIGEST_MISMATCH"|"PARTIAL_WRITE"|"SNAPSHOT_CONFLICT">>`; `SourceSnapshotService.verify(id): Promise<ReplayReceipt>`.
+
+```ts
+export interface SourceSnapshot { schemaVersion:1; id:SnapshotId; packageSha256:Sha256; policyId:string; files:readonly SourceFile[]; qualified:true }
+export interface SourceFile { id:SourceFileId; snapshotId:SnapshotId; logicalPath:string; mediaType:string; size:number; sha256:Sha256 }
+```
+
+- [ ] **Red:** assert same package+policy returns the same snapshot, every digest is verified, and an injected third-file write failure leaves no qualified manifest. Run targeted Vitest. **Expected failure:** `SourceSnapshotService` missing.
+- [ ] **Green:** stage bytes under a transaction directory, hash while writing, fsync, atomically publish the manifest last, and derive idempotency from package digest plus policy id.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): create immutable source snapshots"`.
+
+### Task T-10-03: Seal and verify replay capsules without deletion
+
+**IDs:** Backlog `P2.M1.E1.T003`; bundle `T-10-03` (custody/replay portion only)
+
+**Depends on:** T-10-02
+
+**Files:**
+- Create: `code/ingest/source/replay-capsule.ts`
+- Create: `code/ingest/source/replay-capsule.test.ts`
+- Modify: `code/ingest/source/index.ts`
+- Test: `code/ingest/source/replay-capsule.test.ts`
+
+**Interfaces:**
+- Consumes: `SourceSnapshot`, append-only raw store.
+- Produces: `ReplayCapsuleStore.seal(snapshot): Promise<ReplayReceipt>`, `.verify(snapshotId): Promise<ReplayReceipt>`, `.export(snapshotId, destination): Promise<ReplayReceipt>`, `.retention(snapshotId): Promise<RetentionState>`; no deletion method.
+
+- [ ] **Red:** assert promotion rejects an unverified capsule, retained bytes replay after the upload fixture is removed, attempted overwrite/unlink returns `IMMUTABLE_RAW_ARTIFACT`, and the public type has no `delete`, `erase`, or `purge` member. Run targeted Vitest. **Expected failure:** replay-capsule module missing.
+- [ ] **Green:** seal a content-addressed capsule, verify all file hashes, export by copy+rehash, and expose retention metadata. Add a code comment naming the required future deletion ADR; do not add deletion-capable code or receipt types.
+- [ ] **Pass:** targeted Vitest passes. The bundle’s deletion-drill criterion remains explicitly deferred to the post-ADR release ledger and does not weaken R1 source recovery.
+- [ ] **Commit:** `git commit -m "feat(ingest): seal immutable replay capsules"`.
+
+### Task T-10-04: Define and implement authorised replay-capsule deletion (blocked; do not execute)
+
+**IDs:** Backlog `P2.M1.E1.T004`; synthetic C12 split from bundle `T-10-03` deletion/purge criteria
+
+**Depends on:** T-10-03 and acceptance of a new C12 source-custody deletion ADR. This task is blocked and no downstream task may depend on it.
+
+**Files (conditional after ADR acceptance):**
+- Create: `docs/adr/NNNN-source-custody-deletion.md`
+- Create: `code/ingest/source/replay-deletion.ts`
+- Create: `code/ingest/source/replay-deletion.test.ts`
+- Modify: `code/ingest/source/index.ts`
+- Test: `code/ingest/source/replay-deletion.test.ts`
+
+**Interfaces:**
+- Consumes: accepted C12 ADR, `ReplayCapsuleStore`, `InvalidationService.plan(event): InvalidationPlan`, authenticated `Actor`, and append-only portable history.
+- Produces only after ADR acceptance: `ReplayDeletionRequest { snapshotId:SnapshotId; actorId:string; reason:string; expectedCapsuleSha256:Sha256 }`; `ReplayDeletionReceipt { snapshotId:SnapshotId; capsuleSha256:Sha256; authorisedBy:string; deletedAt:string; invalidated:InvalidationPlan }`; `AuthorisedReplayDeletion.delete(request, actor): Promise<IngestResult<ReplayDeletionReceipt,"ADR_NOT_ACCEPTED"|"UNAUTHORISED"|"DIGEST_MISMATCH"|"DEPENDENCY_INVALIDATION_FAILED">>`.
+
+- [ ] **Red (run only after the ADR is accepted):** add this public-seam behaviour test; until then, do not create the test or production files.
+
+```ts
+it("authorises custody-byte deletion while retaining portable tombstones", async () => {
+  const result = await deletion.delete(request, authorisedActor);
+  expect(result).toMatchObject({ ok: true, value: { snapshotId, capsuleSha256 } });
+  expect(await rawStore.exists(snapshotId)).toBe(false);
+  expect(await history.readSourceTombstone(snapshotId)).toMatchObject({ snapshotId, capsuleSha256 });
+  expect(result.ok && result.value.invalidated.staleClaimIds).toEqual([claimId]);
+});
+```
+
+Run: `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2 --minWorkers=1`. **Expected failure after the gate opens:** module resolution fails for `./replay-deletion.js`; before ADR acceptance, the expected state is backlog `blocked` and no command is run.
+- [ ] **Green (run only after the ADR is accepted):** implement the accepted custody boundary exactly; require actor authorisation and matching digest, calculate/apply dependency closure before deleting local capsule bytes, then append a portable tombstone without deleting or rewriting raw-history records.
+
+```ts
+export interface AuthorisedReplayDeletion {
+  delete(request: ReplayDeletionRequest, actor: Actor): Promise<IngestResult<ReplayDeletionReceipt,
+    "ADR_NOT_ACCEPTED" | "UNAUTHORISED" | "DIGEST_MISMATCH" | "DEPENDENCY_INVALIDATION_FAILED">>;
+}
+```
+
+- [ ] **Pass (run only after the ADR is accepted):** run `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2 --minWorkers=1`; expect the authorised deletion drill, unauthorised rejection, digest mismatch, dependency invalidation, and portable-tombstone cases to pass. Then run `VITEST_MAX_THREADS=2 pnpm check`; expect exit 0.
+- [ ] **Commit (run only after the ADR is accepted):** `git add docs/adr/NNNN-source-custody-deletion.md code/ingest/source/replay-deletion.ts code/ingest/source/replay-deletion.test.ts code/ingest/source/index.ts && git commit -m "feat(ingest): authorise replay custody deletion"`. Until then, make no implementation commit.
+
+### Task T-11-01: Implement A-tier text extractors
+
+**IDs:** Backlog `P2.M1.E2.T001`; bundle `T-11-01`
+
+**Depends on:** T-10-03
+
+**Files:**
+- Create: `code/domain/ingest/representation-records.ts`
+- Create: `code/ingest/source/extractors.ts`
+- Create: `code/ingest/source/extractors.test.ts`
+- Create: `code/ingest/source/fixtures/extraction/`
+- Modify: `code/ingest/source/index.ts`
+- Test: `code/ingest/source/extractors.test.ts`
+
+**Interfaces:**
+- Consumes: verified `SourceFile` bytes.
+- Produces: `SourceRepresentation = { id; sourceFileId; version; kind:"markdown"|"text"|"code"|"json"|"yaml"|"csv"; normalizedText; locatorMap:readonly LocatorSpan[]; warnings:readonly ExtractionWarning[] }`; `extractATier(input): IngestResult<SourceRepresentation,"UNSUPPORTED_MEDIA"|"MALFORMED_ENCODING"|"MALFORMED_STRUCTURE">`.
+
+- [ ] **Red:** golden-test Markdown, text, code, JSON/YAML, and CSV; run twice and compare bytes; verify every output line/cell maps to original byte/line coordinates; malformed UTF-8 reports exact offset. Run targeted Vitest. **Expected failure:** extractor export missing.
+- [ ] **Green:** use deterministic parsers/serialisers, preserve original bytes separately, produce explicit locator spans, and sort warnings.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): extract deterministic A-tier representations"`.
+
+### Task T-11-02: Audit representations and format capability
+
+**IDs:** Backlog `P2.M1.E2.T002`; bundle `T-11-02`
+
+**Depends on:** T-11-01
+
+**Files:**
+- Create: `code/domain/ingest/representation-audit.ts`
+- Create: `code/ingest/source/representation-auditor.ts`
+- Create: `code/ingest/source/representation-auditor.test.ts`
+- Modify: `code/ingest/source/index.ts`
+- Test: `code/ingest/source/representation-auditor.test.ts`
+
+**Interfaces:**
+- Consumes: `SourceRepresentation`.
+- Produces: `FormatTier = "A"|"B"|"C"|"D"`; `RepresentationAudit = { representationId; tier; structuralPass; mappingPass; humanVerified; claimEligible; findings }`; `auditRepresentation(rep, capability): RepresentationAudit`.
+
+- [ ] **Red:** corrupted/reordered mapping fails; Tier C lacks claim eligibility until human verification; Tier D never gains claim eligibility. Run targeted Vitest. **Expected failure:** auditor module missing.
+- [ ] **Green:** add an A-tier capability registry only, deterministic structural/map checks, and fail-closed defaults for unknown tiers.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): audit source representations"`.
+
+### Task T-12-01: Implement structural source-unit parsing
+
+**IDs:** Backlog `P2.M1.E3.T001`; bundle `T-12-01`
+
+**Depends on:** T-11-02 (audit, not repair)
+
+**Files:**
+- Create: `code/domain/ingest/source-unit.ts`
+- Create: `code/ingest/source/unitizer.ts`
+- Create: `code/ingest/source/unitizer.test.ts`
+- Modify: `code/ingest/source/index.ts`
+- Test: `code/ingest/source/unitizer.test.ts`
+
+**Interfaces:**
+- Consumes: claim-eligible `RepresentationAudit` and representation.
+- Produces: `SourceUnit = { id; snapshotId; sourceFileId; representationId; kind:"document"|"section"|"paragraph"|"list"|"table"|"code"; parentId?; headingPath; normalizedLocator; originalLocator; textSha256 }`; `unitizeRepresentation(input): IngestResult<readonly SourceUnit[],"AUDIT_REQUIRED"|"TEXT_DROPPED">`.
+
+- [ ] **Red:** assert literal unit tree/locators for headings, paragraph, list, table, code; unrelated edit preserves unaffected IDs; concatenated selected text equals expected source text. Run targeted Vitest. **Expected failure:** unitizer missing.
+- [ ] **Green:** derive unit IDs from snapshot/file/structural path/text digest, preserve parent/heading relations, and fail if covered spans leave selected text unaccounted for.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): parse structural source units"`.
+
+### Task T-11-03: Create immutable representation repair versions
+
+**IDs:** Backlog `P2.M1.E2.T003`; bundle `T-11-03`
+
+**Depends on:** T-11-02; may run in parallel with T-12-01
+
+**Files:**
+- Create: `code/ingest/source/representation-repair.ts`
+- Create: `code/ingest/source/representation-repair.test.ts`
+- Modify: `code/ingest/source/index.ts`
+- Test: `code/ingest/source/representation-repair.test.ts`
+
+**Interfaces:**
+- Consumes: failed `RepresentationAudit`, `SourceRepresentation`, append-only store, unitizer invalidation port.
+- Produces: `RepresentationRepairService.propose(input): Promise<RepresentationRepair>` and `.approve(id, reviewer): Promise<SourceRepresentation>`; new representation has `supersedesId` and monotonically increasing version.
+
+- [ ] **Red:** assert approval creates version 2, original/faulty bytes remain readable, and dependent unit IDs are returned in `InvalidationRequest`; overwrite is rejected. Run targeted Vitest. **Expected failure:** repair module missing.
+- [ ] **Green:** store correction as a new raw artifact plus derived representation, link supersession, and emit invalidation without mutating existing records.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): version representation repairs immutably"`.
+
+### Task T-12-02: Build exact maps and ambiguity-aware aliases
+
+**IDs:** Backlog `P2.M1.E3.T002`; bundle `T-12-02`
+
+**Depends on:** T-12-01
+
+**Files:**
+- Create: `code/ingest/retrieval/exact-map.ts`
+- Create: `code/ingest/retrieval/exact-map.test.ts`
+- Create: `code/ingest/retrieval/index.ts`
+- Modify: `code/ingest/index.ts`
+- Test: `code/ingest/retrieval/exact-map.test.ts`
+
+**Interfaces:**
+- Consumes: `readonly SourceUnit[]`.
+- Produces: `ExactMap.build(units): ExactMapProjection`; `ExactMap.lookup(alias): { kind:"unique"; unit:SourceUnitId } | { kind:"ambiguous"; candidates:readonly {unit:SourceUnitId;reason:string}[] } | { kind:"missing" }` for IDs, paths, titles, headings, acronyms, and error codes.
+
+- [ ] **Red:** assert unique and ambiguous literal aliases, sorted candidates with reasons, and byte-identical rebuild after deleting the projection. Run targeted Vitest. **Expected failure:** exact-map module missing.
+- [ ] **Green:** build normalised aliases from canonical units, retain all collisions, sort keys/candidates, and keep the projection disposable.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): build exact source maps"`.
+
+### Task T-12-03: Build MiniSearch lexical retrieval and receipts
+
+**IDs:** Backlog `P2.M1.E3.T003`; bundle `T-12-03`
+
+**Depends on:** T-12-02
+
+**Files:**
+- Create: `code/domain/ingest/search-receipt.ts`
+- Create: `code/ingest/retrieval/lexical-index.ts`
+- Create: `code/ingest/retrieval/lexical-index.test.ts`
+- Modify: `code/ingest/retrieval/index.ts`
+- Test: `code/ingest/retrieval/lexical-index.test.ts`
+
+**Interfaces:**
+- Consumes: `SourceUnit`, `ExactMapProjection`, MiniSearch.
+- Produces: `LexicalRetrieval.build(snapshotId, units): Promise<void>` and `.search(request:SearchRequest): Promise<IngestResult<SearchResponse,"INDEX_UNAVAILABLE">>`; response always contains `SearchReceipt { snapshotId,indexVersion,query,filters,candidateIds,selectedIds,failures }`.
+
+- [ ] **Red:** tiny/small expected queries return labelled units; missing index returns `INDEX_UNAVAILABLE`; an empty healthy result returns `ok:true` with an empty selected list and receipt; deleted index rebuilds identically. Run targeted Vitest. **Expected failure:** lexical-index module missing.
+- [ ] **Green:** index structural fields in MiniSearch, apply snapshot/scope/status filters before selection, stable-sort tied scores, persist no knowledge in the index, and emit engine-neutral receipts.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): add lexical retrieval receipts"`.
+
+### Task T-12-04: Benchmark semantic retrieval without activating it (optional, non-gating)
+
+**IDs:** Backlog `P2.M1.E3.T004`; bundle `T-12-04`
+
+**Depends on:** T-12-03; **no downstream task may depend on this task**
+
+**Files:**
+- Create: `code/integration/ingest-semantic-benchmark.ts`
+- Create: `code/integration/ingest-semantic-benchmark.test.ts`
+- Create: `docs/engineering/automatic-ingestion-semantic-benchmark.md`
+- Test: `code/integration/ingest-semantic-benchmark.test.ts`
+
+**Interfaces:**
+- Consumes: lexical fixture results and externally supplied candidate result JSON; no production vector adapter.
+- Produces: `compareRetrievalRuns(lexical, candidate): { recallDelta; precisionDelta; p95LatencyDeltaMs; costDeltaAud; activation:"disabled" }`.
+
+- [ ] **Red:** feed worked results and require exact quality/latency/cost deltas plus `activation:"disabled"`; assert production `code/ingest/` has no vector export. Run targeted Vitest. **Expected failure:** benchmark module missing.
+- [ ] **Green:** implement an offline comparison/report writer only; state activation requires measured material gain and a future ADR, with no source migration.
+- [ ] **Pass:** targeted Vitest passes. Failure or omission does not block M1/M2/M3.
+- [ ] **Commit:** `git commit -m "chore(ingest): benchmark semantic retrieval offline"`.
+
+### Task T-13-01: Expand approved data and rights policy profiles
+
+**IDs:** Backlog `P2.M1.E4.T001`; bundle `T-13-01`
+
+**Depends on:** T-10-03, T-11-03
+
+**Files:**
+- Modify: `code/domain/ingest/policy-profile.ts`
+- Create: `code/ingest/policy/policy-service.ts`
+- Create: `code/ingest/policy/policy-service.test.ts`
+- Create: `code/ingest/policy/index.ts`
+- Modify: `code/ingest/index.ts`
+- Test: `code/ingest/policy/policy-service.test.ts`
+
+**Interfaces:**
+- Consumes: minimal `PolicyProfile`.
+- Produces: fields `allowedProviders`, `allowedRegions`, `retention`, `logging`, `cache`, `maxQuoteBytes`, `publication`; `PolicyService.approve(profile, actor): ApprovedPolicyProfile`; `.assertRunAllowed(id): IngestResult<ApprovedPolicyProfile,"POLICY_UNAPPROVED">`.
+
+- [ ] **Red:** reject run without approval, profile without explicit processors/storage, and restricted licence lacking publication rule. Run targeted Vitest. **Expected failure:** policy service missing.
+- [ ] **Green:** validate all exposure/storage choices, write approval as a new portable record, and leave secrets/credentials outside the profile.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): enforce approved rights profiles"`.
+
+### Task T-13-02: Enforce policy before retrieval and model exposure
+
+**IDs:** Backlog `P2.M1.E4.T002`; bundle `T-13-02`
+
+**Depends on:** T-13-01, T-12-03
+
+**Files:**
+- Create: `code/ingest/policy/policy-gate.ts`
+- Create: `code/ingest/policy/policy-gate.test.ts`
+- Modify: `code/ingest/policy/index.ts`
+- Modify: `code/ingest/retrieval/index.ts`
+- Test: `code/ingest/policy/policy-gate.test.ts`
+
+**Interfaces:**
+- Consumes: `ApprovedPolicyProfile`, `SearchResponse`, provider capability request.
+- Produces: `PolicyGate.filterRetrieval(response, principal): FilteredSearchResponse`; `.authoriseModel(input:{profile,provider,region,unitIds}): IngestResult<ModelExposure,"ACCESS_DENIED"|"PROVIDER_DENIED"|"REGION_DENIED">`; `policyNamespace(profileId, principalId): string`.
+
+- [ ] **Red:** restricted unit never reaches returned context/provider fake, preview respects labels, and two policy profiles produce distinct cache namespaces. Run targeted Vitest. **Expected failure:** policy-gate module missing.
+- [ ] **Green:** filter IDs before opening text, authorise provider/region before a call, and derive cache namespace from profile+principal+snapshot.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): gate retrieval and model exposure"`.
+
+### Task T-13-03: Scan intake and proposed changes for secrets/PII
+
+**IDs:** Backlog `P2.M1.E4.T003`; bundle `T-13-03`
+
+**Depends on:** T-13-02
+
+**Files:**
+- Create: `code/ingest/policy/content-scanner.ts`
+- Create: `code/ingest/policy/content-scanner.test.ts`
+- Modify: `code/ingest/policy/index.ts`
+- Test: `code/ingest/policy/content-scanner.test.ts`
+
+**Interfaces:**
+- Consumes: source representations, actual diff text from existing change-request manager, injected `ContentScannerAdapter` fake.
+- Produces: `scanContent(input): Promise<ScanResult>` where findings have action `"block"|"redact"|"quarantine"`; `applyAuthorisedRedaction(rep, findings): SourceRepresentation` preserving locator mapping.
+
+- [ ] **Red:** seeded secret blocks before provider fake event, authorised PII redaction retains source spans, and prohibited actual diff fails. Run targeted Vitest. **Expected failure:** scanner module missing.
+- [ ] **Green:** add deterministic fake scanner cases, execute scans at pre-model and pre-change-request boundaries, and create redacted derived representations rather than editing raw bytes.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): scan source and proposed diffs"`.
+
+---
+
+## R1 / M2 — knowledge core
+
+### Task T-20-01: Link ingestion provenance to canonical questions
+
+**IDs:** Backlog `P2.M2.E1.T001`; bundle `T-20-01`
+
+**Depends on:** T-01-03, T-12-03 (not T-12-04)
+
+**Files:**
+- Create: `code/domain/ingest/question-link.ts`
+- Create: `code/ingest/knowledge/question-link-service.ts`
+- Create: `code/ingest/knowledge/question-link-service.test.ts`
+- Create: `code/ingest/knowledge/index.ts`
+- Modify: `code/ingest/index.ts`
+- Test: `code/ingest/knowledge/question-link-service.test.ts`
+
+**Interfaces:**
+- Consumes: existing `QuestionRepository` public commands and `QuestionRecord` with canonical `state`, `askers`, `tier`, `revision`, raw/generated origin.
+- Produces: `IngestionQuestionLink { questionId; snapshotId; origin:"human"|"ingestion-generated"|"reverse"; systemActor?; rawArtifactId; generation; sourceUnitIds; createdRevision }`; `QuestionLinkService.link(input)` and `.read(questionId)`.
+
+- [ ] **Red:** raw wording/origin cannot be changed through link service; generated questions require `systemActor` and provenance; a lifecycle transition field in link input is rejected; human/generated origins remain distinguishable. Run targeted Vitest. **Expected failure:** link service missing.
+- [ ] **Green:** delegate question creation/transition only to existing public repository commands, persist the orthogonal link separately, and never port the bundle Question `status` enum.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): link evidence provenance to questions"`.
+
+### Task T-20-02: Implement the coverage-obligation ledger
+
+**IDs:** Backlog `P2.M2.E1.T002`; bundle `T-20-02`
+
+**Depends on:** T-20-01
+
+**Files:**
+- Create: `code/domain/ingest/coverage-obligation.ts`
+- Create: `code/ingest/knowledge/obligation-service.ts`
+- Create: `code/ingest/knowledge/obligation-service.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/obligation-service.test.ts`
+
+**Interfaces:**
+- Consumes: `QuestionId`, deterministic `IdGenerator`, append-only event writer.
+- Produces: `ObligationStatus = "open"|"assigned"|"satisfied"|"terminal_gap"|"excluded"|"deferred"|"blocked"|"transferred"|"revoked"`; `CoverageObligation { id; questionId; trigger; ownerQuestionId; status; version }`; create/assign/transfer/resolve commands with expected version.
+
+- [ ] **Red:** automatic branch without open owned obligation fails; two owners fail; budget pause maps to `blocked`, not `satisfied`; `deferred` is terminal for the obligation but does not mark its canonical question answered and does not block unrelated closure. Run targeted Vitest. **Expected failure:** obligation service missing.
+- [ ] **Green:** implement one-owner transitions with optimistic versions; define terminal statuses as satisfied/terminal_gap/excluded/deferred/revoked and preserve QuestionRecord state independently.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): add finite coverage obligations"`.
+
+### Task T-20-03: Gate generated-question admissibility and novelty
+
+**IDs:** Backlog `P2.M2.E1.T003`; bundle `T-20-03`
+
+**Depends on:** T-20-02
+
+**Files:**
+- Create: `code/ingest/knowledge/question-admissibility.ts`
+- Create: `code/ingest/knowledge/question-admissibility.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/question-admissibility.test.ts`
+
+**Interfaces:**
+- Consumes: `CoverageObligation`, conservative lexical candidates, `IngestionQuestionLink`.
+- Produces: `assessQuestionProposal(input): AdmissionDecision` where generated acceptance requires `triggerSourceUnitIds`, novel `obligationId`, concrete wording, and non-authoritative routing result; human questions always return `{admitted:true, kind:"demand"}`.
+
+- [ ] **Red:** reject generic missingness, duplicate generated wording, and obligation-less child; admit unsupported human demand; admit generated child with trigger+novel obligation. Run targeted Vitest. **Expected failure:** admissibility export missing.
+- [ ] **Green:** implement deterministic checks and treat lexical similarity as routing evidence only, never convergence or lifecycle authority.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): gate generated question novelty"`.
+
+### Task T-21-01: Persist evidence packets and search receipts append-only
+
+**IDs:** Backlog `P2.M2.E2.T001`; bundle `T-21-01`
+
+**Depends on:** T-12-03, T-20-03
+
+**Files:**
+- Create: `code/domain/ingest/evidence-packet.ts`
+- Create: `code/ingest/knowledge/evidence-service.ts`
+- Create: `code/ingest/knowledge/evidence-service.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/evidence-service.test.ts`
+
+**Interfaces:**
+- Consumes: `SearchReceipt`, source hash verifier, Question link.
+- Produces: `EvidenceReference { snapshotId;fileId;unitId;fileSha256;unitSha256;role;facetIds }`; `EvidencePacket { id;questionId;version;references;receiptId;limits }`; `EvidenceService.appendPacket(input)` and `.verifyReferences(packetId)`.
+
+- [ ] **Red:** reject wrong snapshot/file/unit hash, overwrite of packet v1, and no-evidence packet without a healthy receipt; accept v2 as a new record. Run targeted Vitest. **Expected failure:** evidence service missing.
+- [ ] **Green:** verify exact identities before append, derive packet id/version deterministically, and persist receipt linkage plus retrieval failures.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): persist evidence packets and receipts"`.
+
+### Task T-21-02: Implement evidence verdict transitions
+
+**IDs:** Backlog `P2.M2.E2.T002`; bundle `T-21-02`
+
+**Depends on:** T-21-01
+
+**Files:**
+- Create: `code/domain/ingest/evidence-verdict.ts`
+- Create: `code/ingest/knowledge/evidence-verdict-service.ts`
+- Create: `code/ingest/knowledge/evidence-verdict-service.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/evidence-verdict-service.test.ts`
+
+**Interfaces:**
+- Consumes: verified `EvidencePacket`.
+- Produces: `ReferenceClass = "material"|"supporting"|"irrelevant"|"obsolete"|"conflicting"`; `FacetState = "satisfied"|"unsatisfied"|"uncertain"`; `EvidenceVerdictState = "refine"|"accepted"|"no_supported_answer"|"search_incomplete"|"contradiction"`; append-only `EvidenceVerdict` and `EvidenceVerdictService.apply`.
+
+- [ ] **Red:** accepted fails unless every required facet is satisfied and every material reference classified; `INDEX_UNAVAILABLE` cannot become `no_supported_answer`; contradiction returns a P1 activation command and `done:false`. Run targeted Vitest. **Expected failure:** verdict service missing.
+- [ ] **Green:** validate verdict proposal, derive deterministic transition commands, and bypass future Curiosity Planner for contradictions.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): enforce evidence verdict lifecycle"`.
+
+### Task T-21-03: Bound evidence refinement loops
+
+**IDs:** Backlog `P2.M2.E2.T003`; bundle `T-21-03`
+
+**Depends on:** T-21-02
+
+**Files:**
+- Create: `code/ingest/knowledge/evidence-loop-policy.ts`
+- Create: `code/ingest/knowledge/evidence-loop-policy.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/evidence-loop-policy.test.ts`
+
+**Interfaces:**
+- Consumes: ordered packets/verdicts and policy budget.
+- Produces: `evaluateEvidenceLoop(history, budget): "continue" | "search_incomplete" | "human_action"`; novelty key over query, filters, and requested facet.
+
+- [ ] **Red:** repeated request and exhausted budget terminate without synthesising acceptance/no-evidence; a novel request continues; all packet/verdict IDs remain in terminal receipt. Run targeted Vitest. **Expected failure:** loop policy missing.
+- [ ] **Green:** count refinements, compare novelty keys, and return deterministic terminal routing while retaining immutable history.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): bound evidence refinement loops"`.
+
+### Task T-22-01: Implement one-file-per-claim repository and lifecycle
+
+**IDs:** Backlog `P2.M2.E3.T001`; bundle `T-22-01`
+
+**Depends on:** T-21-03
+
+**Files:**
+- Create: `code/domain/ingest/claim.ts`
+- Create: `code/ingest/knowledge/claim-repository.ts`
+- Create: `code/ingest/knowledge/claim-repository.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/claim-repository.test.ts`
+
+**Interfaces:**
+- Consumes: verified evidence references, Git-authoritative repository writer.
+- Produces: `ClaimState = "proposed"|"accepted"|"disputed"|"stale"|"superseded"`; `Claim { id;text;type;scope;authority;lifecycle;state;evidence;relationships;version }`; `ClaimRepository.create/read/list/transition` using `ingest/claims/<claim-id>.json`.
+
+- [ ] **Red:** acceptance without verified evidence, scope, authority, or lifecycle fails; source change marks affected claim stale; illegal transition and overwrite fail. Run targeted Vitest. **Expected failure:** claim repository missing.
+- [ ] **Green:** validate transition table, atomically create one file per claim, append transition events, and expose only public repository commands.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): add Git-authoritative claim registry"`.
+
+### Task T-22-02: Generate claim relationship candidates conservatively
+
+**IDs:** Backlog `P2.M2.E3.T002`; bundle `T-22-02`
+
+**Depends on:** T-22-01
+
+**Files:**
+- Create: `code/ingest/knowledge/claim-candidates.ts`
+- Create: `code/ingest/knowledge/claim-candidates.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/claim-candidates.test.ts`
+
+**Interfaces:**
+- Consumes: claims and MiniSearch as disposable candidate index.
+- Produces: `ClaimCandidate { left;right;relation:"equivalent"|"variant"|"broader"|"narrower"|"contradiction";signals:{text;scope;type;evidenceOverlap};score }`; `findClaimCandidates(claim, limit): readonly ClaimCandidate[]`.
+
+- [ ] **Red:** same text/different scope is not exact equivalent; evidence overlap is reported but not decisive; labelled candidate recall denominator is measurable. Run targeted Vitest. **Expected failure:** candidate service missing.
+- [ ] **Green:** generate only review candidates from typed signals, stable-sort them, and make no claim mutation or merge decision.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): find claim relationship candidates"`.
+
+### Task T-22-03: Apply independent claim reviews idempotently
+
+**IDs:** Backlog `P2.M2.E3.T003`; bundle `T-22-03`
+
+**Depends on:** T-22-02
+
+**Files:**
+- Create: `code/domain/ingest/claim-review.ts`
+- Create: `code/ingest/knowledge/claim-review-service.ts`
+- Create: `code/ingest/knowledge/claim-review-service.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/claim-review-service.test.ts`
+
+**Interfaces:**
+- Consumes: proposed claim, `ClaimReview { reviewerRunId;claimId;decision:"accept"|"reject"|"qualify"|"split";... }`, idempotency key.
+- Produces: `ClaimReviewService.apply(review, key): Promise<ClaimReviewApplication>` including accepted/rejected/split claim IDs and provenance links.
+
+- [ ] **Red:** extractor run cannot review its own claim; retry creates one logical application; split preserves all evidence/provenance; rejected claim cannot be selected as accepted. Run targeted Vitest. **Expected failure:** review service missing.
+- [ ] **Green:** enforce distinct run/role identity, expected claim version, transactional split writes, and accepted-state transition only through this service.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): apply independent claim reviews"`.
+
+### Task T-23-01: Serialise graph mutations with versions and idempotency
+
+**IDs:** Backlog `P2.M2.E4.T001`; bundle `T-23-01`
+
+**Depends on:** T-20-03, T-21-03, T-22-03
+
+**Files:**
+- Create: `code/domain/ingest/graph-event.ts`
+- Create: `code/ingest/gateway/graph-gateway.ts`
+- Create: `code/ingest/gateway/graph-gateway.test.ts`
+- Create: `code/ingest/gateway/index.ts`
+- Modify: `code/ingest/index.ts`
+- Test: `code/ingest/gateway/graph-gateway.test.ts`
+
+**Interfaces:**
+- Consumes: validated entity commands and injected atomic event writer.
+- Produces: `GraphGateway.apply(command:{expectedRevision:GraphRevision;idempotencyKey:string;operations:readonly GraphOperation[]}): Promise<IngestResult<GraphCommit,"STALE_REVISION"|"INVALID_EDGE"|"MISSING_ENTITY">>`.
+
+- [ ] **Red:** two writes at revision 4 cause one success/one stale result; same idempotency key returns one commit; invalid entity/edge fails without event. Run targeted Vitest. **Expected failure:** gateway missing.
+- [ ] **Green:** lock the logical graph, validate all operations, append one event, atomically advance revision, and return prior result for retries.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): serialise graph mutations"`.
+
+### Task T-23-02: Build dependencies and deterministic SCCs
+
+**IDs:** Backlog `P2.M2.E4.T002`; bundle `T-23-02`
+
+**Depends on:** T-23-01
+
+**Files:**
+- Create: `code/ingest/gateway/dependency-graph.ts`
+- Create: `code/ingest/gateway/dependency-graph.test.ts`
+- Modify: `code/ingest/gateway/index.ts`
+- Test: `code/ingest/gateway/dependency-graph.test.ts`
+
+**Interfaces:**
+- Consumes: graph events with source→evidence→claim→answer/document edges.
+- Produces: `DependencyGraph.dependenciesOf(id): readonly string[]`, `.condensed(): readonly StrongComponent[]`, `.readiness(id): IngestResult<"ready","MISSING_DEPENDENCY">`.
+
+- [ ] **Red:** literal cyclic fixture condenses into sorted SCCs; every artifact reports IDs; missing dependency blocks readiness. Run targeted Vitest. **Expected failure:** dependency graph missing.
+- [ ] **Green:** replay events into a local projection, use deterministic Tarjan traversal over sorted IDs, and rebuild from events.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): project dependency graph and SCCs"`.
+
+### Task T-23-03: Propagate precise invalidation
+
+**IDs:** Backlog `P2.M2.E4.T003`; bundle `T-23-03`
+
+**Depends on:** T-23-02
+
+**Files:**
+- Create: `code/ingest/gateway/invalidation-service.ts`
+- Create: `code/ingest/gateway/invalidation-service.test.ts`
+- Modify: `code/ingest/gateway/index.ts`
+- Test: `code/ingest/gateway/invalidation-service.test.ts`
+
+**Interfaces:**
+- Consumes: dependency graph and mutation event.
+- Produces: `InvalidationService.plan(event): InvalidationPlan { roots;stalePacketIds;staleClaimIds;staleCompositionIds;staleDocumentIds;staleFixtureIds;staleCertificateIds }`; `.apply(plan,key): GraphCommit`.
+
+- [ ] **Red:** mutation cases invalidate all and only labelled descendants; human-curiosity and dedup-revocation events propagate; stale composition fails readiness. Run targeted Vitest. **Expected failure:** invalidation service missing.
+- [ ] **Green:** traverse condensed dependencies from changed roots, stable-sort typed outputs, and apply stale transitions through graph/repository commands only.
+- [ ] **Pass:** targeted Vitest passes; run `VITEST_MAX_THREADS=2 pnpm check` for the M2 gate.
+- [ ] **Commit:** `git commit -m "feat(ingest): propagate dependency invalidation"`.
+
+---
+
+## R1 / M3 — measured vertical slice
+
+### Task T-30-01: Expose policy-filtered Researcher source tools
+
+**IDs:** Backlog `P2.M3.E1.T001`; bundle `T-30-01`
+
+**Depends on:** T-12-03, T-13-02, T-21-03, T-02-03
+
+**Files:**
+- Create: `code/ingest/agents/researcher-tools.ts`
+- Create: `code/ingest/agents/researcher-tools.test.ts`
+- Create: `code/ingest/agents/index.ts`
+- Modify: `code/ingest/index.ts`
+- Test: `code/ingest/agents/researcher-tools.test.ts`
+
+**Interfaces:**
+- Consumes: exact map, lexical retrieval, policy gate, graph follow, authority lookup.
+- Produces: `ResearcherTools = { exactLookup; lexicalSearch; openUnit; followLinks; authoritySearch }`; every result includes `ToolReceipt {snapshotId,indexVersion,filters,candidateIds,selectedIds}`; no tool accepts instructions from source text.
+
+- [ ] **Red:** every tool call emits required receipt fields, unauthorised text never reaches output, and prompt-like source text cannot add tools/change limits. Run targeted Vitest. **Expected failure:** researcher-tools module missing.
+- [ ] **Green:** create bounded adapters over public retrieval/policy seams, validate arguments, and return data-only source views.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): expose bounded researcher tools"`.
+
+### Task T-30-02: Implement the Researcher contract and fixtures
+
+**IDs:** Backlog `P2.M3.E1.T002`; bundle `T-30-02`
+
+**Depends on:** T-30-01
+
+**Files:**
+- Create: `scaffold/agents/researcher/{agent.md,schema.json,fixtures/valid.json,fixtures/invalid-answer.json,fixtures/invalid-child.json}`
+- Create: `code/ingest/agents/researcher-agent.ts`
+- Create: `code/ingest/agents/researcher-agent.test.ts`
+- Modify: `code/ingest/agents/index.ts`
+- Test: `code/ingest/agents/researcher-agent.test.ts`
+
+**Interfaces:**
+- Consumes: question/facets, `ResearcherTools`, fresh provider call through existing agent runtime.
+- Produces: `ResearcherProposal { questionId;packet:{references;facetSupport;limits};receiptIds;outcome:"packet"|"no_evidence" }`; `runResearcher(input): Promise<ResearcherProposal>`.
+
+- [ ] **Red:** schema rejects final answer prose and child proposals; no-evidence without sufficient healthy receipt fails; valid minimal complete references pass. Run targeted Vitest. **Expected failure:** researcher scaffold/agent missing.
+- [ ] **Green:** author repo-native agent definition/schema and paired fixtures, register role/input policy, validate output before EvidenceService writes it.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(agents): add evidence-only researcher"`.
+
+### Task T-30-03: Calibrate retrieval policy (optional, non-gating)
+
+**IDs:** Backlog `P2.M3.E1.T003`; bundle `T-30-03`
+
+**Depends on:** T-30-02; **no downstream task may depend on this task**
+
+**Files:**
+- Create: `code/integration/researcher-calibration.ts`
+- Create: `code/integration/researcher-calibration.test.ts`
+- Create: `docs/engineering/researcher-retrieval-profile.md`
+- Test: `code/integration/researcher-calibration.test.ts`
+
+**Interfaces:**
+- Consumes: cached-disabled tiny/small Researcher fixture outputs.
+- Produces: `RetrievalProfile { maxCandidates;maxOpenedUnits;queryExpansion;rerank:false;version }` and report by question type.
+
+- [ ] **Red:** worked fixtures require recall, precision, false-no-evidence, latency, and cost by question type and a replay diff on profile change. Run targeted Vitest. **Expected failure:** calibration module missing.
+- [ ] **Green:** implement offline scoring and commit conservative literal limits; no production task imports the report.
+- [ ] **Pass:** targeted Vitest passes. Failure or omission does not block M3.
+- [ ] **Commit:** `git commit -m "chore(ingest): calibrate researcher retrieval"`.
+
+### Task T-31-01: Implement the isolated Evidence Critic contract
+
+**IDs:** Backlog `P2.M3.E2.T001`; bundle `T-31-01`
+
+**Depends on:** T-21-03, T-30-02, T-02-03 (not T-30-03)
+
+**Files:**
+- Create: `scaffold/agents/evidence-critic/{agent.md,schema.json,fixtures/valid.json,fixtures/invalid-child.json}`
+- Create: `code/ingest/agents/evidence-critic-agent.ts`
+- Create: `code/ingest/agents/evidence-critic-agent.test.ts`
+- Modify: `code/ingest/agents/index.ts`
+- Test: `code/ingest/agents/evidence-critic-agent.test.ts`
+
+**Interfaces:**
+- Consumes: verbatim question/facets, packet references, only `open_reference(referenceId): Promise<BoundedReferenceView>`, fresh provider call.
+- Produces: `EvidenceCriticProposal { referenceClassifications;facetStates;verdict;refinement?;depthFindings? }`; explicitly no child-question field.
+
+- [ ] **Red:** schema rejects child proposals; runtime test proves a new provider-call ID and only allowed input/tool context; accepted output must classify every material reference/facet and preserve qualifiers. Run targeted Vitest. **Expected failure:** critic scaffold/agent missing.
+- [ ] **Green:** author schema/prompt, register a fresh evaluator invocation, expose only `open_reference`, and send validated output to EvidenceVerdictService.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(agents): add isolated evidence critic"`.
+
+### Task T-31-02: Build decisive evidence-criticism fixtures
+
+**IDs:** Backlog `P2.M3.E2.T002`; bundle `T-31-02`
+
+**Depends on:** T-31-01
+
+**Files:**
+- Create: `scaffold/agents/evidence-critic/fixtures/{partial,irrelevant,redundant,wrong-scope,deprecation,conflict,no-evidence,prompt-injection}.json`
+- Create: `code/integration/evidence-critic-fixtures.test.ts`
+- Test: `code/integration/evidence-critic-fixtures.test.ts`
+
+**Interfaces:**
+- Consumes: Evidence Critic public agent seam and deterministic fake cases.
+- Produces: versioned regression cases and `EvidenceCriticThresholds { weakPacketAcceptance:0; completeMinimalAcceptance:1; injectionRoleChanges:0 }`.
+
+- [ ] **Red:** add fixtures first and assert exact verdict/classification literals; run targeted Vitest. **Expected failure:** fake provider reports unregistered fixture case.
+- [ ] **Green:** register deterministic fake outputs that validate against the production schema and adjust prompt contract only until weak packets reject, complete minimal packets pass, and injection cannot alter role.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "test(agents): cover evidence critic failures"`.
+
+### Task T-31-03: Run combined-versus-split ablation (optional, non-gating)
+
+**IDs:** Backlog `P2.M3.E2.T003`; bundle `T-31-03`
+
+**Depends on:** T-31-02; **no downstream task may depend on this task**
+
+**Files:**
+- Create: `code/integration/evidence-role-ablation.ts`
+- Create: `code/integration/evidence-role-ablation.test.ts`
+- Create: `docs/engineering/evidence-role-ablation.md`
+- Test: `code/integration/evidence-role-ablation.test.ts`
+
+**Interfaces:**
+- Consumes: recorded split-role and combined-baseline fixture result JSON.
+- Produces: `AblationResult { falseAcceptance;refinementQuality;branchFactor;costAud;outputStability;decision:"retain-split"|"revisit" }`.
+
+- [ ] **Red:** worked input must calculate exact metrics and reject reports without matching corpus/model/prompt versions. Run targeted Vitest. **Expected failure:** ablation module missing.
+- [ ] **Green:** implement offline comparison and document the falsifiable decision; do not add a combined role to production.
+- [ ] **Pass:** targeted Vitest passes. Failure or omission does not block T-32-01/T-60-01 or M3.
+- [ ] **Commit:** `git commit -m "chore(ingest): compare evidence role split"`.
+
+### Task T-32-01: Implement the Claim Extractor proposal agent
+
+**IDs:** Backlog `P2.M3.E3.T001`; bundle `T-32-01`
+
+**Depends on:** T-22-03, T-31-02
+
+**Files:**
+- Create: `scaffold/agents/claim-extractor/{agent.md,schema.json,fixtures/valid.json,fixtures/invalid-generalisation.json}`
+- Create: `code/ingest/agents/claim-extractor-agent.ts`
+- Create: `code/ingest/agents/claim-extractor-agent.test.ts`
+- Modify: `code/ingest/agents/index.ts`
+- Test: `code/ingest/agents/claim-extractor-agent.test.ts`
+
+**Interfaces:**
+- Consumes: accepted evidence verdict/packet only; claim candidate read results.
+- Produces: `ClaimProposal { text;type;scope;authority;lifecycle;evidenceReferenceIds;candidateRelationships }[]`; no state/ID/write authority.
+
+- [ ] **Red:** fixture rejects universal claim inferred from example, inferred intent labelled as documented rationale, and evidence outside accepted packet. Run targeted Vitest. **Expected failure:** extractor scaffold/agent missing.
+- [ ] **Green:** author schema/prompt and runtime adapter; deterministic service assigns IDs and persists all outputs as `proposed` only.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(agents): propose qualifier-preserving claims"`.
+
+### Task T-32-02: Implement the fresh-context Claim Reviewer
+
+**IDs:** Backlog `P2.M3.E3.T002`; bundle `T-32-02`
+
+**Depends on:** T-32-01
+
+**Files:**
+- Create: `scaffold/agents/claim-reviewer/{agent.md,schema.json,fixtures/valid.json,fixtures/reject-overbroad.json,fixtures/split.json}`
+- Create: `code/ingest/agents/claim-reviewer-agent.ts`
+- Create: `code/ingest/agents/claim-reviewer-agent.test.ts`
+- Modify: `code/ingest/agents/index.ts`
+- Test: `code/ingest/agents/claim-reviewer-agent.test.ts`
+
+**Interfaces:**
+- Consumes: proposed claim, exact evidence text, relationship candidates, fresh provider call; never extractor transcript/context.
+- Produces: `ClaimReviewProposal { decision;entailment;atomicity;scope;qualifiers;authorityEligible;splits? }`, applied only by ClaimReviewService.
+
+- [ ] **Red:** overgeneralisation rejects, overbroad claim splits with evidence provenance, provider-call ID differs from extractor and input excludes extractor messages. Run targeted Vitest. **Expected failure:** reviewer scaffold/agent missing.
+- [ ] **Green:** author fresh evaluator policy/schema and adapter; validate before deterministic review application.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(agents): review claims in fresh context"`.
+
+### Task T-32-03: Calibrate reusable claim granularity
+
+**IDs:** Backlog `P2.M3.E3.T003`; bundle `T-32-03`
+
+**Depends on:** T-32-02
+
+**Files:**
+- Create: `code/integration/claim-granularity.test.ts`
+- Create: `code/integration/fixtures/claim-granularity.json`
+- Create: `docs/engineering/claim-granularity-guide.md`
+- Test: `code/integration/claim-granularity.test.ts`
+
+**Interfaces:**
+- Consumes: reviewed pilot claims and two-question reuse labels.
+- Produces: `ClaimGranularityMetrics { reuseRate;fragmentationRate;reviewerAgreement }` and normative rules for procedures/preconditions/interface ordering.
+
+- [ ] **Red:** assert one accepted claim is reused by two questions, procedure steps/preconditions remain ordered, and reviewer agreement is calculated from literal labels. Run targeted Vitest. **Expected failure:** fixture/guide missing.
+- [ ] **Green:** author labels and concise rules that distinguish atomicity from fragmentation; derive metrics without changing agent runtime.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "docs(ingest): calibrate claim granularity"`.
+
+### Task T-60-01: Build reproducible sealed claim packs
+
+**IDs:** Backlog `P2.M3.E4.T001`; bundle `T-60-01`
+
+**Depends on:** T-22-03, T-23-03, T-31-02, T-32-02 (not T-31-03)
+
+**Files:**
+- Create: `code/domain/ingest/sealed-claim-pack.ts`
+- Create: `code/ingest/knowledge/claim-pack-service.ts`
+- Create: `code/ingest/knowledge/claim-pack-service.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Test: `code/ingest/knowledge/claim-pack-service.test.ts`
+
+**Interfaces:**
+- Consumes: accepted ClaimReview applications, dependency graph revision, question goals/facets.
+- Produces: `SealedClaimPack { hash:Sha256;questionId;graphRevision;claimIds;claims;qualifierEdges;citations;gaps }`; `ClaimPackService.build(questionId, revision): IngestResult<SealedClaimPack,"UNACCEPTED_CLAIM"|"STALE_CLAIM"|"MISSING_QUALIFIER">`.
+
+- [ ] **Red:** proposed/stale claim is excluded with error, required qualifier dependency is included, and identical logical input in different order yields identical hash/bytes. Run targeted Vitest. **Expected failure:** pack service missing.
+- [ ] **Green:** select only accepted independently reviewed claims, close required qualifier edges, stable-sort/serialise, and content-address the sealed result.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(ingest): seal accepted claim packs"`.
+
+### Task T-60-02: Compose answers only from sealed claims
+
+**IDs:** Backlog `P2.M3.E4.T002`; bundle `T-60-02`
+
+**Depends on:** T-60-01
+
+**Files:**
+- Create: `code/domain/ingest/answer-composition.ts`
+- Create: `scaffold/agents/answer-composer/{agent.md,schema.json,fixtures/valid.json,fixtures/insufficient.json,fixtures/invalid-unmapped.json}`
+- Create: `code/ingest/agents/answer-composer-agent.ts`
+- Create: `code/ingest/agents/answer-composer-agent.test.ts`
+- Modify: `code/ingest/agents/index.ts`
+- Test: `code/ingest/agents/answer-composer-agent.test.ts`
+
+**Interfaces:**
+- Consumes: `SealedClaimPack`, question goals; no retrieval/open-source tools.
+- Produces: `AnswerComposition { id;questionId;claimPackHash;graphRevision;answer;claimOrder;sentenceClaims;citations;goalCoverage;limitations;state:"proposed"|"insufficient_pack" }`; explicit `StructuredAnswerCompatibility.readQuestionContext(questionId)` read-only adapter.
+
+- [ ] **Red:** manifest with retrieval tool fails; unmapped material assertion fails schema/application; shared claims produce distinct compositions for two goal sets; insufficient pack returns no invented prose. Run targeted Vitest. **Expected failure:** composer scaffold/agent missing.
+- [ ] **Green:** author no-tool composer policy/schema, validate every sentence mapping, persist a distinct composition record, and read transcript Structured answer only as labelled question context—not as an ingestion composition.
+- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Commit:** `git commit -m "feat(agents): compose answers from sealed claims"`.
+
+### Task T-60-03: Review answer citations, graph validity, and R1 replay
+
+**IDs:** Backlog `P2.M3.E4.T003`; bundle `T-60-03`
+
+**Depends on:** T-60-02, T-32-03
+
+**Files:**
+- Create: `code/ingest/knowledge/answer-validity.ts`
+- Create: `code/ingest/knowledge/answer-validity.test.ts`
+- Create: `code/integration/automatic-ingestion-r1.test.ts`
+- Modify: `code/ingest/knowledge/index.ts`
+- Modify: `code/integration/ingest-fixture-runner.ts`
+- Test: `code/ingest/knowledge/answer-validity.test.ts`
+- Test: `code/integration/automatic-ingestion-r1.test.ts`
+
+**Interfaces:**
+- Consumes: `AnswerComposition`, sealed pack, current graph revision, source/claim hashes, tiny/small fixture runner.
+- Produces: `reviewAnswerComposition(input): AnswerValidity { promotable;unsupportedSentenceIds;staleDependencies;revisionMatch }`; R1 acceptance result covering AS-01..AS-04 with cache disabled.
+
+- [ ] **Red:** unsupported synthesis, stale revision, and changed source/claim hash each set `promotable:false`; run the full tiny/small zero-cache fixture and observe absent validity service/R1 pipeline. Run `pnpm exec vitest run code/ingest/knowledge/answer-validity.test.ts code/integration/automatic-ingestion-r1.test.ts --maxWorkers=2 --minWorkers=1`. **Expected failure:** answer-validity module missing and R1 scenarios report `not_implemented`.
+- [ ] **Green:** verify sentence→claim→citation closure, exact pack/dependency hashes, and current graph revision; make the fixture runner blocking for R1 and execute snapshot→extract→unitize→retrieve→packet→fresh critic→fresh claim review→sealed pack→composition on both corpora. Assert contradictions create active P1 work and prevent `done`, while unsupported healthy searches remain explicit no-supported-answer outcomes without fabricated claims.
+- [ ] **Pass:** run the two-file Vitest command; expect AS-01..AS-04 green on tiny+small with cache disabled. Then run `VITEST_MAX_THREADS=2 pnpm check`; expect exit 0. Finally run `python3 docs/specs/automatic-ingestion-v3/source-bundle/tools/validate_bundle.py`; expect exit 0, proving the inert bundle remained byte-preserved.
+- [ ] **Commit:** `git commit -m "feat(ingest): validate R1 answer compositions"`.
+
+## Milestone and release gates
+
+- **M0:** T-00-01 through T-02-03 and synthetic T-01-04 pass; architecture/contracts/lab are reviewed; `VITEST_MAX_THREADS=2 pnpm check` exits 0.
+- **M1:** executable core tasks T-10-01 through T-13-03 pass, excluding blocked T-10-04. T-12-04 is reported if run but cannot gate. Replay recovery and immutable-write rejection pass; T-10-04 deletion remains unimplemented pending the C12 ADR and cannot gate M1.
+- **M2:** T-20-01 through T-23-03 pass; canonical Question lifecycle tests, deferred-obligation semantics, contradiction P1 routing, claim review isolation, and targeted invalidation are green.
+- **M3 / R1 internal release:** core T-30-01, T-30-02, T-31-01, T-31-02, T-32-01..03, T-60-01..03 pass. T-30-03 and T-31-03 cannot gate. AS-01..AS-04 pass on tiny and small corpora with provider cache disabled, all evaluator call IDs prove fresh isolation, `pnpm check` exits 0 with two-thread test limits, and the preserved bundle validator still exits 0.
 
 --- SUMMARY ---
 
-- Wave 1 (M0) runs now as two zero-overlap parallel slices — E-01 contracts (Zod-first with 2020-12 dialect fixtures; includes the N3 policy contract and C11/C15/N6 decisions as tests) and E-02 corpus lab (tiny/small labeled corpora + replay fixture runner) — plus a docs-residue E-00 task; the single hot-file registration edit is batched into T-01-03.
-- M1–M3 are planned at contract granularity against the bundle's runtime interfaces, with the load-bearing repo adaptations pinned: new `code/ingest/` module (existing retrieval untouched, N5), reuse of existing no-follow/raw-custody primitives, one-file-per-claim Git layout, filesystem projections behind an interface, agents as scaffold curated adaptations with schema-enforced role split.
-- Task-granularity elaboration for M1/M2/M3 is appended at each milestone gate; M3 exit is the R1 release gate (AS-01..04, zero-cache replay, fixture runner blocking).
+- **48 planned tasks, 47 currently executable slices:** all 46 R0/R1 bundle leaves, synthetic T-01-04, and synthetic C12 split T-10-04 are task-granular. T-10-04 remains blocked and non-executable until its ADR is accepted; each other task has exact paths, public TypeScript contracts, a named failing test and expected failure, minimal green implementation, pass command, and commit message.
+- **R0:** locks architecture/seams/change control, adds curated Zod contracts and manifest/link validation, defines the minimum policy prerequisite, and creates measurable tiny/small zero-cache fixtures.
+- **R1 source plane:** preflights without extraction, stores immutable snapshots/replay capsules, supports deterministic A-tier representations and repairs-as-new-versions, structural units, MiniSearch receipts, and policy filtering/scanning. The source bundle remains inert; vectors remain offline-only; custody deletion is not implemented before a new ADR.
+- **R1 knowledge plane:** links provenance to the existing canonical QuestionRecord without a second lifecycle, owns finite obligations (including explicit deferred semantics), persists append-only evidence/verdict/claim records, requires independent claim review, and serialises graph mutation/invalidation through deterministic services.
+- **R1 agent/answer plane:** Researcher proposes evidence only; fresh Evidence Critic cannot propose children; fresh Claim Reviewer cannot inherit extractor context; Answer Composer has no retrieval tools and writes a distinct AnswerComposition from a reproducible sealed accepted-claim pack.
+- **Gate discipline:** T-12-04, T-30-03, and T-31-03 are optional and non-gating; two-worker Vitest and `pnpm check` are mandatory; AS-01..AS-04 and zero-cache tiny/small replay form the M3 internal-release gate; later publication must reuse the existing actual-diff change-request lane.
