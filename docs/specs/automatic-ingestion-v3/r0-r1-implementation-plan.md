@@ -12,7 +12,7 @@
 
 - Work in a claimed task worktree under `.worktrees/`; each numbered task is one reviewer-sized red→green slice and one commit.
 - Use only agreed seams from `docs/engineering/tdd-seams.md`. Add the five ingestion seams in T-00-02 before testing them: source custody, source representation, ingestion knowledge repository, ingestion graph gateway, and ingestion fixture runner. Test public exports; never mock an internal module.
-- Limit Vitest to two workers: `pnpm exec vitest run <path> --maxWorkers=2 --minWorkers=1`. Run `VITEST_MAX_THREADS=2 pnpm check` after each milestone and before handoff.
+- Limit Vitest to two workers: `pnpm exec vitest run <path> --maxWorkers=2`. Run `VITEST_MAX_THREADS=2 pnpm check` after each milestone and before handoff.
 - The preserved `docs/specs/automatic-ingestion-v3/source-bundle/` is inert, byte-preserved provenance. Production code and curated fixtures must not import, read, glob, copy, or dynamically load it.
 - `QuestionRecord.state` in `question.md` is the only question lifecycle. `IngestionQuestionLink`, `CoverageObligation`, evidence, claims, graph events, and compositions are orthogonal records.
 - Raw artifacts and replay capsules are append-only. T-10-03 deliberately implements seal/verify/export/retention and mutation/deletion rejection; no erase/purge implementation may begin until a new ADR reconciles authorised custody deletion with ADR-0001.
@@ -64,7 +64,7 @@ All task-level interfaces below are exported from the named module `index.ts` an
 - Consumes: ADR-0001 canonical lifecycle/raw immutability, ADR-0002 Git/local split, ADR-0005 ingestion adoption, ADR-0006 ledger precedence.
 - Produces: normative headings `Authority boundaries`, `Agent isolation`, `Completion predicate`, and `Deferred activation`; architecture test helper `readArchitecture(): Promise<string>` local to the test.
 
-- [ ] **Red:** add a test which reads the addendum and asserts it states: canonical `QuestionRecord.state`; orthogonal ingestion records; inert source bundle; deterministic writes; fresh Evidence Critic and Claim Reviewer calls; distinct `AnswerComposition`; existing change-request manager reuse. Run `pnpm exec vitest run code/integration/ingest-architecture.test.ts --maxWorkers=2 --minWorkers=1`. **Expected failure:** `ENOENT ... docs/architecture/automatic-ingestion-v3.md`.
+- [ ] **Red:** add a test which reads the addendum and asserts it states: canonical `QuestionRecord.state`; orthogonal ingestion records; inert source bundle; deterministic writes; fresh Evidence Critic and Claim Reviewer calls; distinct `AnswerComposition`; existing change-request manager reuse. Run `pnpm exec vitest run code/integration/ingest-architecture.test.ts --maxWorkers=2`. **Expected failure:** `ENOENT ... docs/architecture/automatic-ingestion-v3.md`.
 - [ ] **Green:** create the addendum and link it from `docs/architecture.md`; include this exact completion rule:
 
 ```md
@@ -134,7 +134,7 @@ A question is never complete because ingestion exhausted a search. Completion re
 - Consumes: Zod and the existing portable schema-validation surface in `code/domain/schemas.ts`.
 - Produces: `IngestSchemaName`, `IngestSchemaRegistry.get(name, version): z.ZodType`, `validateIngestRecord<T>(name, version, input): IngestResult<T, "UNKNOWN_SCHEMA" | "INVALID_RECORD">`, `registerIngestSchemas(): void`, plus branded IDs from the fixed vocabulary.
 
-- [ ] **Red:** test valid minimal records, a 63-character digest, an extra property, unknown version `2`, and error path `files.0.sha256`. Run `pnpm exec vitest run code/domain/ingest/schema-registry.test.ts --maxWorkers=2 --minWorkers=1`. **Expected failure:** module resolution fails for `./schema-registry.js`.
+- [ ] **Red:** test valid minimal records, a 63-character digest, an extra property, unknown version `2`, and error path `files.0.sha256`. Run `pnpm exec vitest run code/domain/ingest/schema-registry.test.ts --maxWorkers=2`. **Expected failure:** module resolution fails for `./schema-registry.js`.
 - [ ] **Green:** implement a closed registry and exact-object Zod schemas:
 
 ```ts
@@ -416,7 +416,7 @@ it("authorises custody-byte deletion while retaining portable tombstones", async
 });
 ```
 
-Run: `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2 --minWorkers=1`. **Expected failure after the gate opens:** module resolution fails for `./replay-deletion.js`; before ADR acceptance, the expected state is backlog `blocked` and no command is run.
+Run: `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2`. **Expected failure after the gate opens:** module resolution fails for `./replay-deletion.js`; before ADR acceptance, the expected state is backlog `blocked` and no command is run.
 - [ ] **Green (run only after the ADR is accepted):** implement the accepted custody boundary exactly; require actor authorisation and matching digest, calculate/apply dependency closure before deleting local capsule bytes, then append a portable tombstone without deleting or rewriting raw-history records.
 
 ```ts
@@ -426,7 +426,7 @@ export interface AuthorisedReplayDeletion {
 }
 ```
 
-- [ ] **Pass (run only after the ADR is accepted):** run `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2 --minWorkers=1`; expect the authorised deletion drill, unauthorised rejection, digest mismatch, dependency invalidation, and portable-tombstone cases to pass. Then run `VITEST_MAX_THREADS=2 pnpm check`; expect exit 0.
+- [ ] **Pass (run only after the ADR is accepted):** run `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2`; expect the authorised deletion drill, unauthorised rejection, digest mismatch, dependency invalidation, and portable-tombstone cases to pass. Then run `VITEST_MAX_THREADS=2 pnpm check`; expect exit 0.
 - [ ] **Commit (run only after the ADR is accepted):** `git add docs/adr/NNNN-source-custody-deletion.md code/ingest/source/replay-deletion.ts code/ingest/source/replay-deletion.test.ts code/ingest/source/index.ts && git commit -m "feat(ingest): authorise replay custody deletion"`. Until then, make no implementation commit.
 
 ### Task T-11-01: Implement A-tier text extractors
@@ -1174,7 +1174,7 @@ export interface AuthorisedReplayDeletion {
 - Consumes: `AnswerComposition`, sealed pack, current graph revision, source/claim hashes, tiny/small fixture runner.
 - Produces: `reviewAnswerComposition(input): AnswerValidity { promotable;unsupportedSentenceIds;staleDependencies;revisionMatch }`; R1 acceptance result covering AS-01..AS-04 with cache disabled.
 
-- [ ] **Red:** unsupported synthesis, stale revision, and changed source/claim hash each set `promotable:false`; run the full tiny/small zero-cache fixture and observe absent validity service/R1 pipeline. Run `pnpm exec vitest run code/ingest/knowledge/answer-validity.test.ts code/integration/automatic-ingestion-r1.test.ts --maxWorkers=2 --minWorkers=1`. **Expected failure:** answer-validity module missing and R1 scenarios report `not_implemented`.
+- [ ] **Red:** unsupported synthesis, stale revision, and changed source/claim hash each set `promotable:false`; run the full tiny/small zero-cache fixture and observe absent validity service/R1 pipeline. Run `pnpm exec vitest run code/ingest/knowledge/answer-validity.test.ts code/integration/automatic-ingestion-r1.test.ts --maxWorkers=2`. **Expected failure:** answer-validity module missing and R1 scenarios report `not_implemented`.
 - [ ] **Green:** verify sentence→claim→citation closure, exact pack/dependency hashes, and current graph revision; make the fixture runner blocking for R1 and execute snapshot→extract→unitize→retrieve→packet→fresh critic→fresh claim review→sealed pack→composition on both corpora. Assert contradictions create active P1 work and prevent `done`, while unsupported healthy searches remain explicit no-supported-answer outcomes without fabricated claims.
 - [ ] **Pass:** run the two-file Vitest command; expect AS-01..AS-04 green on tiny+small with cache disabled. Then run `VITEST_MAX_THREADS=2 pnpm check`; expect exit 0. Finally run `python3 docs/specs/automatic-ingestion-v3/source-bundle/tools/validate_bundle.py`; expect exit 0, proving the inert bundle remained byte-preserved.
 - [ ] **Commit:** `git commit -m "feat(ingest): validate R1 answer compositions"`.
