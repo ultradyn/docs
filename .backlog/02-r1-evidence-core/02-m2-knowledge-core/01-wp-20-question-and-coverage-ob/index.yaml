@@ -49,5 +49,6 @@ tasks:
       file: T004-wp-20-integration-persist-obli.todo
       id: T004
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: WP-20 integration — persist obligations and close module invariants
