@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-18T18:59:19Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-18T20:18:55Z"
 complexity: high
 created_at: "2026-07-18T18:56:50Z"
 depends_on:
     - P2.M2.E1.T003
+duration_minutes: 79.6139050238
 estimate_hours: 6
 id: P2.M2.E1.T004
 priority: critical
 started_at: "2026-07-18T18:59:19Z"
-status: in_progress
+status: done
 tags: []
 title: WP-20 integration — persist obligations and close module invariants
-updated_at: "2026-07-18T18:59:19Z"
+updated_at: "2026-07-18T20:18:55Z"
 ---
 WP-20 epic integration remediation discovered by the mandatory post-epic review after T-20-03.
 
