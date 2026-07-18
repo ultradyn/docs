@@ -63,7 +63,9 @@ class FileQuestionLinkStore implements QuestionLinkStore {
       const code = errorCode(error);
       if (code === "ENOENT") return undefined;
       if (code === "ELOOP") {
-        throw new Error(`Refusing to read symbolic link at ${path}.`);
+        throw new Error(`Refusing to read symbolic link at ${path}.`, {
+          cause: error,
+        });
       }
       throw error;
     }
@@ -125,6 +127,7 @@ class FileQuestionLinkStore implements QuestionLinkStore {
           if (existing.isSymbolicLink()) {
             throw new Error(
               `Refusing to publish over symbolic link at ${destination}.`,
+              { cause: error },
             );
           }
           return false;
