@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -5,6 +9,8 @@ import {
   type QuestionRecord,
 } from "../../domain/schemas.js";
 import { applyQuestionTransition } from "../../domain/lifecycle.js";
+import { createFileQuestionLinkStore } from "../../repository/ingestion-question-link-store.js";
+import { KnowledgeRepository } from "../../repository/knowledge-repository.js";
 import {
   createInMemoryQuestionLinkStore,
   createQuestionLinkService,
@@ -98,6 +104,67 @@ const generatedLinkInput = {
   sourceUnitIds: ["unit-1", "unit-2"],
 } as const;
 
+const storedHumanLink = {
+  schemaVersion: 1,
+  ...humanLinkInput,
+  createdRevision: 0,
+} as const;
+
+describe("filesystem QuestionLinkStore", () => {
+  it("reloads a Git-portable link after restart", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    try {
+      const initial = createFileQuestionLinkStore(root);
+      await initial.create(storedHumanLink);
+
+      const restarted = createFileQuestionLinkStore(root);
+      await expect(restarted.get(HUMAN_QUESTION_ID)).resolves.toEqual(
+        storedHumanLink,
+      );
+      await expect(
+        restarted.create({ ...storedHumanLink, snapshotId: "snap-rewritten" }),
+      ).resolves.toBe(false);
+      await expect(
+        readFile(
+          join(
+            root,
+            "ingest",
+            "question-links",
+            `${HUMAN_QUESTION_ID}.json`,
+          ),
+          "utf8",
+        ).then(JSON.parse),
+      ).resolves.toEqual(storedHumanLink);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers an interrupted temporary write before creating a link", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    const directory = join(root, "ingest", "question-links");
+    const temporaryPath = join(directory, `.${HUMAN_QUESTION_ID}.json.tmp`);
+    try {
+      await mkdir(directory, { recursive: true });
+      await writeFile(temporaryPath, '{"schemaVersion":1');
+
+      const initial = createFileQuestionLinkStore(root);
+      await expect(initial.get(HUMAN_QUESTION_ID)).resolves.toBeUndefined();
+      await expect(initial.create(storedHumanLink)).resolves.toBe(true);
+
+      const restarted = createFileQuestionLinkStore(root);
+      await expect(restarted.get(HUMAN_QUESTION_ID)).resolves.toEqual(
+        storedHumanLink,
+      );
+      await expect(readFile(temporaryPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("QuestionLinkService", () => {
   it("rejects link input carrying wording, origin, or lifecycle fields", async () => {
     const service = serviceWith([humanQuestion()]);
@@ -189,6 +256,31 @@ describe("QuestionLinkService", () => {
     const duplicate = await service.link(humanLinkInput);
     expect(duplicate.ok).toBe(false);
     if (!duplicate.ok) expect(duplicate.code).toBe("LINK_EXISTS");
+  });
+
+  it("adapts canonical repository misses to QUESTION_NOT_FOUND", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-reader-"));
+    try {
+      const questions = new KnowledgeRepository(root);
+      await questions.initialize();
+      const service = createQuestionLinkService({
+        questions,
+        links: createInMemoryQuestionLinkStore(),
+      });
+
+      await expect(
+        service.link({
+          ...humanLinkInput,
+          questionId: "q-01BX5ZZKBKACTAV9WEVGEMMVS2",
+        }),
+      ).resolves.toEqual({
+        ok: false,
+        code: "QUESTION_NOT_FOUND",
+        message: "Unknown question q-01BX5ZZKBKACTAV9WEVGEMMVS2.",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps human and generated origins distinguishable after lifecycle convergence", async () => {

@@ -14,6 +14,11 @@ export interface IngestionQuestionLink {
   createdRevision: number;
 }
 
+export interface QuestionLinkStore {
+  get(questionId: string): Promise<IngestionQuestionLink | undefined>;
+  create(link: IngestionQuestionLink): Promise<boolean>;
+}
+
 const NonEmptyStringSchema = z.string().trim().min(1);
 
 // System-created links (N6): non-human origins must name the acting system and

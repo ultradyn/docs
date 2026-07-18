@@ -2,9 +2,11 @@ import {
   IngestionQuestionLinkSchema,
   QuestionLinkInputSchema,
   type IngestionQuestionLink,
+  type QuestionLinkStore,
 } from "../../domain/ingest/question-link.js";
 import type { IngestResult } from "../../domain/ingest/types.js";
 import type { QuestionRecord } from "../../domain/schemas.js";
+import { QuestionNotFoundError } from "../../repository/knowledge-repository.js";
 
 export type QuestionLinkError =
   | "INVALID_LINK"
@@ -14,11 +16,6 @@ export type QuestionLinkError =
 
 export interface QuestionReader {
   getQuestion(id: string): Promise<QuestionRecord | undefined>;
-}
-
-export interface QuestionLinkStore {
-  get(questionId: string): IngestionQuestionLink | undefined;
-  set(link: IngestionQuestionLink): void;
 }
 
 export interface QuestionLinkService {
@@ -33,9 +30,11 @@ export interface QuestionLinkService {
 export function createInMemoryQuestionLinkStore(): QuestionLinkStore {
   const links = new Map<string, IngestionQuestionLink>();
   return {
-    get: (questionId) => links.get(questionId),
-    set: (link) => {
+    get: async (questionId) => links.get(questionId),
+    create: async (link) => {
+      if (links.has(link.questionId)) return false;
       links.set(link.questionId, link);
+      return true;
     },
   };
 }
@@ -64,7 +63,18 @@ export function createQuestionLinkService(options: {
         );
       }
 
-      const record = await questions.getQuestion(parsed.data.questionId);
+      let record: QuestionRecord | undefined;
+      try {
+        record = await questions.getQuestion(parsed.data.questionId);
+      } catch (error) {
+        if (error instanceof QuestionNotFoundError) {
+          return failure(
+            "QUESTION_NOT_FOUND",
+            `Unknown question ${parsed.data.questionId}.`,
+          );
+        }
+        throw error;
+      }
       if (!record) {
         return failure(
           "QUESTION_NOT_FOUND",
@@ -87,27 +97,23 @@ export function createQuestionLinkService(options: {
         );
       }
 
-      if (links.get(record.id)) {
-        return failure("LINK_EXISTS", `Question ${record.id} is already linked.`);
-      }
-
       const link = IngestionQuestionLinkSchema.parse({
         schemaVersion: 1,
         ...parsed.data,
         createdRevision: record.revision,
       });
-      links.set(link);
+      if (!(await links.create(link))) {
+        return failure("LINK_EXISTS", `Question ${record.id} is already linked.`);
+      }
       return { ok: true, value: link };
     },
 
-    read(questionId) {
-      const link = links.get(questionId);
+    async read(questionId) {
+      const link = await links.get(questionId);
       if (!link) {
-        return Promise.resolve(
-          failure("LINK_NOT_FOUND", `Question ${questionId} has no link.`),
-        );
+        return failure("LINK_NOT_FOUND", `Question ${questionId} has no link.`);
       }
-      return Promise.resolve({ ok: true, value: link });
+      return { ok: true, value: link };
     },
   };
 }
