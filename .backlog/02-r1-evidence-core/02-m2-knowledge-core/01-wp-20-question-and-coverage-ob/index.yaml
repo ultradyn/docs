@@ -19,7 +19,8 @@ tasks:
       file: T001-t-20-01-implement-question-rep.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-20-01 — Implement Question repository and lifecycle
     - complexity: medium
       depends_on:
