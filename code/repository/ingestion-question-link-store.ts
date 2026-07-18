@@ -6,6 +6,7 @@ import {
   mkdir,
   open,
   readdir,
+  realpath,
   rm,
   type FileHandle,
 } from "node:fs/promises";
@@ -65,6 +66,7 @@ class FileQuestionLinkStore implements QuestionLinkStore {
   readonly #holder = new AsyncLocalStorage<true>();
   #queue: Promise<unknown> = Promise.resolve();
   readonly #hooks: QuestionLinkStoreHooks;
+  #canonicalRoot: Promise<string> | undefined;
 
   constructor(
     private readonly root: string,
@@ -79,9 +81,9 @@ class FileQuestionLinkStore implements QuestionLinkStore {
   // the holding async context; serialized in-process via a queue.
   locked<T>(operation: () => Promise<T>): Promise<T> {
     if (this.#holder.getStore()) return operation();
-    const run = () =>
+    const run = async () =>
       withRepositoryLock(
-        this.root,
+        await this.#getCanonicalRoot(),
         () => this.#holder.run(true, operation),
         this.options,
       );
@@ -95,6 +97,7 @@ class FileQuestionLinkStore implements QuestionLinkStore {
 
   async get(questionId: string): Promise<IngestionQuestionLink | undefined> {
     const directory = await this.#openLinksDirectory();
+    let operationFailed = false;
     try {
       await this.#hooks.afterDirectoryResolved?.();
       const path = directory.at(fileName(questionId));
@@ -126,8 +129,11 @@ class FileQuestionLinkStore implements QuestionLinkStore {
         );
       }
       return parsed;
+    } catch (error) {
+      operationFailed = true;
+      throw error;
     } finally {
-      await directory.close();
+      await this.#closeDirectoryReference(directory, operationFailed);
     }
   }
 
@@ -135,6 +141,7 @@ class FileQuestionLinkStore implements QuestionLinkStore {
     const link = IngestionQuestionLinkSchema.parse(input);
     return this.locked(async () => {
       const directory = await this.#openLinksDirectory();
+      let operationFailed = false;
       try {
         await this.#hooks.afterDirectoryResolved?.();
         const encoded = encodeURIComponent(link.questionId);
@@ -202,10 +209,24 @@ class FileQuestionLinkStore implements QuestionLinkStore {
         await directory.sync();
         this.#hooks.onDirectorySynced?.();
         return true;
+      } catch (error) {
+        operationFailed = true;
+        throw error;
       } finally {
-        await directory.close();
+        await this.#closeDirectoryReference(directory, operationFailed);
       }
     });
+  }
+
+  async #closeDirectoryReference(
+    directory: DirectoryReference,
+    preservePrimaryError: boolean,
+  ): Promise<void> {
+    try {
+      await directory.close();
+    } catch (error) {
+      if (!preservePrimaryError) throw error;
+    }
   }
 
   async #exists(path: string): Promise<boolean> {
@@ -221,7 +242,9 @@ class FileQuestionLinkStore implements QuestionLinkStore {
   async #openLinksDirectory(): Promise<DirectoryReference> {
     if (!FD_BOUND) return this.#openLinksDirectoryByPath();
 
-    let handle = await open(this.root, DIRECTORY_FLAGS);
+    const handles = new Set<FileHandle>();
+    let handle = await open(await this.#getCanonicalRoot(), DIRECTORY_FLAGS);
+    handles.add(handle);
     try {
       for (const component of LINKS_COMPONENTS) {
         const componentPath = `/proc/self/fd/${handle.fd}/${component}`;
@@ -243,11 +266,14 @@ class FileQuestionLinkStore implements QuestionLinkStore {
           }
           throw error;
         }
-        await handle.close();
+        handles.add(child);
+        const parent = handle;
         handle = child;
+        await this.#closeDirectoryHandle(parent);
+        handles.delete(parent);
       }
     } catch (error) {
-      await handle.close();
+      await this.#closeDirectoryHandles(handles);
       throw error;
     }
     const bound = handle;
@@ -259,10 +285,50 @@ class FileQuestionLinkStore implements QuestionLinkStore {
     };
   }
 
+  async #getCanonicalRoot(): Promise<string> {
+    if (!this.#canonicalRoot) {
+      const pending = realpath(this.root);
+      this.#canonicalRoot = pending;
+      try {
+        await pending;
+      } catch (error) {
+        this.#clearRejectedCanonicalRoot(pending);
+        throw error;
+      }
+    }
+    return await this.#canonicalRoot;
+  }
+
+  #clearRejectedCanonicalRoot(pending: Promise<string>): void {
+    if (this.#canonicalRoot === pending) this.#canonicalRoot = undefined;
+  }
+
+  async #closeDirectoryHandle(handle: FileHandle): Promise<void> {
+    await handle.close();
+  }
+
+  async #closeDirectoryHandles(handles: Set<FileHandle>): Promise<void> {
+    for (const handle of handles) {
+      try {
+        await this.#closeDirectoryHandle(handle);
+      } catch {
+        try {
+          await handle.close();
+        } catch {
+          // Best-effort cleanup must not mask the primary traversal failure.
+        }
+      }
+    }
+  }
+
   async #openLinksDirectoryByPath(): Promise<DirectoryReference> {
-    const directory = join(this.root, ...LINKS_COMPONENTS);
+    const canonicalRoot = await this.#getCanonicalRoot();
+    const directory = join(canonicalRoot, ...LINKS_COMPONENTS);
     await mkdir(directory, { recursive: true });
-    const resolved = await resolveContainedPathNoSymlinks(this.root, directory);
+    const resolved = await resolveContainedPathNoSymlinks(
+      canonicalRoot,
+      directory,
+    );
     return {
       at: (name) => join(resolved, name),
       list: () => readdir(resolved),

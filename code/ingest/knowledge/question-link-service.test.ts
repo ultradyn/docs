@@ -1,4 +1,14 @@
-import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,7 +34,9 @@ const GENERATED_QUESTION_ID = "q-01BX5ZZKBKACTAV9WEVGEMMVRZ";
 const PARENT_QUESTION_ID = "q-01BX5ZZKBKACTAV9WEVGEMMVS0";
 const FINDING_ID = "f-01BX5ZZKBKACTAV9WEVGEMMVS1";
 
-function humanQuestion(overrides: Partial<QuestionRecord> = {}): QuestionRecord {
+function humanQuestion(
+  overrides: Partial<QuestionRecord> = {},
+): QuestionRecord {
   return QuestionRecordSchema.parse({
     schemaVersion: 1,
     id: HUMAN_QUESTION_ID,
@@ -128,6 +140,105 @@ describe("public seams", () => {
 });
 
 describe("filesystem QuestionLinkStore", () => {
+  it("retries canonical root resolution after an initial filesystem failure", async () => {
+    const parent = await mkdtemp(
+      join(tmpdir(), "ultradyn-question-links-retry-root-"),
+    );
+    const root = join(parent, "repository");
+    try {
+      const store = createFileQuestionLinkStore(root);
+      await expect(store.get(HUMAN_QUESTION_ID)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+
+      await mkdir(root);
+      await expect(store.create(storedHumanLink)).resolves.toBe(true);
+      await expect(store.get(HUMAN_QUESTION_ID)).resolves.toEqual(
+        storedHumanLink,
+      );
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("shares canonical link data and locking through a repository symlink alias", async () => {
+    const parent = await mkdtemp(
+      join(tmpdir(), "ultradyn-question-links-alias-"),
+    );
+    const root = join(parent, "repository");
+    const alias = join(parent, "repository-alias");
+    const lockRoot = join(parent, "locks");
+    try {
+      await mkdir(root);
+      await symlink(root, alias, "dir");
+      const options = { lockRoot, lockRetries: 0 };
+      const canonicalStore = createFileQuestionLinkStore(root, options);
+      const aliasStore = createFileQuestionLinkStore(alias, options);
+
+      await expect(canonicalStore.create(storedHumanLink)).resolves.toBe(true);
+      await expect(aliasStore.get(HUMAN_QUESTION_ID)).resolves.toEqual(
+        storedHumanLink,
+      );
+
+      const generatedStoredLink = {
+        schemaVersion: 1,
+        ...generatedLinkInput,
+        createdRevision: 0,
+      } as const;
+      const otherRoot = join(parent, "other-repository");
+      await mkdir(otherRoot);
+      await rm(alias);
+      await symlink(otherRoot, alias, "dir");
+      let releaseMutation!: () => void;
+      const mutationHeld = new Promise<void>((resolve) => {
+        releaseMutation = resolve;
+      });
+      let signalMutation!: () => void;
+      const mutationStarted = new Promise<void>((resolve) => {
+        signalMutation = resolve;
+      });
+      const repository = new KnowledgeRepository(root, {
+        ...options,
+        onMatchedAskCheckpoint: async (checkpoint) => {
+          if (checkpoint !== "after-question-artifact") return;
+          signalMutation();
+          await mutationHeld;
+        },
+      });
+      await repository.initialize();
+      const question = await repository.createQuestion({
+        title: "How is the canonical lock shared?",
+        verbatimQuestion: "How is the canonical lock shared?",
+        goals: ["implementation"],
+        asker: { id: "max", acceptance: "pending" },
+        origin: { kind: "raw" },
+      });
+      const mutation = repository.attachMatchedAsk(question.id, {
+        verbatimQuestion: "How is the canonical lock shared in practice?",
+        acceptanceGoals: ["implementation"],
+        requestedGoals: ["implementation"],
+        asker: { id: "second-asker", acceptance: "pending" },
+        expectedRevision: question.revision,
+        by: "matcher",
+      });
+      await mutationStarted;
+      try {
+        await expect(
+          aliasStore.create(generatedStoredLink),
+        ).rejects.toMatchObject({ code: "ELOCKED" });
+      } finally {
+        releaseMutation();
+        await mutation;
+      }
+      await expect(aliasStore.create(generatedStoredLink)).resolves.toBe(true);
+      await expect(canonicalStore.get(GENERATED_QUESTION_ID)).resolves.toEqual(
+        generatedStoredLink,
+      );
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it("reloads a Git-portable link after restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
     try {
@@ -143,12 +254,7 @@ describe("filesystem QuestionLinkStore", () => {
       ).resolves.toBe(false);
       await expect(
         readFile(
-          join(
-            root,
-            "ingest",
-            "question-links",
-            `${HUMAN_QUESTION_ID}.json`,
-          ),
+          join(root, "ingest", "question-links", `${HUMAN_QUESTION_ID}.json`),
           "utf8",
         ).then(JSON.parse),
       ).resolves.toEqual(storedHumanLink);
@@ -189,6 +295,9 @@ describe("filesystem QuestionLinkStore", () => {
         store.create({ ...storedHumanLink, generation: -1 } as never),
       ).rejects.toThrow();
       await expect(
+        store.create({ ...storedHumanLink, generation: 1 }),
+      ).rejects.toThrow(/generation.*0/i);
+      await expect(
         store.create({
           ...storedHumanLink,
           state: "accepted",
@@ -217,7 +326,10 @@ describe("filesystem QuestionLinkStore", () => {
       );
 
       await rm(join(directory, `${HUMAN_QUESTION_ID}.json`));
-      await symlink(victimPath, join(directory, `.${HUMAN_QUESTION_ID}.json.tmp`));
+      await symlink(
+        victimPath,
+        join(directory, `.${HUMAN_QUESTION_ID}.json.tmp`),
+      );
       await expect(store.create(storedHumanLink)).resolves.toBe(true);
       await expect(readFile(victimPath, "utf8")).resolves.toBe(
         '"victim-bytes"',
@@ -268,7 +380,10 @@ describe("filesystem QuestionLinkStore", () => {
         });
         await store.create(storedHumanLink);
 
-        const attackerLink = { ...storedHumanLink, snapshotId: "snap-attacker" };
+        const attackerLink = {
+          ...storedHumanLink,
+          snapshotId: "snap-attacker",
+        };
         swap = async () => {
           await mkdir(join(attacker, "question-links"), { recursive: true });
           await writeFile(
@@ -444,9 +559,7 @@ describe("filesystem QuestionLinkStore", () => {
         )}\n`,
       );
       const store = createFileQuestionLinkStore(root);
-      await expect(store.get(HUMAN_QUESTION_ID)).rejects.toThrow(
-        /questionId/i,
-      );
+      await expect(store.get(HUMAN_QUESTION_ID)).rejects.toThrow(/questionId/i);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -483,7 +596,8 @@ describe("QuestionLinkService", () => {
       sourceUnitIds: [],
     });
     expect(missingProvenance.ok).toBe(false);
-    if (!missingProvenance.ok) expect(missingProvenance.code).toBe("INVALID_LINK");
+    if (!missingProvenance.ok)
+      expect(missingProvenance.code).toBe("INVALID_LINK");
 
     const accepted = await service.link(generatedLinkInput);
     expect(accepted.ok).toBe(true);
@@ -608,14 +722,16 @@ describe("QuestionLinkService", () => {
       questionId: HUMAN_QUESTION_ID,
     });
     expect(generatedOnHuman.ok).toBe(false);
-    if (!generatedOnHuman.ok) expect(generatedOnHuman.code).toBe("ORIGIN_MISMATCH");
+    if (!generatedOnHuman.ok)
+      expect(generatedOnHuman.code).toBe("ORIGIN_MISMATCH");
 
     const humanOnGenerated = await service.link({
       ...humanLinkInput,
       questionId: GENERATED_QUESTION_ID,
     });
     expect(humanOnGenerated.ok).toBe(false);
-    if (!humanOnGenerated.ok) expect(humanOnGenerated.code).toBe("ORIGIN_MISMATCH");
+    if (!humanOnGenerated.ok)
+      expect(humanOnGenerated.code).toBe("ORIGIN_MISMATCH");
   });
 
   it("fails for unknown questions and duplicate links", async () => {
