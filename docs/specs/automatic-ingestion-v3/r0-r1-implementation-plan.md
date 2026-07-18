@@ -497,7 +497,7 @@ If non-destructive framework work is wanted before those gates clear, create a s
 **Interfaces (contract nouns, not a frozen TypeScript shape).** Erasure is a **separate `AuthorisedCustodyDeletion` capability**, never a method on `RawArtifactStore` or `ReplayCapsuleStore`.
 
 - **Inputs:** a versioned deletion request; actor and authority reference; legal-hold decision; expected custody and policy revisions; immutable dependency-closure digest; the complete expected custody inventory (objects, replicas, providers, keys, Git locations); and operation plus idempotency identifiers.
-- **Outputs:** a versioned certificate projection that is explicitly *partial* or *complete*, plus a protected-evidence digest.
+- **Outputs:** a versioned certificate projection that is explicitly _partial_ or _complete_, plus a protected-evidence digest.
 - **Errors:** unsatisfied capability gate; legal hold; stale expected revision; incomplete inventory; provider outcome unknown; signer unavailable; reconciliation required.
 
 Do not freeze the exact final TypeScript shape ahead of the gates; these nouns are the contract.

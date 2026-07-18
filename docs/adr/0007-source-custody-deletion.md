@@ -54,11 +54,11 @@ Backlog task **T-10-04 includes destructive implementation and a deletion drill,
 
 Deletion is irreversible, so the protocol names exactly where reversibility ends — and that point is **not** an authorisation record but the first real destruction.
 
-**PREPARE (reversible).** Establish an authorised actor and a recorded legal-hold decision. Compute both the exact dependency closure **and** a complete *expected* custody inventory — every object, replica, provider, key, and Git location. Validate and revalidate expected custody and policy revisions, the legal hold, and every capability gate. Acquire a deterministic lock. Persist a durable operation intent/journal with a stable operation ID and per-target sub-operation IDs. Freeze affected use. **No erasure begins until the journal and freeze are durable and revalidated.**
+**PREPARE (reversible).** Establish an authorised actor and a recorded legal-hold decision. Compute both the exact dependency closure **and** a complete _expected_ custody inventory — every object, replica, provider, key, and Git location. Validate and revalidate expected custody and policy revisions, the legal hold, and every capability gate. Acquire a deterministic lock. Persist a durable operation intent/journal with a stable operation ID and per-target sub-operation IDs. Freeze affected use. **No erasure begins until the journal and freeze are durable and revalidated.**
 
-**EXECUTE (attempts destruction).** Persist the `execution-authorised` marker **only after** that final revalidation. The marker authorises attempts; **it is not itself irreversible.** If a crash occurs after the marker but before any confirmed destructive side effect, recovery may safely close or cancel the operation — but only after *proving* none occurred, provider reconciliation included.
+**EXECUTE (attempts destruction).** Persist the `execution-authorised` marker **only after** that final revalidation. The marker authorises attempts; **it is not itself irreversible.** If a crash occurs after the marker but before any confirmed destructive side effect, recovery may safely close or cancel the operation — but only after _proving_ none occurred, provider reconciliation included.
 
-Perform each target operation under its stable sub-operation ID, durably recording the request *before* the call and the outcome or receipt *after* it, so a crash between the two is detectable rather than invisible. Retries **query and reconcile** provider state; they never assume a prior call succeeded.
+Perform each target operation under its stable sub-operation ID, durably recording the request _before_ the call and the outcome or receipt _after_ it, so a crash between the two is detectable rather than invisible. Retries **query and reconcile** provider state; they never assume a prior call succeeded.
 
 **The irreversible boundary is the first CONFIRMED destructive side effect** — a confirmed object erasure or key destruction. From that moment recovery must continue, reconcile, and finalise, and may **never** present the operation as untouched.
 
@@ -85,7 +85,7 @@ The certificate is content-addressed and signed, with an explicit signer and tru
 
 **Expected, not merely observed.** The signed payload carries the **complete expected custody inventory** (as both digest and list) with per-object, per-replica, per-provider, and per-key outcomes — not only the targets that happened to be visited. An inventory that silently omits what was never reached is how a deletion comes to look complete when it is not.
 
-**Completeness predicate.** A certificate may claim completeness only when *every* expected item is confirmed either erased or permissibly retained, with **no residual, no unknown, no outstanding class-3 remediation**, all invalidations and tombstones confirmed, and the signature verified. Any unknown outcome forbids a completeness claim; the result is a partial certificate.
+**Completeness predicate.** A certificate may claim completeness only when _every_ expected item is confirmed either erased or permissibly retained, with **no residual, no unknown, no outstanding class-3 remediation**, all invalidations and tombstones confirmed, and the signature verified. Any unknown outcome forbids a completeness claim; the result is a partial certificate.
 
 **Portable projection versus protected evidence.** A **non-secret redacted projection** is the canonical Git audit state: actor and authority reference, closure and inventory digests, policy version, outcome summary, residual and unknown flags, and the signer envelope — and no sensitive locations or secrets. The full evidence, provider receipts, and location detail stay in protected machine-local or approved external audit custody, linked by content digest under governed retention. Portability is **never** claimed when the underlying evidence is unavailable.
 
@@ -99,7 +99,7 @@ Until Max sets policy (D9): retain everything, append-only, no automatic expiry.
 
 ## Consequences
 
-Accepting this ADR settles the architecture and **unlocks no work**. T-10-04 stays blocked as scoped. Physical erasure is confined to class-1 custody objects across every replica; portable history stays append-only via tombstones; and removal of source text from Git is an explicit human incident procedure rather than a feature pathway. Deletion certificates make omission auditable, including what was *not* erased.
+Accepting this ADR settles the architecture and **unlocks no work**. T-10-04 stays blocked as scoped. Physical erasure is confined to class-1 custody objects across every replica; portable history stays append-only via tombstones; and removal of source text from Git is an explicit human incident procedure rather than a feature pathway. Deletion certificates make omission auditable, including what was _not_ erased.
 
 The cost is stated plainly: **"deleted" source content generally remains recoverable from portable Git history unless the class-3 exceptional lane is invoked.** This is a deliberate trade favouring auditability. Rights-holders requiring true erasure of text in Git must trigger the incident lane, and any process that promises erasure while writing only tombstones is misrepresenting what happened.
 
