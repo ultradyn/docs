@@ -1,0 +1,121 @@
+# Automatic Ingestion v3 — Adopted Design & Backlog-Ingestion Decision (LOCKED)
+
+Coordinators: claude-pivot-cotton-27tq (author/mutator) + pi-73c593 (independent reviewer). Status: **LOCKED 2026-07-18 17:53 AEST** by joint coordinator review under Max's /max-afk delegation. Source bundle: `source-bundle/` (see `IMPORT.md`). ADRs: `docs/adr/0005-*.md`, `docs/adr/0006-*.md`.
+
+## 1. Verification summary
+
+Original artifact: `/home/xertrov/Downloads/ingest-feature-v3.zip`, SHA-256 `b10d4c05fff780ab0fe10d7487a0a316f56fc88514df6654cca7ea328e542e6e` (goes in the IMPORT receipt).
+
+- ZIP: 238 entries = 223 files + 15 dirs. MANIFEST.sha256 covers 221 files (all but itself + VALIDATION.md); all hashes verified OK (both coordinators, independent extractions).
+- `tools/validate_bundle.py` (read-only, audited): PASSES exit 0 — 27 schemas, 15 agents, 11 workflows, 42 examples, 31 WPs, 95 leaf tasks, acyclic deps.
+- Validator proves internal consistency only; production quality gates are the staged-corpus experiments in the plan.
+
+## 2. What the bundle is
+
+"Docent Automatic Ingestion v3": snapshot a doc corpus → deterministic extraction/unitization → evidence-grounded agent loop (Researcher / Evidence Critic split from Curiosity Planner) → independently reviewed atomic Claims → Answers/Documents composed only from sealed accepted claim packs → reviewable Git PR into the host knowledge system. 9 milestones M0–M8, releases R0–R4; first internal release gate = M3 (measured vertical slice, tiny+small corpora).
+
+**Key identity mapping (CONFIRMED BY MAX, 2026-07-18): "Docent" is the FORMER name of this repo's product; "Ultradyn Docs" (@ultradyn/docs) is the current canonical name.** The preserved source bundle stays byte-identical; all NEW adoption docs, backlog entries, and code use Ultradyn Docs terminology per the CONTEXT.md glossary, with the former-name mapping stated once in the adoption doc.
+
+## 3. Conflict / ambiguity register
+
+| # | Conflict/ambiguity | Resolution (proposed) |
+|---|---|---|
+| C1 | Bundle tooling/examples are Python; host is TS/ESM (Node 22/24, pnpm, vitest). Plan never names a target language (bundle self-review admits this). | All production code in TypeScript against `code/`. Python validator stays in the archived bundle as a spec-consistency tool only; a TS validation harness is part of Epic E-01. |
+| C2 | "Ingestion into the backlog": `bl` installed but NOT initialized; current ledgers are `.plan/06-task-breakdown.md` + `BLOCKED_TASKS.md`. | Approach C (§4): `bl init`; precedence per ADR-0006 — `.backlog` = execution truth, `.plan` = historical/source plan, `BLOCKED_TASKS.md` = release truth; cross-linked by ID. Durable process change → ADR. |
+| C3 | Scale: 95 leaf tasks, most not executable now (repo gaps: GitHostProvider.publish() unwired, only Librarian in agent runtime, CR metadata machine-local). | Ingest atomic tasks only for R0/R1 (M0–M3, 15 WPs); M4–M8 as epic-level stubs expanded at each milestone gate. Keeps backlog honest per repo release-truth discipline. |
+| C4 | Vector/semantic retrieval: repo v1 invariant excludes embeddings/binary indexes; bundle allows optional vectors after benchmark evidence. | Aligned: v1 lexical-only (MiniSearch). Vector activation requires a future ADR + the bundle's own replay-evidence threshold (open decision D8). |
+| C5 | Tool-naming drift in bundle (`source.open_unit` vs `open_reference`); "Coverage Auditor" is prose-named but is a deterministic service, not a 16th agent. | Normalize during E-01 contract port: one name (`open_reference` for the Critic-facing tool), Coverage Auditor documented as a service. Recorded in ADR appendix. |
+| C6 | Bundle assumes greenfield agent/workflow conventions; repo has `scaffold/agents/<name>/` + runtime input-policy + MCP registration conventions. | Bundle agent YAMLs are mapped into repo scaffold conventions per agent (schema.json + agent.md + fixtures + runtime policy). Bundle YAMLs remain provenance. |
+| C7 | Bundle's Git-authoritative + disposable runtime-store matches ADR-0001/0002, but projection-store choice is open (D4) and repo has known portable-state gap (CR metadata machine-local). | Follow ADR-0002 split: accepted logical records → Git (one file per record, diff-friendly); leases/events/projections → machine-local via the repo's EXISTING filesystem/durable-cursor patterns, behind a projection-store interface. No new storage dependency in R0/R1; SQLite (or other) decided at M7 on measured scale evidence. |
+| C8 | Publication (WP-63) depends on GitHostProvider.publish() which is unwired in repo. | Fine under C3: WP-63 is an M6 stub; its epic inherits the repo's existing "blocked external integration" pattern (interface+fake+tests+docs+activation checklist). |
+| C9 | Existing repo Critic contract creates deferred P4/P5 depth children DIRECTLY; v3 Evidence Critic is schema-forbidden from proposing children (role split is the load-bearing v3 change). | Contract migration, recorded in ADR-0005: Critic emits typed depth findings only; deterministic orchestration invokes the post-terminal Curiosity Planner for obligation-bound child wording; the scheduler persists deferred P4/P5. Contradictions BYPASS the planner: immediately active P1 resolution work, forcing done=false (preserves ADR-0001 contradictions=P1). `question.md.state` stays canonical; run/obligation/certificate are modeled separately. Affects WP-33/40–42 epics (M4). |
+| C10 | WP-42 (operational closure) is prematurely staged: its gate references dedup/authority/invalidation/publication producers that only exist after M5/M6. | M4 builds a fail-closed gate FRAMEWORK (missing gate = unknown = fail); `operational_closed` remains unreachable until later producers land. WP-41 human injection may parallel WP-40, but topic curation depends on WP-40. WP-70–82 stay dependency-gated stubs (no underlying symbols exist yet). Encoded in stub bodies. |
+| C11 | Bundle inconsistency (verified): prose (`07` §frontier) allows obligation terminality when "explicitly excluded/deferred", but `coverage-obligation.schema.json` status enum has no `deferred` (only open/assigned/satisfied/terminal_gap/excluded/blocked/transferred/revoked). | Keep Question state `deferred` distinct from obligation terminality. The R0/R1 contract task (WP-20) must explicitly choose: add a `deferred` disposition/status OR use attributable terminal exclusion — and must TEST that deferred questions neither silently satisfy closure nor become accidental blockers. Not to be silently normalized; noted in WP-20 task body and WP-42 stub. |
+| C12 | Bundle deletion semantics (SEC-005: dependency-closure erase/purge + certificate) may conflict with the repo's append-only immutable raw-artifact invariant (ADR-0001). | A dedicated ADR distinguishing authorized source-custody purge from portable append-only history is REQUIRED before any deletion task may start. Recorded in the deferred deletion-related epic bodies and release cross-links. |
+| C13 | Repo's existing transcript Structurer/Critic agent lane vs bundle's new agent roles; bundle Question.status enum vs canonical `question.md.state` lifecycle. | Keep the current Structurer/Critic lane INTACT; add the Researcher / Evidence Critic / Claim Extractor / Claim Reviewer / Answer Composer policies+workflow as an ORTHOGONAL lane. NEVER import the bundle Question.status enum over the canonical question.md lifecycle — map states in the adoption doc instead. |
+| C14 | Dependency normalization (verified): `wp-60.yaml` omits WP-32 at WP level (answers need ACCEPTED claim reviews, which only WP-32 produces) and T-60-01 depends on T-31-03 — an optional ablation task. Optional tasks T-12-04 (vector benchmark), T-30-03 (calibration), T-31-03 (ablation) must not block the core slice. | Backlog normalization: add explicit WP-60→WP-32/accepted-claim-review dependency; rewire T-60-01's blocking dep to the Critic contract task; mark T-12-04/T-30-03/T-31-03 as optional non-blocking (own tasks, no downstream blockers). |
+| C15 | Naming collision: existing transcript-derived "Structured answer" (`answers/structured.md`) vs v3 claim-derived answer composition. | Do NOT redefine `answers/structured.md`. Introduce a distinct `AnswerComposition` record + compatibility adapter; both names in the CONTEXT.md glossary and ADR-0005. (WP-60 epic body.) |
+| C16 | WP-63 could spawn a second publication/worktree subsystem beside the existing isolated change-request manager. | Reuse/generalize the existing change-request manager for WP-63 publication; no parallel subsystem. Also: intake lexical question matching stays conservative ROUTING only, never authoritative convergence (guards C9/FR-CON-002). (WP-63/WP-50 stub bodies.) |
+
+## 4. Approaches (A/B/C) and recommendation
+
+- **A — Full backlog ingestion now:** `bl init`, normalize all 95 leaves into tasks. Rejected: floods backlog with non-executable tasks (violates release-truth discipline; guarantees staleness).
+- **B — Markdown-only (.plan + BLOCKED_TASKS):** lowest disruption. Rejected: fails the explicit backlog ask and provides no claim/parallelize mechanics for multi-agent implementation.
+- **C — Hybrid (RECOMMENDED, both coordinators independently converged):**
+  1. Preserve the ENTIRE extracted bundle byte-for-byte (all 223 files) under `docs/specs/automatic-ingestion-v3/source-bundle/`. Rationale: excluding renders would break MANIFEST.sha256 and `validate_bundle.py` (which requires diagram SVGs to exist); repo rules require reviewing generated artifacts, not banning them; the bundle is only 686KB. The original validator must still pass against the committed copy. `IMPORT.md` beside it records the original ZIP SHA-256 (`b10d4c05…e542e6e`), import date, source path, and verification results. The ZIP itself is NOT committed. Preserved files are never rewritten (provenance); terminology adaptation happens only in newly authored adoption docs.
+  2. `bl init`; backlog = execution truth. Atomic tasks for R0/R1 only; epic stubs for M4–M8. Every task carries provenance metadata (bundle WP/task ID).
+  3. `.plan/07-ingest-feature.md` summarizing the mapping; BLOCKED_TASKS.md gains an ingest section; cross-links to backlog IDs.
+  4. ADR-0005: adopt ingestion-v3 architecture (layered claims model, agent-role split, graph gateway) + adoption/mapping doc stating bundle "Docent" = Ultradyn Docs (sanctioned by the source itself: "Working title: Docent … Rename freely"). ADR-0006: ledger precedence — `.backlog` = execution truth; `.plan` = historical/source plan; `BLOCKED_TASKS.md` = release truth for unfinished work and external activation gates; cross-linked by ID, never auto-generated from each other.
+
+## 5. Decision register (bundle's 10 open decisions → proposed resolutions)
+
+| ID | Open decision (bundle 14 §4) | Proposed resolution |
+|---|---|---|
+| D1 | Lexical engine | MiniSearch (already a repo dependency; invariant-compatible). Falsifiable via WP-12 retrieval fixtures. |
+| D2 | Workflow engine vs custom durable state machine | Custom TS durable state machine following `code/server/maintenance-coordinator.ts` durable-cursor pattern. No external engine. |
+| D3 | First B-tier formats | None in R0/R1 — A-tier Markdown/text only (host corpus is Markdown-native). Revisit at M4 gate. |
+| D4 | Projection store | R0/R1: existing machine-local filesystem/durable-cursor patterns behind a projection-store interface (introduced only where two adapters exist). Git remains authoritative for accepted records (ADR-0002). SQLite/other deferred to M7 on measured scale evidence. |
+| D5 | Model/provider routing by role | Repo `code/providers` typed contracts + fakes; per-role routing config in repo settings tiers. Specifics at E-30/E-31. |
+| D6 | Claim granularity guidelines | Defer to pilot annotation (M3 exit evidence), per bundle. |
+| D7 | Navigation-test tasks for first real project | First real project = this repo's own docs corpus. Defined at M6. |
+| D8 | Vector retrieval threshold | Deferred; requires new ADR + bundle replay-evidence gate (see C4). |
+| D9 | Replay capsule retention/legal policy | Default: retain in append-only raw store per repo invariant; flag as operator policy decision for Max at M6 (publication) gate — not blocking R0/R1. |
+| D10 | Claim registry layout | One file per claim (diff-friendly, mirrors `question.md` pattern). Partitioned JSONL revisit at scale (M7). |
+
+Plus: language = TypeScript (C1); terminology = repo glossary (C5/§2).
+
+## 6. P/M/E/T decomposition (mapping rule + structure)
+
+**Mapping rule:** Phase = bundle release increment (R0–R4) → Milestone = bundle M0–M8 (kept 1:1, IDs preserved) → Epic = bundle WP (ID preserved as provenance: `wp-XX`) → Task = bundle leaf task (`T-XX-NN`, 95 total; exactly 46 instantiated as backlog tasks for R0/R1 — verified against `plan/task-index.jsonl` `work_package_id` over the 15 R0/R1 WPs). Every backlog task/epic carries its originating WP/task ID in bl tags AND body for traceability; deferred M4–M8 placeholders carry theirs the same way.
+
+- **Phase I — R0 Lab** — M0: E-00 architecture baseline+ADRs; E-01 contracts: 27 schemas → TS (zod/ajv) + TS validation harness; E-02 eval baseline + tiny/small corpus lab. [parallel: E-00 ∥ E-01 ∥ E-02]
+- **Phase II — R1 Evidence core** — M1: E-10 snapshot intake+replay custody; E-11 extraction/representations; E-12 unitization+maps+lexical retrieval; E-13 data policy/access enforcement [E-13 ∥ E-10..12]. M2: E-20 question/obligation model; E-21 evidence packet+verdict; E-22 claim registry+review; E-23 graph gateway+validity. M3: E-30 Researcher+source tools; E-31 Evidence Critic; E-32 Claim Extractor+Reviewer; E-60 answer composition (pulled forward per bundle). **M3 = first internal release gate.**
+- **Phase III — R2 Exploration** — M4: E-33, E-40, E-41, E-42 [E-40 ∥ E-41]; M5: E-50, E-51, E-52 [E-50 ∥ E-51]. (Epic stubs.)
+- **Phase IV — R3 Publication** — M6: E-61, E-62, E-63; M7: E-70, E-71, E-72 [all ∥]. (Stubs; E-63 inherits blocked-integration pattern.)
+- **Phase V — R4 Production** — M8: E-80 → E-81 → E-82 sequential. (Stubs.)
+
+**M7/M8 stub gate language (ops decomposer):** WP-70–82 are NOT contiguous implementation. Near-term repo-native precursors cross-link to BLOCKED_TASKS (durable SSE reconnect truth; maintainer workbench; workflow crash/idempotency; provider/agent receipts; release-truth test matrix; current-product recovery evidence). Everything ingestion-specific — graph views at 10k scale, generic engine/leases, prompt compiler/forecast/budget, adversarial generator, pilots/ablations/shadow runs, production cohorts — remains explicitly gated on M1–M6 nouns/interfaces existing. Deletion tasks additionally gated on the C12 ADR.
+
+**Falsifiable acceptance criteria:** every atomic task imports the bundle's per-task acceptance criteria + test surface (already falsifiable in wp-*.yaml), PLUS repo gates: `pnpm check` green, TDD at pre-agreed seams (`docs/engineering/tdd-seams.md` — new seams must be agreed and documented there first), no mocking internal modules. Milestone exit = bundle milestone gate + zero-cache replay where specified. Epic-level ACs for stubs come from bundle WP gate definitions (cited, not restated).
+
+## 7. First-wave parallel slices (post-lock; file-boundary analysis)
+
+| Slice | Content | Files touched | Owner |
+|---|---|---|---|
+| S1 | Ingestion transaction: source-bundle commit (byte-identical, validator passing), IMPORT.md, `bl init` + backlog population (46 atomic + stubs), ADR-0005 (incl. C9 contract migration)/ADR-0006, `.plan/07-*` adoption doc, BLOCKED_TASKS section, CONTEXT.md glossary additions, `.gitignore` += `.worktrees/` | docs/adr/, .plan/, BLOCKED_TASKS.md, CONTEXT.md, .gitignore, .backlog/, docs/specs/automatic-ingestion-v3/ | SINGLE MUTATOR (proposed: me), pi reviews diff before merge |
+| S2 (=E-01) | TS contract port: 27 schemas as `code/domain/ingest/*.ts` (new dir, no edits to shared schemas.ts except one registration edit at the end), scaffold/schemas/ingest/, TS validation harness + fixtures | code/domain/ingest/ (new), scaffold/schemas/ingest/ (new), tests | Coordinator A |
+| S3 (=E-02) | Corpus lab: tiny+small labeled corpora from bundle examples/source-corpus + eval fixture runner | test fixture dirs (new), no shared-file edits | Coordinator B |
+| S4 (=E-00 residue) | Architecture baseline doc (docs/architecture addendum), diagram source port (.dot/.mmd), terminology mapping/adoption docs only (source-bundle stays immutable) | docs/ (distinct files from S1 by list) | folded into S1 or sequenced after |
+
+S2 ∥ S3 have zero shared files; S1 is sequenced first (everything cross-links backlog IDs it creates). Registration edits to hot shared files (`code/domain/schemas.ts`, vitest config) are batched into a single named task to avoid cross-slice conflicts.
+
+## 8. Process & approval gate
+
+- **Bootstrap exception (S1 only):** `.backlog` does not exist yet, so S1 cannot `bl claim` first. Preflight on main: commit `.gitignore` += `.worktrees/`; then create the S1 bootstrap worktree, execute, pi diff-reviews, merge. Claim-first (`bl claim` → commit claim → worktree from claim tip) applies from the first post-bootstrap task onward per bl-fix-many.
+- Worktrees per slice under `.worktrees/`; commit → review by other coordinator → merge to main.
+- **Plan-before-code:** the locked proposal is committed as the design spec inside `docs/specs/automatic-ingestion-v3/` (design doc), and a bite-sized R0/R1 implementation plan (writing-plans conventions) is authored and committed BEFORE any implementation slice starts. Backlog tasks reference both artifacts. (pi proposed `docs/superpowers/{specs,plans}/2026-07-18-…`; final path chosen in S1 to match repo conventions — co-locating under docs/specs/automatic-ingestion-v3/ is the default.)
+- Approval: Max's tasking ("investigate → design/ingest → then implement") + /max-afk (proceed unless hard-blocked) = delegated approval IFF both coordinators' independent syntheses agree and no consequential ambiguity remains. **Process assumption (recorded):** with Max AFK, the two coordinators' joint LOCK + cross-review substitutes ONLY for the otherwise-interactive design/plan review gate; it does not extend to irreversible/outward-facing ops. Pause + ccc @cx-reviewer consult before those (remote push, GitHub PR, secrets, deletions). D9 explicitly flagged for Max at M6 gate.
+- Assumptions register: (a) ~~Docent identity~~ RESOLVED AS FACT — Max confirmed 2026-07-18 17:49 AEST: "docent was the old name. ultradyn-docs is the new name" (received directly by both coordinators); (b) R0/R1-only atomic ingestion (46 tasks) satisfies "ingestion into the backlog"; (c) full byte-identical source-bundle commit is acceptable repo weight (686KB, validator-passing); (d) R0/R1 projections use existing filesystem/durable-cursor patterns (D4); SQLite deferred to M7 evidence.
+
+--- SUMMARY ---
+
+- **What:** adopt the verified ingest-feature-v3 bundle ("Docent Automatic Ingestion" — Docent being the product's former name, per Max) as the design for an automatic knowledge-ingestion feature in Ultradyn Docs, and ingest its plan into a newly initialized `bl` backlog.
+- **How (Approach C, joint rec):** commit the full 223-file bundle byte-identical under `docs/specs/automatic-ingestion-v3/source-bundle/` (validator still passes; IMPORT.md carries ZIP SHA-256); `bl init` with precedence `.backlog`=execution truth, `.plan`=historical, `BLOCKED_TASKS.md`=release truth; instantiate exactly 46 atomic tasks (R0/R1 = M0–M3, 15 WPs) + dependency-gated epic stubs for M4–M8; ADR-0005 (architecture adoption + Critic contract migration) and ADR-0006 (ledger precedence).
+- **Key decisions:** TypeScript only; MiniSearch lexical retrieval (no vectors without future ADR); custom durable state machine on the repo's durable-cursor pattern; filesystem projections behind an interface (SQLite deferred to M7 evidence); one file per claim; preserved bundle never rewritten — new artifacts use Ultradyn Docs terminology.
+- **Material conflicts handled:** C9 Critic contract migration (typed depth findings only; post-terminal Curiosity Planner; contradictions bypass to P1, done=false); C10 WP-42 fail-closed closure framework at M4; C11 obligation `deferred` enum gap resolved explicitly in WP-20 with tests.
+- **Execution:** S1 ingestion transaction by a single mutator (this session) in a bootstrap worktree (preflight: gitignore `.worktrees/`), pi diff-reviews before merge; then design spec + bite-sized R0/R1 implementation plan committed BEFORE code; then parallel slices S2 (TS contract port) ∥ S3 (corpus lab) with zero shared files.
+- **Open items for Max:** D9 replay-capsule retention policy (flagged at M6 gate); vector-retrieval ADR if ever wanted; joint coordinator LOCK stands in for the interactive design-review gate only, per /max-afk delegation.
+
+
+## 9. Dependency-normalization appendix (applied during backlog population)
+
+From joint decomposer review; each item is reflected in backlog task wiring and bodies:
+
+- **N1 (C14):** add WP-60 → WP-32 dependency (answer composition requires ACCEPTED claim reviews); rewire T-60-01's blocking dependency from optional T-31-03 (ablation) to the Evidence Critic contract task.
+- **N2 (C14):** T-12-04 (vector benchmark), T-30-03 (calibration), T-31-03 (ablation) are optional and non-blocking: no other task may depend on them.
+- **N3 (source plane):** split a minimal policy-profile CONTRACT task ahead of WP-10 preflight — the bundle has WP-13 depending on WP-10/11 while T-10-01 itself needs policy prerequisites (cycle-by-assumption). The contract task provides the profile shape; full WP-13 enforcement still follows WP-10/11.
+- **N4 (source plane):** T-12-01 structural unitization depends on the representation AUDIT, not repair completion; retrieval policy enforcement depends on lexical retrieval existing.
+- **N5 (seam reality):** `code/server/retrieval.ts` currently indexes whole Markdown files and `context()` feeds LLM calls unfiltered. Source-unit retrieval, search receipts, policy filtering, and outage-vs-no-evidence distinction are NEW behavior, not extensions of existing code. Task bodies must not assume otherwise.
+- **N6 (contracts):** the bundle Question schema (status/origin shape) is incompatible with the canonical QuestionRecord (askers/tier/revision; raw/generated origins). Generated ingestion questions use an explicit system-actor + provenance mapping; the bundle schema is never imported directly.
+- **N7 (contracts):** bundle JSON Schemas declare Draft 2020-12; the repo's current Ajv constructors use the default dialect. E-01 must either configure Ajv2020 or translate to repo-native Zod, with dialect fixtures proving correct REJECTION behavior either way.
+- **N8 (provenance boundary):** the byte-preserved `source-bundle/` is inert design provenance and is NEVER production-loaded. All production contracts, agent definitions (agent.md + schema.json + paired fixtures in `scaffold/`), and corpora are curated adaptations authored in repo conventions. Bundle agent/workflow YAML maps to those conventions; it is not runtime-imported.

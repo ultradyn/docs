@@ -36,6 +36,34 @@ _Avoid_: Backlog item, ignored question
 A reviewable documentation diff with isolated checks; it may be represented by a local branch or a GitHub pull request.
 _Avoid_: PR when the backend may be local
 
+## Automatic ingestion
+
+Adopted by ADR 0005; design at `docs/specs/automatic-ingestion-v3/DESIGN.md`. The preserved design bundle uses the product's former name "Docent" for Ultradyn Docs.
+
+**Source snapshot**:
+An immutable, hash-verified capture of an imported corpus created before any agentic exploration.
+_Avoid_: Upload, mirror
+
+**Source unit**:
+A structural fragment of a snapshot file with parent/heading relationships and exact source identity, used as the unit of evidence and coverage.
+_Avoid_: Chunk, embedding unit
+
+**Evidence packet**:
+A Researcher's proposed set of source-unit references with role/facet mappings and a search receipt; never a final answer.
+_Avoid_: Answer draft
+
+**Claim**:
+An atomic, scoped, independently reviewed proposition with typed metadata, authority/lifecycle, and verified evidence; the reusable knowledge layer between evidence and prose.
+_Avoid_: Fact triple, answer
+
+**Answer composition**:
+A claim-derived answer for one question and goal set, assembled only from sealed accepted claim packs; distinct from the transcript-derived Structured answer.
+_Avoid_: Structured answer
+
+**Coverage obligation**:
+A finite, owned reason a branch of exploration exists; automatic child questions must each own a novel unresolved obligation.
+_Avoid_: TODO, open question
+
 ## People and agents
 
 **Asker**:
@@ -57,6 +85,14 @@ _Avoid_: RAG agent, chatbot
 **Critic**:
 A fresh-context evaluator that checks every goal and blocks unresolved contradictions while deferring ordinary depth.
 _Avoid_: Reviewer
+
+**Evidence Critic**:
+The ingestion-lane fresh-context evaluator that judges evidence sufficiency for one question and cannot propose child questions.
+_Avoid_: Critic, Questioner
+
+**Curiosity Planner**:
+The ingestion-lane agent that proposes obligation-bound child questions only after a terminal evidence verdict and cannot revise that verdict.
+_Avoid_: Questioner, Explorer
 
 **Reviewer**:
 A fresh-context evaluator restricted to the question, structured answer, and actual diff.

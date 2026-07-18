@@ -11,5 +11,6 @@
 | [`agents/`](agents/)                 | Engineering-skill issue tracker and domain-doc configuration.                |
 | [`engineering/`](engineering/)       | Agreed public TDD seams.                                                     |
 | [`research/`](research/)             | Time-stamped primary-source research behind implementation choices.          |
+| [`specs/`](specs/)                   | Imported feature design bundles with receipts and adopted design decisions.  |
 
 The original design package and conversation provenance remain under [`.plan/`](../.plan/). External activation gates are in [`BLOCKED_TASKS.md`](../BLOCKED_TASKS.md).

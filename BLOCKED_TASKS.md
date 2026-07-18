@@ -58,6 +58,17 @@ Actual branch diffs, non-prefix-conflicting attempt branches, input-fingerprinte
 - [ ] Make saved-path replacement atomic on Windows and add Windows path-equivalence/launcher tests.
 - [ ] Replace or harden the handwritten localhost HTTP probe for chunked/malformed/oversized/time-out responses.
 
+### Automatic ingestion (v3)
+
+Adopted by ADR 0005/0006; execution truth lives in the backlog (phases R0–R4). Only R0/R1 (bundle M0–M3, 46 atomic tasks) is instantiated; the items below are the release-truth gates that later backlog epic stubs cross-link and must clear before those stubs expand.
+
+- [ ] Complete the R0/R1 measured vertical slice: one A-tier Markdown snapshot → source units + lexical retrieval → Researcher/Evidence Critic loop → independently reviewed claims → one claim-derived answer composition with zero-cache replay fixtures (bundle gate M3; `docs/specs/automatic-ingestion-v3/DESIGN.md`).
+- [ ] Author the deletion-semantics ADR distinguishing authorized source-custody purge from portable append-only history (DESIGN C12). Required before any ingestion deletion task starts.
+- [ ] Wire `GitHostProvider.publish()` to approved change requests (also listed under Agents and maintenance). Gates the M6 publication epics (WP-63), which reuse the change-request manager rather than adding a publication subsystem.
+- [ ] Extend the agent runtime beyond Librarian to the ingestion lane's evaluator roles with runtime-enforced isolation and paired fixtures. Gates M3 agent epics (WP-30–32) beyond contract work and all M4 exploration epics.
+- [ ] Establish durable SSE reconnect truth, workflow crash/idempotency evidence, provider/agent receipts, and current-product recovery evidence. These existing-product items are the repo-native precursors the M7 operational epics (WP-70–72) cross-link; ingestion-specific dashboard/orchestration work stays gated on M1–M6 interfaces existing.
+- [ ] Vector/semantic retrieval remains excluded pending a dedicated ADR plus the bundle's replay-evidence threshold (DESIGN C4/D8); the optional vector benchmark task (T-12-04) is non-blocking.
+
 ## External activation gates
 
 The following sections name only the external step. Any missing implementation remains in the repository list above.
