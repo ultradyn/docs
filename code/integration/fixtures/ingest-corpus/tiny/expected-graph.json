@@ -5,7 +5,7 @@
     "kind": "curated-adaptation",
     "sources": [
       "docs/specs/automatic-ingestion-v3/source-bundle/examples/source-corpus/architecture.md#Architecture",
-      "docs/specs/automatic-ingestion-v3/source-bundle/examples/source-corpus/api.md#API",
+      "docs/specs/automatic-ingestion-v3/source-bundle/examples/source-corpus/api.md#Ingress API",
       "docs/specs/automatic-ingestion-v3/source-bundle/examples/source-corpus/legacy.md#Legacy",
       "docs/specs/automatic-ingestion-v3/source-bundle/examples/source-corpus/maintenance-note.md#Maintenance note",
       "docs/specs/automatic-ingestion-v3/source-bundle/examples/source-corpus/operations.md#Operations"

@@ -130,6 +130,11 @@ const expectedCorpusDigests = {
   small: "d18f2ab3b169cdf1936ba6321237b0775a10e46a0343236a0d85658d3a8b0b97",
 } as const;
 
+const expectedGraphDigests = {
+  tiny: "a6261cedc3818bd09d2acee02cb92e9d6fe5d0aa9a12aaf0c9a40e167f7cdfdc",
+  small: "a539b027ed0e8d39f3b986fbbab58581d54919791b7ecf48664a4b20f720c9c8",
+} as const;
+
 async function assertCorpusIntegrity(
   corpus: keyof typeof expectedCorpusDigests,
 ): Promise<ExpectedCorpusGraph> {
@@ -141,6 +146,22 @@ async function assertCorpusIntegrity(
   expect(graph.provenance.sources.every((source) => source.includes("#"))).toBe(
     true,
   );
+  const graphBytes = await readFile(
+    join(fixtureRoot, corpus, "expected-graph.json"),
+  );
+  expect(createHash("sha256").update(graphBytes).digest("hex")).toBe(
+    expectedGraphDigests[corpus],
+  );
+  for (const source of graph.provenance.sources) {
+    const [relativeSource, heading] = source.split("#", 2);
+    expect(relativeSource).toBeTruthy();
+    expect(heading).toBeTruthy();
+    const sourceText = await readFile(
+      join(process.cwd(), relativeSource ?? ""),
+      "utf8",
+    );
+    expect(sourceText, source).toContain(`# ${heading}`);
+  }
 
   const fileIds = new Set(graph.files.map((file) => file.id));
   const unitIds = new Set(graph.units.map((unit) => unit.id));
@@ -172,7 +193,16 @@ async function assertCorpusIntegrity(
     );
   }
 
-  for (const unit of graph.units) expect(fileIds.has(unit.fileId)).toBe(true);
+  for (const unit of graph.units) {
+    expect(fileIds.has(unit.fileId)).toBe(true);
+    const file = graph.files.find((candidate) => candidate.id === unit.fileId);
+    expect(file, unit.id).toBeDefined();
+    const sourceText = await readFile(
+      join(fixtureRoot, corpus, "source", file?.path ?? ""),
+      "utf8",
+    );
+    expect(sourceText, `${unit.id}:${unit.locator}`).toContain(unit.locator);
+  }
   for (const fileId of fileIds)
     expect(
       graph.units.some((unit) => unit.fileId === fileId),
