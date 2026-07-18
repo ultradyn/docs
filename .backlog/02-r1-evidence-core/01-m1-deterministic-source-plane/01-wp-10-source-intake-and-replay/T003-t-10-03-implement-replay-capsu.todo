@@ -7,28 +7,29 @@ depends_on:
 estimate_hours: 8
 id: P2.M1.E1.T003
 priority: critical
-reason: 'C12 gate: source-custody deletion policy ADR required before replay-capsule lifecycle implementation; split non-deletion custody work at claim time.'
 started_at: null
-status: blocked
-tags: []
-title: T-10-03 — Implement replay capsule lifecycle
-updated_at: "2026-07-18T08:20:54Z"
+status: pending
+tags:
+    - wp-10
+    - t-10-03
+    - ingest-v3
+title: T-10-03 — Implement replay capsule custody and verification
+updated_at: "2026-07-18T08:25:00Z"
 ---
-Bundle provenance: WP-10 / T-10-03
+Bundle provenance: WP-10 / T-10-03 (rescoped: deletion split into T-10-04 per DESIGN.md C12)
 
-Seal, replicate, verify, export, retain, and delete source replay capsules.
+Seal, replicate, verify, export, and retain source replay capsules. Deletion/purge is explicitly out of scope here: it lives in the synthetic split task T-10-04, blocked on the C12 source-custody deletion ADR, so capsule custody work cannot violate the append-only raw-artifact invariant.
 
 Deliverables:
 - Replay storage adapter
-- Verification/deletion receipts
+- Verification receipts
 
 Acceptance criteria:
 - Promotion is impossible without passing replay receipt
 - Loss of original upload is recoverable from retained capsule
-- Deletion drill invalidates dependent closure artifacts
+- No deletion/purge code path exists in this task's deliverables
 
 Test surfaces:
 - integration
 - security
-- privacy
 - recovery

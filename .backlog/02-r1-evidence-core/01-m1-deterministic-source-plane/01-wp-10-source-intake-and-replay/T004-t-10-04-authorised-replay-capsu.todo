@@ -1,0 +1,37 @@
+---
+completed_at: null
+complexity: medium
+created_at: "2026-07-18T08:25:00Z"
+depends_on:
+    - P2.M1.E1.T003
+estimate_hours: 5
+id: P2.M1.E1.T004
+priority: medium
+reason: 'C12 gate: requires the source-custody deletion ADR distinguishing authorised purge from portable append-only history before any deletion implementation starts.'
+started_at: null
+status: blocked
+tags:
+    - wp-10
+    - t-10-04
+    - ingest-v3
+    - normalization
+title: T-10-04 — Define and implement authorised replay-capsule deletion
+updated_at: "2026-07-18T08:25:00Z"
+---
+SYNTHETIC split task (from bundle T-10-03 per DESIGN.md C12): the deletion/purge portion of replay-capsule lifecycle.
+
+Blocked until the C12 ADR (authorised source-custody purge vs portable append-only history) is accepted. No downstream task may depend on this task.
+
+Deliverables:
+- Deletion receipts and dependency-closure calculation
+- Deletion drill
+
+Acceptance criteria:
+- Deletion requires the accepted C12 ADR and an authorised actor
+- Deletion drill invalidates dependent closure artifacts
+- Erasure honours the append-only portable-history boundary defined by the C12 ADR
+
+Test surfaces:
+- security
+- privacy
+- recovery

@@ -23,8 +23,8 @@ Adopt the v3 architecture with these binding commitments:
 
 ## Consequences
 
-The measured vertical slice (bundle milestones M0–M3) becomes implementable without violating existing invariants: 47 atomic tasks (46 bundle leaves plus the synthetic N3 policy prerequisite) are instantiated in the backlog and later milestones remain dependency-gated epic stubs. Two bundle inconsistencies are owned explicitly: the coverage-obligation `deferred` status gap (resolved with tests in the WP-20 contract work) and WP-60's missing dependency on accepted claim reviews (rewired during backlog normalization).
+The measured vertical slice (bundle milestones M0–M3) becomes implementable without violating existing invariants: 48 tasks (46 bundle leaves plus two synthetic splits: the N3 policy prerequisite, and the C12 replay-capsule deletion task created blocked so custody work stays unblocked) are instantiated in the backlog and later milestones remain dependency-gated epic stubs. Two bundle inconsistencies are owned explicitly: the coverage-obligation `deferred` status gap (resolved with tests in the WP-20 contract work) and WP-60's missing dependency on accepted claim reviews (rewired during backlog normalization).
 
 ## Implementation status
 
-Design and plan artifacts only; no production code yet. See `docs/specs/automatic-ingestion-v3/DESIGN.md` (decision register D1–D10, conflict register C1–C16, normalization appendix N1–N5), `.plan/07-automatic-ingestion-v3.md` (plan mapping), and the backlog phase for execution state.
+Design and plan artifacts only; no production code yet. See `docs/specs/automatic-ingestion-v3/DESIGN.md` (decision register D1–D10, conflict register C1–C16, normalization appendix N1–N8), `.plan/07-automatic-ingestion-v3.md` (plan mapping), and the backlog phase for execution state.

@@ -3,7 +3,7 @@ depends_on: []
 estimate_hours: 40
 id: P4.M1.E3
 locked: false
-name: WP-63 — Git publication and Docent import
+name: WP-63 — Git publication and Ultradyn Docs import
 stats:
     blocked: 0
     done: 0

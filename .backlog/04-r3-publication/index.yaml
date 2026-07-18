@@ -6,7 +6,7 @@ locked: true
 milestones:
     - complexity: high
       depends_on: []
-      description: 'Bundle M6 exit gate: IA-first documentation and Docent PR/replay pass.'
+      description: 'Bundle M6 exit gate: IA-first documentation and Ultradyn Docs PR/replay pass.'
       estimate_hours: 120
       id: M1
       locked: false

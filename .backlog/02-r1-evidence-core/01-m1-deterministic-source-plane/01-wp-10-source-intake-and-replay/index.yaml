@@ -5,11 +5,11 @@ id: P2.M1.E1
 locked: false
 name: WP-10 — Source intake and replay custody
 stats:
-    blocked: 0
+    blocked: 1
     done: 0
     in_progress: 0
     pending: 3
-    total: 3
+    total: 4
 status: pending
 tasks:
     - complexity: high
@@ -39,6 +39,14 @@ tasks:
       file: T003-t-10-03-implement-replay-capsu.todo
       id: T003
       priority: critical
+      status: pending
+      title: T-10-03 — Implement replay capsule custody and verification
+    - complexity: medium
+      depends_on:
+        - P2.M1.E1.T003
+      estimate_hours: 5
+      file: T004-t-10-04-authorised-replay-capsu.todo
+      id: T004
+      priority: medium
       status: blocked
-      tags: []
-      title: T-10-03 — Implement replay capsule lifecycle
+      title: T-10-04 — Define and implement authorised replay-capsule deletion

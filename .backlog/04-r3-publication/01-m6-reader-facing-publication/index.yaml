@@ -25,7 +25,7 @@ epics:
       estimate_hours: 40
       id: E3
       locked: false
-      name: WP-63 — Git publication and Docent import
+      name: WP-63 — Git publication and Ultradyn Docs import
       path: 03-wp-63-git-publication-and-doce
       status: pending
 estimate_hours: 120

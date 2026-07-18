@@ -4,7 +4,7 @@ Status: accepted
 
 ## Context
 
-Work has been tracked in `.plan/06-task-breakdown.md` (milestone plan) and `BLOCKED_TASKS.md` (release-truth ledger). The `backlog` (`bl`) CLI is installed but was never initialized, so there was no claim/parallelize mechanism for multi-agent execution. The automatic-ingestion adoption (ADR 0005) introduces 47 immediately executable tasks (46 bundle leaves plus the synthetic N3 policy prerequisite) plus dependency-gated future work, and multiple agents will implement independent slices in parallel.
+Work has been tracked in `.plan/06-task-breakdown.md` (milestone plan) and `BLOCKED_TASKS.md` (release-truth ledger). The `backlog` (`bl`) CLI is installed but was never initialized, so there was no claim/parallelize mechanism for multi-agent execution. The automatic-ingestion adoption (ADR 0005) introduces 48 backlog tasks (46 bundle leaves plus two synthetic splits: the N3 policy prerequisite and the C12 replay-capsule deletion task, the latter created blocked) plus dependency-gated future work, and multiple agents will implement independent slices in parallel.
 
 ## Decision target
 
@@ -22,8 +22,10 @@ Multi-agent execution gets atomic claims and dependency-aware scheduling without
 
 **Worktree constraint.** `bl` refuses mutating commands (init/add/claim/done/…) from a git worktree; backlog mutations run in the MAIN checkout only. The per-task sequence is therefore: `bl claim` in the main checkout → commit the claim → create the slice worktree from the claim tip → implement → review/merge → `bl done` in the main checkout. Read-only commands (`list`, `tree`, `check`, `show`) work anywhere.
 
+**Tool representation notes.** `bl` stores epic descriptions only in the PARENT milestone index files, so deferred-stub epic directories carry no description of their own — the parent milestone descriptor is canonical for stub gate language. Phase `locked: true` flags on P3–P5 are tool-level gating mirroring the milestone-gate rule; the DESIGN/ADR gate language remains the authority, the flag is a convenience enforcement.
+
 **S1 bootstrap import exception.** Because `.backlog/` did not exist and `bl init` refuses linked worktrees, the dual-authored, cross-reviewed, hash-pinned script ran twice in a fresh ordinary checkout-shaped directory. Its validated portable `.backlog/` output was imported into the reviewed S1 branch, then merged to the canonical checkout. This one-time initialization exception does not permit future manual backlog mutation; all post-bootstrap mutations use `bl` in the main checkout.
 
 ## Implementation status
 
-`.backlog/` initialized in the automatic-ingestion S1 transaction with 5 phases (R0–R4), 9 milestones (M0–M8), 31 epics (15 populated with 47 atomic tasks incl. the N3 policy-profile contract task; 16 dependency-gated stubs), normalizations N1–N8 applied (see DESIGN.md appendix). Populated by the dual-authored, cross-reviewed script (SHA-256 `8863746b…` recorded in the S1 commit message); because of the worktree constraint above, the validated script ran in a disposable directory against the identical committed `source-bundle` (hash-pinned inputs) and its deterministic output — identical across runs except record timestamps; no machine-specific content — was committed from the S1 worktree.
+`.backlog/` initialized in the automatic-ingestion S1 transaction with 5 phases (R0–R4), 9 milestones (M0–M8), 31 epics (15 populated with 48 tasks: 46 bundle leaves + the N3 policy-profile contract task + the blocked C12 replay-capsule deletion split; 16 dependency-gated stubs), normalizations N1–N8 applied (see DESIGN.md appendix). Populated by the dual-authored, cross-reviewed script (SHA-256 `8863746b…` recorded in the S1 commit message); because of the worktree constraint above, the validated script ran in a disposable directory against the identical committed `source-bundle` (hash-pinned inputs) and its deterministic output — identical across runs except record timestamps; no machine-specific content — was committed from the S1 worktree.

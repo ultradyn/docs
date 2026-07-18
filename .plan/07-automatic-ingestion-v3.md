@@ -16,7 +16,7 @@ This document maps the adopted Automatic Ingestion v3 design bundle into this re
 | Phase | Release increment R0–R4 (`plan/01-roadmap.md`) | 5 backlog phases |
 | Milestone | M0–M8 (`plan/milestones.yaml`) | 9 backlog milestones, IDs preserved in names |
 | Epic | Work package WP-00…WP-82 (`plan/tasks/wp-*.yaml`) | 31 epics: 15 populated (R0/R1), 16 dependency-gated stubs |
-| Task | Leaf task T-XX-NN (`plan/task-index.jsonl`) | 47 atomic tasks (R0/R1 only: 46 bundle leaves + 1 synthetic prerequisite); bundle IDs in tags + body |
+| Task | Leaf task T-XX-NN (`plan/task-index.jsonl`) | 48 tasks (R0/R1 only: 46 bundle leaves + synthetic N3 policy contract + blocked C12 deletion split); bundle IDs in tags + body |
 
 R0/R1 scope = M0–M3 = WP-00, 01, 02, 10, 11, 12, 13, 20, 21, 22, 23, 30, 31, 32, 60. Later milestones enter as epic stubs whose bodies carry their gate language (DESIGN.md C10/C12 and the M7/M8 stub-gate paragraph); each stub expands into atomic tasks only at its milestone gate.
 
@@ -33,5 +33,5 @@ Dependency edges follow the bundle's `dependencies` fields with the normalizatio
 --- SUMMARY ---
 
 - Preserve the verified 223-file v3 bundle as inert provenance; production code uses reviewed TypeScript/Zod adaptations.
-- `.backlog/` is execution truth: 5 phases, 9 milestones, 31 epics, and 47 executable R0/R1 tasks (46 bundle leaves plus N3); R2-R4 remain locked until their release gates are cleared.
+- `.backlog/` is execution truth: 5 phases, 9 milestones, 31 epics, and 48 R0/R1 tasks (46 bundle leaves + N3 + blocked C12 deletion split); R2-R4 remain locked until their release gates are cleared.
 - Canonical question lifecycle, contradiction blocking, raw immutability, evaluator isolation, and the existing change-request publication lane remain authoritative.
