@@ -793,46 +793,69 @@ describe("ReplayCapsuleStore custody", () => {
     expect(retained && digest(retained)).toBe(FIRST_FILE.sha256);
   });
 
-  it("keeps custody stable when a reader mutates after settlement", async () => {
-    const handedOut: Uint8Array[] = [];
-    const store = new MemoryRawArtifactStore();
-    const source = new MemorySourceByteReader();
-    source.setPackage(PACKAGE_BYTES);
-    source.setFile(FIRST_FILE.id, FIRST_FILE_BYTES);
-    source.setFile(SECOND_FILE.id, SECOND_FILE_BYTES);
-    source.recordHandedOut = handedOut;
+  // handedOut order is package, first file, later file - so each case targets a
+  // distinct buffer and none of them is merely the one that happens to exist
+  // first during sequential sealing.
+  it.each([
+    ["package", 0],
+    ["first file", 1],
+    ["later file", 2],
+  ] as const)(
+    "keeps custody stable when the %s buffer is mutated after settlement",
+    async (_label, target) => {
+      const handedOut: Uint8Array[] = [];
+      const store = new MemoryRawArtifactStore();
+      const source = new MemorySourceByteReader();
+      source.setPackage(PACKAGE_BYTES);
+      source.setFile(FIRST_FILE.id, FIRST_FILE_BYTES);
+      source.setFile(SECOND_FILE.id, SECOND_FILE_BYTES);
+      source.recordHandedOut = handedOut;
 
-    // Hashing is deliberately delayed, so mutation lands after settlement but
-    // while seal is still in flight. A borrowed-buffer implementation would
-    // hash the mutated bytes; an immediate-copy implementation is unaffected.
-    let mutated = false;
-    const delayedHashes: HashService = {
-      sha256: async (bytes) => {
-        if (!mutated && handedOut.length > 0) {
-          mutated = true;
-          for (const buffer of handedOut) buffer.fill(0);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        return digest(bytes);
-      },
-    };
+      // Hashing is delayed, so the mutation lands after THIS target's promise
+      // has settled while seal is still in flight. A borrowed-buffer
+      // implementation would retain the zeroed bytes; an immediate-copy
+      // implementation is unaffected.
+      let mutated = false;
+      const delayedHashes: HashService = {
+        sha256: async (bytes) => {
+          const settled = handedOut[target];
+          if (!mutated && settled !== undefined) {
+            mutated = true;
+            settled.fill(0);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          return digest(bytes);
+        },
+      };
 
-    const capsules = new ReplayCapsuleStore({
-      store,
-      hashes: delayedHashes,
-      source,
-    });
-    const sealed = await capsules.seal(SNAPSHOT);
-    expect(mutated).toBe(true);
-    expect(sealed.ok).toBe(true);
+      const capsules = new ReplayCapsuleStore({
+        store,
+        hashes: delayedHashes,
+        source,
+      });
+      const sealed = await capsules.seal(SNAPSHOT);
+      // The targeted buffer really was handed out and really was zeroed.
+      expect(mutated).toBe(true);
+      expect(handedOut[target]!.every((byte) => byte === 0)).toBe(true);
+      expect(sealed.ok).toBe(true);
 
-    // Custody holds the ORIGINAL bytes, not the zeroed borrow.
-    const retained = store.artifacts.get(
-      `replay-capsules/blobs/${FIRST_FILE.sha256}.raw`,
-    );
-    expect(retained && digest(retained)).toBe(FIRST_FILE.sha256);
-    expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
-  });
+      // Custody holds the ORIGINAL bytes for every artifact, including the
+      // mutated one.
+      const expected: readonly (readonly [Sha256, Uint8Array])[] = [
+        [SNAPSHOT.packageSha256, PACKAGE_BYTES],
+        [FIRST_FILE.sha256, FIRST_FILE_BYTES],
+        [SECOND_FILE.sha256, SECOND_FILE_BYTES],
+      ];
+      for (const [sha256, bytes] of expected) {
+        const retained = store.artifacts.get(
+          `replay-capsules/blobs/${sha256}.raw`,
+        );
+        expect(retained).toBeDefined();
+        if (retained) expect(digest(retained)).toBe(digest(bytes));
+      }
+      expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
+    },
+  );
 
   it("reads each retained blob once during retention", async () => {
     const { capsules, store } = harness();
