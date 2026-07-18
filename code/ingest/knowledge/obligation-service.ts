@@ -109,10 +109,46 @@ function validText(value: unknown): value is string {
 
 function createCommandDigest(command: CreateCoverageObligationCommand): string {
   return JSON.stringify({
+    kind: "create",
     questionId: command.questionId,
     trigger: command.trigger.trim(),
     ownerQuestionId: command.ownerQuestionId ?? null,
     expectedVersion: command.expectedVersion,
+    idempotencyKey: command.idempotencyKey,
+  });
+}
+
+function assignCommandDigest(command: AssignCoverageObligationCommand): string {
+  return JSON.stringify({
+    kind: "assign",
+    obligationId: command.obligationId,
+    expectedVersion: command.expectedVersion,
+    idempotencyKey: command.idempotencyKey,
+    ownerQuestionId: command.ownerQuestionId,
+  });
+}
+
+function transferCommandDigest(
+  command: TransferCoverageObligationCommand,
+): string {
+  return JSON.stringify({
+    kind: "transfer",
+    obligationId: command.obligationId,
+    expectedVersion: command.expectedVersion,
+    idempotencyKey: command.idempotencyKey,
+    ownerQuestionId: command.ownerQuestionId,
+  });
+}
+
+function resolveCommandDigest(
+  command: ResolveCoverageObligationCommand,
+): string {
+  return JSON.stringify({
+    kind: "resolve",
+    obligationId: command.obligationId,
+    expectedVersion: command.expectedVersion,
+    idempotencyKey: command.idempotencyKey,
+    resolution: command.resolution,
   });
 }
 
@@ -251,7 +287,7 @@ export function createCoverageObligationService(options: {
     if (!prior) return undefined;
     if (prior.version !== expectedVersion + 1 || !matches(prior)) {
       return failure(
-        "VERSION_CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
         "The idempotency key was already used for a different command.",
       );
     }
@@ -534,7 +570,7 @@ export function createCoverageObligationService(options: {
       return transition(
         found.value,
         command.idempotencyKey,
-        JSON.stringify(command),
+        assignCommandDigest(command),
         "assigned",
         "assigned",
         command.ownerQuestionId as QuestionId,
@@ -590,7 +626,7 @@ export function createCoverageObligationService(options: {
       return transition(
         found.value,
         command.idempotencyKey,
-        JSON.stringify(command),
+        transferCommandDigest(command),
         "transferred",
         "transferred",
         command.ownerQuestionId as QuestionId,
@@ -632,7 +668,7 @@ export function createCoverageObligationService(options: {
       return transition(
         found.value,
         command.idempotencyKey,
-        JSON.stringify(command),
+        resolveCommandDigest(command),
         "resolved",
         requestedStatus,
         found.value.ownerQuestionId,

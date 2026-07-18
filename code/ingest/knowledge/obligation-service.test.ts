@@ -855,6 +855,43 @@ describe("coverage-obligation public seam", () => {
     expect(await writer.readAll()).toHaveLength(1);
   });
 
+  it("uses insertion-order-independent transition digests across reserved-before-event recovery", async () => {
+    const writer = createInMemoryCoverageObligationEventWriter();
+    const base = fixture(writer);
+    const created = await createAssigned(base.service);
+    if (!created.ok) throw new Error("creation unexpectedly failed");
+
+    const service = base.makeService();
+    const command = {
+      obligationId: created.value.id,
+      ownerQuestionId: OTHER_QUESTION_ID,
+      expectedVersion: 1,
+      idempotencyKey: "canonical-transfer",
+    };
+    const reordered = {
+      idempotencyKey: "canonical-transfer",
+      expectedVersion: 1,
+      ownerQuestionId: OTHER_QUESTION_ID,
+      obligationId: created.value.id,
+    };
+    await expect(service.transfer(command)).resolves.toMatchObject({
+      ok: true,
+      value: { status: "transferred", version: 2 },
+    });
+    await expect(base.makeService().transfer(reordered)).resolves.toMatchObject(
+      {
+        ok: true,
+        value: { status: "transferred", version: 2 },
+      },
+    );
+    await expect(
+      base.makeService().transfer({
+        ...reordered,
+        ownerQuestionId: PARENT_QUESTION_ID,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: "IDEMPOTENCY_CONFLICT" });
+  });
+
   it("recovers serialized history and makes acknowledgement-loss retries idempotent", async () => {
     const initialWriter = createInMemoryCoverageObligationEventWriter();
     const initial = fixture(initialWriter);

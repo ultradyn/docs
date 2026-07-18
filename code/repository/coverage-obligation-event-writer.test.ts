@@ -18,8 +18,13 @@ import {
   type IdGenerator,
   type QuestionRecord,
 } from "../domain/index.js";
+import {
+  CoverageObligationEventSchema,
+  type AppendCoverageObligationEventCommand,
+} from "../domain/ingest/index.js";
 import { createCoverageObligationService } from "../ingest/knowledge/index.js";
 import { createFileCoverageObligationEventWriter } from "./index.js";
+import { createTestingFileCoverageObligationEventWriter } from "./testing.js";
 
 const QUESTION_ID = "q-01BX5ZZKBKACTAV9WEVGEMMVRZ";
 const PARENT_ID = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -63,18 +68,71 @@ function command(trigger = "replay-integrity") {
   };
 }
 
-function service(root: string, ids: IdGenerator, options = {}) {
+function createdAppend(
+  commandDigest: string,
+): AppendCoverageObligationEventCommand {
+  const event = CoverageObligationEventSchema.parse({
+    obligationId: OBLIGATION_ID,
+    idempotencyKey: "durable-create",
+    type: "created",
+    version: 1,
+    previousStatus: null,
+    status: "assigned",
+    ownerQuestionId: QUESTION_ID,
+    obligation: {
+      schemaVersion: 1,
+      id: OBLIGATION_ID,
+      questionId: QUESTION_ID,
+      trigger: "replay-integrity",
+      ownerQuestionId: QUESTION_ID,
+      status: "assigned",
+      version: 1,
+    },
+  });
+  return {
+    obligationId: event.obligationId,
+    expectedVersion: 0,
+    idempotencyKey: event.idempotencyKey,
+    commandDigest,
+    ...(event.ownerQuestionId
+      ? { claimUnresolvedOwnerQuestionId: event.ownerQuestionId }
+      : {}),
+    event,
+  };
+}
+
+function service(
+  root: string,
+  ids: IdGenerator,
+  hooks?: Parameters<typeof createTestingFileCoverageObligationEventWriter>[1],
+) {
   return createCoverageObligationService({
     questions: {
       getQuestion: (id) =>
         Promise.resolve(id === QUESTION_ID ? generatedQuestion() : undefined),
     },
     ids,
-    events: createFileCoverageObligationEventWriter(root, options),
+    events: hooks
+      ? createTestingFileCoverageObligationEventWriter(root, hooks)
+      : createFileCoverageObligationEventWriter(root),
   });
 }
 
 describe("filesystem CoverageObligationEventWriter", () => {
+  it("keeps fault injection out of the production repository barrel", async () => {
+    const repository = await import("./index.js");
+    expect("createTestingFileCoverageObligationEventWriter" in repository).toBe(
+      false,
+    );
+    expect("CoverageObligationEventWriterHooks" in repository).toBe(false);
+    expect(repository.createFileCoverageObligationEventWriter).toBeTypeOf(
+      "function",
+    );
+    expect(createTestingFileCoverageObligationEventWriter).toBeTypeOf(
+      "function",
+    );
+  });
+
   it("restarts, replays, and invokes the allocator once for concurrent same-key creation", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-obligations-"));
     let allocations = 0;
@@ -117,12 +175,10 @@ describe("filesystem CoverageObligationEventWriter", () => {
     };
     try {
       const crashing = service(root, ids, {
-        hooks: {
-          afterEventPublished: () => {
-            if (!crash) return;
-            crash = false;
-            throw new Error("simulated acknowledgement loss");
-          },
+        afterEventPublished: () => {
+          if (!crash) return;
+          crash = false;
+          throw new Error("simulated acknowledgement loss");
         },
       });
       await expect(crashing.create(command())).rejects.toThrow(
@@ -139,6 +195,175 @@ describe("filesystem CoverageObligationEventWriter", () => {
         ok: true,
         value: [{ version: 1 }],
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers an ID-less claimed create after a crash before allocation persistence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-obligation-claim-"));
+    let initialAllocations = 0;
+    let recoveryAllocations = 0;
+    try {
+      const crashing = service(
+        root,
+        {
+          next: () => {
+            initialAllocations += 1;
+            return "obl-01BX5ZZKBKACTAV9WEVGEMMVS9";
+          },
+        },
+        {
+          afterClaimPublished: () => {
+            throw new Error("simulated crash after claim publication");
+          },
+        },
+      );
+      await expect(crashing.create(command())).rejects.toThrow(
+        "simulated crash after claim publication",
+      );
+      expect(initialAllocations).toBe(0);
+
+      const operationDirectory = join(
+        root,
+        "ingest",
+        "coverage-obligation-operations",
+      );
+      const [operationName] = await readdir(operationDirectory);
+      if (!operationName) throw new Error("missing claimed operation");
+      await expect(
+        readFile(join(operationDirectory, operationName), "utf8").then(
+          JSON.parse,
+        ),
+      ).resolves.toMatchObject({
+        idempotencyKey: "durable-create",
+        state: "claimed",
+        obligationId: null,
+      });
+
+      const restarted = service(root, {
+        next: () => {
+          recoveryAllocations += 1;
+          return OBLIGATION_ID;
+        },
+      });
+      const reordered = {
+        idempotencyKey: "durable-create",
+        expectedVersion: 0 as const,
+        ownerQuestionId: QUESTION_ID,
+        trigger: "replay-integrity",
+        questionId: QUESTION_ID,
+      };
+      await expect(restarted.create(reordered)).resolves.toMatchObject({
+        ok: true,
+        value: { id: OBLIGATION_ID, version: 1 },
+      });
+      expect(recoveryAllocations).toBe(1);
+      await expect(restarted.events(OBLIGATION_ID)).resolves.toMatchObject({
+        ok: true,
+        value: [{ version: 1 }],
+      });
+      await expect(
+        restarted.create(command("different-payload")),
+      ).resolves.toMatchObject({
+        ok: false,
+        code: "IDEMPOTENCY_CONFLICT",
+      });
+      expect(recoveryAllocations).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed on malformed ID-less claims without allocating", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "ultradyn-obligation-bad-claim-"),
+    );
+    let allocations = 0;
+    try {
+      const writer = createTestingFileCoverageObligationEventWriter(root, {
+        afterClaimPublished: () => {
+          throw new Error("stop after claim");
+        },
+      });
+      await expect(
+        writer.reserveCreate({
+          idempotencyKey: "bad-claim",
+          commandDigest: "payload-a",
+          allocateObligationId: () => {
+            allocations += 1;
+            return OBLIGATION_ID as never;
+          },
+        }),
+      ).rejects.toThrow("stop after claim");
+      const operationDirectory = join(
+        root,
+        "ingest",
+        "coverage-obligation-operations",
+      );
+      const [operationName] = await readdir(operationDirectory);
+      if (!operationName) throw new Error("missing claimed operation");
+      const operationPath = join(operationDirectory, operationName);
+      await chmod(operationPath, 0o644);
+      const malformed = JSON.parse(await readFile(operationPath, "utf8"));
+      malformed.eventDigest = "0".repeat(64);
+      await writeFile(operationPath, `${JSON.stringify(malformed)}\n`);
+
+      await expect(
+        createFileCoverageObligationEventWriter(root).reserveCreate({
+          idempotencyKey: "bad-claim",
+          commandDigest: "payload-a",
+          allocateObligationId: () => {
+            allocations += 1;
+            return OBLIGATION_ID as never;
+          },
+        }),
+      ).rejects.toThrow();
+      expect(allocations).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("binds a created append to the exact reserved command digest", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-obligation-digest-"));
+    const writer = createFileCoverageObligationEventWriter(root);
+    try {
+      await expect(writer.append(createdAppend("payload-a"))).resolves.toEqual({
+        status: "idempotency_conflict",
+      });
+      await expect(writer.read(OBLIGATION_ID as never)).resolves.toEqual([]);
+
+      await expect(
+        writer.reserveCreate({
+          idempotencyKey: "durable-create",
+          commandDigest: "payload-a",
+          allocateObligationId: () => OBLIGATION_ID as never,
+        }),
+      ).resolves.toEqual({ status: "reserved", obligationId: OBLIGATION_ID });
+      const operationPath = join(
+        root,
+        "ingest",
+        "coverage-obligation-operations",
+        `${createHash("sha256").update("durable-create").digest("hex")}.json`,
+      );
+      const before = await readFile(operationPath);
+
+      await expect(writer.append(createdAppend("payload-b"))).resolves.toEqual({
+        status: "idempotency_conflict",
+      });
+      await expect(writer.read(OBLIGATION_ID as never)).resolves.toEqual([]);
+      await expect(readFile(operationPath)).resolves.toEqual(before);
+
+      await expect(
+        writer.append(createdAppend("payload-a")),
+      ).resolves.toMatchObject({
+        status: "appended",
+        event: { obligationId: OBLIGATION_ID },
+      });
+      await expect(writer.read(OBLIGATION_ID as never)).resolves.toHaveLength(
+        1,
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -191,6 +416,53 @@ describe("filesystem CoverageObligationEventWriter", () => {
         obligationId: OBLIGATION_ID,
       });
       expect(allocations).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects valid events planted under the wrong stream across adapter and service reads", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "ultradyn-obligation-cross-stream-"),
+    );
+    const ids: IdGenerator = { next: () => OBLIGATION_ID };
+    const wrongStreamId = "obl-01BX5ZZKBKACTAV9WEVGEMMVS3";
+    try {
+      const created = await service(root, ids).create(command());
+      expect(created.ok).toBe(true);
+      const sourcePath = join(
+        root,
+        "ingest",
+        "coverage-obligations",
+        OBLIGATION_ID,
+        "00000001.json",
+      );
+      const wrongDirectory = join(
+        root,
+        "ingest",
+        "coverage-obligations",
+        wrongStreamId,
+      );
+      await mkdir(wrongDirectory);
+      await writeFile(
+        join(wrongDirectory, "00000001.json"),
+        await readFile(sourcePath),
+      );
+
+      const writer = createFileCoverageObligationEventWriter(root);
+      await expect(writer.read(wrongStreamId as never)).rejects.toThrow(
+        /stream/i,
+      );
+      await expect(writer.readAll()).rejects.toThrow(/stream/i);
+      await expect(
+        service(root, ids).create({
+          ...command(),
+          idempotencyKey: "second-create",
+        }),
+      ).rejects.toThrow(/stream/i);
+      await expect(
+        service(root, ids).requireOwnedUnresolved(QUESTION_ID),
+      ).rejects.toThrow(/stream/i);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -252,12 +524,9 @@ describe("filesystem CoverageObligationEventWriter", () => {
           obligation: valid,
         })}\n`,
       );
-      await expect(
-        service(root, ids).read(OBLIGATION_ID),
-      ).resolves.toMatchObject({
-        ok: false,
-        code: "CORRUPT_HISTORY",
-      });
+      await expect(service(root, ids).read(OBLIGATION_ID)).rejects.toThrow(
+        /directory stream/i,
+      );
       expect(await readFile(eventPath, "utf8")).toContain(wrongId);
     } finally {
       await rm(root, { recursive: true, force: true });
