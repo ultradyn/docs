@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { registerIngestSchemas } from "./ingest/index.js";
+
 const isoDateTime = z
   .string()
   .datetime({ offset: true })
