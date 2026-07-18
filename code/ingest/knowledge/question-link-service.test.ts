@@ -163,6 +163,54 @@ describe("filesystem QuestionLinkStore", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects invalid portable records at the public create boundary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    try {
+      const store = createFileQuestionLinkStore(root);
+      await expect(
+        store.create({ ...storedHumanLink, generation: -1 } as never),
+      ).rejects.toThrow();
+      await expect(
+        store.create({
+          ...storedHumanLink,
+          state: "accepted",
+        } as never),
+      ).rejects.toThrow();
+      await expect(store.get(HUMAN_QUESTION_ID)).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses stored records whose questionId does not match the requested ID", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    const directory = join(root, "ingest", "question-links");
+    try {
+      await mkdir(directory, { recursive: true });
+      await writeFile(
+        join(directory, `${HUMAN_QUESTION_ID}.json`),
+        `${JSON.stringify(
+          {
+            ...storedHumanLink,
+            questionId: GENERATED_QUESTION_ID,
+            origin: "ingestion-generated",
+            systemActor: "curiosity-planner",
+            generation: 1,
+            sourceUnitIds: ["unit-1"],
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      const store = createFileQuestionLinkStore(root);
+      await expect(store.get(HUMAN_QUESTION_ID)).rejects.toThrow(
+        /questionId/i,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("QuestionLinkService", () => {

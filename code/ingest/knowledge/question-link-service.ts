@@ -31,7 +31,8 @@ export function createInMemoryQuestionLinkStore(): QuestionLinkStore {
   const links = new Map<string, IngestionQuestionLink>();
   return {
     get: async (questionId) => links.get(questionId),
-    create: async (link) => {
+    create: async (input) => {
+      const link = IngestionQuestionLinkSchema.parse(input);
       if (links.has(link.questionId)) return false;
       links.set(link.questionId, link);
       return true;

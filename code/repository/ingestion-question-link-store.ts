@@ -31,10 +31,19 @@ class FileQuestionLinkStore implements QuestionLinkStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
     }
-    return IngestionQuestionLinkSchema.parse(JSON.parse(bytes.toString("utf8")));
+    const parsed = IngestionQuestionLinkSchema.parse(
+      JSON.parse(bytes.toString("utf8")),
+    );
+    if (parsed.questionId !== questionId) {
+      throw new Error(
+        `Stored link questionId ${parsed.questionId} does not match requested ${questionId}.`,
+      );
+    }
+    return parsed;
   }
 
-  async create(link: IngestionQuestionLink): Promise<boolean> {
+  async create(input: IngestionQuestionLink): Promise<boolean> {
+    const link = IngestionQuestionLinkSchema.parse(input);
     const path = await this.#path(link.questionId);
     await mkdir(dirname(path), { recursive: true });
     return this.#locked(async () => {
