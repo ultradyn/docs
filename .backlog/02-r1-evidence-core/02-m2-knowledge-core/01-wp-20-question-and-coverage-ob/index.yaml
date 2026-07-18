@@ -39,5 +39,6 @@ tasks:
       file: T003-t-20-03-implement-question-adm.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-20-03 — Implement question admissibility and novelty gate
