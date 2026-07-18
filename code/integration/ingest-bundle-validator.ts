@@ -326,7 +326,7 @@ async function validateChecksums(
   for (const [lineIndex, line] of text.split(/\r?\n/).entries()) {
     if (!line && lineIndex === text.split(/\r?\n/).length - 1) continue;
     const prefix = `MANIFEST.sha256[${lineIndex + 1}]`;
-    const match = /^([0-9a-fA-F]{64})  (.+)$/.exec(line);
+    const match = /^([0-9a-fA-F]{64}) {2}(.+)$/.exec(line);
     if (!match) {
       schemaErrors.push(
         `${prefix}: expected <64hex><two spaces><safe relative path>`,
