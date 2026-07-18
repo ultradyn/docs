@@ -301,20 +301,56 @@ describe("generated admissibility", () => {
     expect(decision.triggerSourceUnitIds).toEqual(["unit-2", "unit-1"]);
   });
 
-  it("rejects malformed input with a typed reason instead of throwing", () => {
-    for (const malformed of [
+  it.each([
+    [
+      "unknown origin",
       { link: link({ origin: "telepathy" as never }) },
+      ["INVALID_PROPOSAL"],
+      ["unit-1"],
+    ],
+    [
+      "malformed question id",
       { link: link({ questionId: "not-a-question-id" }) },
+      ["INVALID_PROPOSAL", "OBLIGATION_NOT_FOR_QUESTION"],
+      ["unit-1"],
+    ],
+    [
+      "blank trigger id",
       { link: link({ sourceUnitIds: ["   "] }) },
+      ["INVALID_PROPOSAL", "MISSING_TRIGGER"],
+      [],
+    ],
+    [
+      "blank wording",
       { wording: "   " },
-    ]) {
+      ["INVALID_PROPOSAL", "GENERIC_WORDING"],
+      ["unit-1"],
+    ],
+  ] as const)(
+    "sanitises %s and reports every applicable typed reason",
+    (_label, malformed, reasons, triggerSourceUnitIds) => {
       const decision = assessQuestionProposal({
         ...generated(),
         ...malformed,
-      } as unknown as QuestionProposalInput);
+      });
       expect(decision.admitted).toBe(false);
-      expect(decision.reasons).toContain("INVALID_PROPOSAL");
-    }
+      expect(decision.reasons).toEqual(reasons);
+      expect(decision.triggerSourceUnitIds).toEqual(triggerSourceUnitIds);
+    },
+  );
+
+  it("rejects a malformed human link rather than granting demand authority", () => {
+    const decision = assessQuestionProposal({
+      ...generated(),
+      link: link({
+        origin: "human",
+        systemActor: undefined,
+        generation: 1,
+        sourceUnitIds: [],
+      }),
+    });
+    expect(decision.admitted).toBe(false);
+    expect(decision.reasons).toContain("INVALID_PROPOSAL");
   });
 
   it("reports every applicable reason, not just the first", () => {
@@ -368,6 +404,17 @@ describe("duplicate detection is deterministic and bounded", () => {
       }),
     );
     expect(atThreshold.reasons).toContain("DUPLICATE_WORDING");
+
+    // 5 of 6 union tokens shared = 0.833 -> duplicate, but not exact.
+    const aboveThreshold = assessQuestionProposal(
+      generated({
+        wording: "alpha beta gamma delta epsilon",
+        admitted: [existing("alpha beta gamma delta epsilon zeta")],
+      }),
+    );
+    expect(aboveThreshold.maxSimilarity).toBeCloseTo(5 / 6);
+    expect(aboveThreshold.maxSimilarity).toBeLessThan(1);
+    expect(aboveThreshold.reasons).toContain("DUPLICATE_WORDING");
 
     // 4 of 6 union tokens shared = 0.667 -> distinct.
     const belowThreshold = assessQuestionProposal(
@@ -471,6 +518,87 @@ describe("lexical candidates carry no authority", () => {
     );
     expect(rejectedWithCandidates.admitted).toBe(false);
     expect(rejectedWithCandidates.reasons).toEqual(rejected.reasons);
+  });
+});
+
+describe("routing hints remain non-authoritative", () => {
+  it.each([
+    ["admitted", generated()],
+    ["rejected", generated({ link: link({ sourceUnitIds: [] }) })],
+  ])(
+    "drops invalid candidates without changing an %s assessment",
+    (_label, input) => {
+      const baseline = assessQuestionProposal(input);
+      const withInvalidCandidates = assessQuestionProposal({
+        ...input,
+        lexicalCandidates: [
+          SIBLING_ID,
+          "not-a-question-id",
+          SIBLING_ID,
+          PARENT_ID,
+        ],
+      });
+
+      expect(withInvalidCandidates.admitted).toBe(baseline.admitted);
+      expect(withInvalidCandidates.reasons).toEqual(baseline.reasons);
+      expect(withInvalidCandidates.routing).toEqual({
+        candidateQuestionIds: [SIBLING_ID, PARENT_ID],
+        authoritative: false,
+      });
+    },
+  );
+});
+
+describe("trigger provenance is sanitised", () => {
+  it("keeps only trimmed non-empty trigger ids in first-occurrence order", () => {
+    const decision = assessQuestionProposal(
+      generated({
+        link: link({
+          sourceUnitIds: [" unit-2 ", "", "unit-1", "unit-2", "   "],
+        }),
+      }),
+    );
+    expect(decision.admitted).toBe(false);
+    expect(decision.reasons).toContain("INVALID_PROPOSAL");
+    expect(decision.reasons).not.toContain("MISSING_TRIGGER");
+    expect(decision.triggerSourceUnitIds).toEqual(["unit-2", "unit-1"]);
+  });
+});
+
+function expectDeepFrozen(value: unknown): void {
+  if (typeof value !== "object" || value === null) return;
+  expect(Object.isFrozen(value)).toBe(true);
+  for (const nested of Object.values(value)) expectDeepFrozen(nested);
+}
+
+describe("assessment output is deeply immutable", () => {
+  it("freezes the exported reason precedence constant", () => {
+    expect(Object.isFrozen(ADMISSION_REASON_ORDER)).toBe(true);
+    expect(() =>
+      (ADMISSION_REASON_ORDER as unknown as string[]).push("NEW_REASON"),
+    ).toThrow();
+  });
+
+  it("freezes every returned decision without retaining input aliases", () => {
+    const input = generated({ lexicalCandidates: [SIBLING_ID] });
+    const decision = assessQuestionProposal(input);
+    expectDeepFrozen(decision);
+    expect(decision.routing.candidateQuestionIds).not.toBe(
+      input.lexicalCandidates,
+    );
+    expect(decision.triggerSourceUnitIds).not.toBe(input.link.sourceUnitIds);
+
+    expect(() =>
+      (decision.routing.candidateQuestionIds as unknown as QuestionId[]).push(
+        PARENT_ID,
+      ),
+    ).toThrow();
+    expect(
+      () =>
+        ((decision.routing as { authoritative: boolean }).authoritative = true),
+    ).toThrow();
+
+    expect(assessQuestionProposal(input)).toEqual(decision);
   });
 });
 

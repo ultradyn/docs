@@ -6,12 +6,14 @@ import {
   isTerminalObligationStatus,
   type CoverageObligation,
   type IngestionQuestionLink,
+  type ObligationId,
+  type QuestionId,
 } from "../../domain/ingest/index.js";
 
 export const MIN_CONCRETE_TOKENS = 3;
 export const DUPLICATE_SIMILARITY = 0.8;
 
-export const ADMISSION_REASON_ORDER = [
+export const ADMISSION_REASON_ORDER = Object.freeze([
   "INVALID_PROPOSAL",
   "GENERIC_WORDING",
   "MISSING_TRIGGER",
@@ -21,23 +23,23 @@ export const ADMISSION_REASON_ORDER = [
   "OBLIGATION_RESOLVED",
   "OBLIGATION_NOT_NOVEL",
   "DUPLICATE_WORDING",
-] as const;
+] as const);
 
 export type AdmissionReason = (typeof ADMISSION_REASON_ORDER)[number];
 
 export interface AdmittedGeneratedQuestionFact {
   readonly link: IngestionQuestionLink;
   readonly wording: string;
-  readonly obligationId: string;
+  readonly obligationId: ObligationId;
 }
 
 export interface QuestionProposalInput {
   readonly link: IngestionQuestionLink;
   readonly wording: string;
-  readonly obligationId?: string | undefined;
+  readonly obligationId?: ObligationId | undefined;
   readonly obligations: readonly CoverageObligation[];
   readonly admitted: readonly AdmittedGeneratedQuestionFact[];
-  readonly lexicalCandidates: readonly string[];
+  readonly lexicalCandidates: readonly QuestionId[];
 }
 
 export interface AdmissionDecision {
@@ -45,19 +47,23 @@ export interface AdmissionDecision {
   readonly kind: "demand" | "generated";
   readonly reasons: readonly AdmissionReason[];
   readonly triggerSourceUnitIds: readonly string[];
-  readonly duplicateOf: readonly string[];
+  readonly duplicateOf: readonly QuestionId[];
   readonly maxSimilarity: number;
   readonly routing: {
-    readonly candidateQuestionIds: readonly string[];
+    readonly candidateQuestionIds: readonly QuestionId[];
     readonly authoritative: false;
   };
 }
 
 const ULID_PATTERN = "[0-9A-HJKMNP-TV-Z]{26}";
-const QuestionIdSchema = z.string().regex(new RegExp(`^q-${ULID_PATTERN}$`));
+const QuestionIdSchema = z
+  .string()
+  .regex(new RegExp(`^q-${ULID_PATTERN}$`))
+  .transform((value) => value as QuestionId);
 const ObligationIdSchema = z
   .string()
-  .regex(new RegExp(`^obl-${ULID_PATTERN}$`));
+  .regex(new RegExp(`^obl-${ULID_PATTERN}$`))
+  .transform((value) => value as ObligationId);
 
 const AdmittedGeneratedQuestionFactSchema = z
   .object({
@@ -71,6 +77,8 @@ const AdmittedGeneratedQuestionFactSchema = z
     message: "Admitted generated facts require ingestion-generated links.",
   });
 
+// Routing hints are deliberately accepted as unknown here. They are sanitised
+// independently and can never invalidate the proposal's authoritative facts.
 const QuestionProposalInputSchema = z
   .object({
     link: IngestionQuestionLinkSchema,
@@ -78,12 +86,12 @@ const QuestionProposalInputSchema = z
     obligationId: ObligationIdSchema.optional(),
     obligations: z.array(CoverageObligationRecordSchema),
     admitted: z.array(AdmittedGeneratedQuestionFactSchema),
-    lexicalCandidates: z.array(QuestionIdSchema),
+    lexicalCandidates: z.unknown(),
   })
   .strict();
 
-// Deliberately closed and source-visible: changing what counts as generic is a
-// policy change, not an incidental consequence of a stemming or fuzzy library.
+// Closed and source-visible: generic vocabulary is auditable policy, not
+// incidental stemming or fuzzy-library behavior.
 const GENERIC_TOKENS = new Set([
   "a",
   "an",
@@ -119,6 +127,24 @@ const GENERIC_TOKENS = new Set([
   "why",
 ]);
 
+const UnknownEnvelopeSchema = z
+  .object({
+    link: z.unknown().optional(),
+    wording: z.unknown().optional(),
+    obligationId: z.unknown().optional(),
+    obligations: z.unknown().optional(),
+    admitted: z.unknown().optional(),
+    lexicalCandidates: z.unknown().optional(),
+  })
+  .passthrough();
+const UnknownLinkSchema = z
+  .object({
+    origin: z.unknown().optional(),
+    questionId: z.unknown().optional(),
+    sourceUnitIds: z.unknown().optional(),
+  })
+  .passthrough();
+
 function normalizeTokens(wording: string): readonly string[] {
   const normalized = wording
     .normalize("NFKC")
@@ -142,62 +168,72 @@ function jaccard(
   return intersection / (left.size + right.size - intersection);
 }
 
-function unique(values: readonly string[]): readonly string[] {
+function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
 }
 
-function objectValue(input: unknown): Record<string, unknown> {
-  return typeof input === "object" && input !== null
-    ? (input as Record<string, unknown>)
-    : {};
+function sanitiseTriggers(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return unique(
+    value.flatMap((candidate) => {
+      if (typeof candidate !== "string") return [];
+      const trimmed = candidate.trim();
+      return trimmed === "" ? [] : [trimmed];
+    }),
+  );
 }
 
-export function assessQuestionProposal(
-  input: QuestionProposalInput,
-): AdmissionDecision {
-  const parsed = QuestionProposalInputSchema.safeParse(input);
-  const raw = objectValue(input);
-  const rawLink = objectValue(raw.link);
+function sanitiseCandidates(value: unknown): QuestionId[] {
+  if (!Array.isArray(value)) return [];
+  return unique(
+    value.flatMap((candidate) => {
+      const parsed = QuestionIdSchema.safeParse(candidate);
+      return parsed.success ? [parsed.data] : [];
+    }),
+  );
+}
 
-  const link = parsed.success ? parsed.data.link : rawLink;
-  const wording =
-    typeof raw.wording === "string"
-      ? raw.wording
-      : parsed.success
-        ? parsed.data.wording
-        : "";
-  const questionId = typeof link.questionId === "string" ? link.questionId : "";
-  const origin = link.origin;
-  const sourceUnitIds = Array.isArray(link.sourceUnitIds)
-    ? link.sourceUnitIds.filter(
-        (value): value is string => typeof value === "string",
-      )
-    : [];
-  const triggerSourceUnitIds = unique(sourceUnitIds);
-  const lexicalCandidates = Array.isArray(raw.lexicalCandidates)
-    ? raw.lexicalCandidates.filter(
-        (value): value is string => typeof value === "string",
-      )
-    : [];
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
+    return value;
+  }
+  for (const nested of Object.values(value)) deepFreeze(nested);
+  return Object.freeze(value);
+}
+
+export function assessQuestionProposal(input: unknown): AdmissionDecision {
+  const envelopeResult = UnknownEnvelopeSchema.safeParse(input);
+  const envelope = envelopeResult.success ? envelopeResult.data : {};
+  const linkResult = UnknownLinkSchema.safeParse(envelope.link);
+  const rawLink = linkResult.success ? linkResult.data : {};
+  const parsed = QuestionProposalInputSchema.safeParse(input);
+
+  const wording = typeof envelope.wording === "string" ? envelope.wording : "";
+  const parsedQuestionId = QuestionIdSchema.safeParse(rawLink.questionId);
+  const questionId = parsedQuestionId.success
+    ? parsedQuestionId.data
+    : undefined;
+  const triggerSourceUnitIds = sanitiseTriggers(rawLink.sourceUnitIds);
+  const candidateQuestionIds = sanitiseCandidates(envelope.lexicalCandidates);
   const routing = {
-    candidateQuestionIds: [...lexicalCandidates],
+    candidateQuestionIds,
     authoritative: false as const,
   };
 
-  if (parsed.success && origin === "human") {
-    return {
+  if (parsed.success && parsed.data.link.origin === "human") {
+    return deepFreeze({
       admitted: true,
-      kind: "demand",
+      kind: "demand" as const,
       reasons: [],
       triggerSourceUnitIds,
       duplicateOf: [],
       maxSimilarity: 0,
       routing,
-    };
+    });
   }
 
   const detected = new Set<AdmissionReason>();
-  if (!parsed.success || origin !== "ingestion-generated") {
+  if (!parsed.success || parsed.data.link.origin !== "ingestion-generated") {
     detected.add("INVALID_PROPOSAL");
   }
 
@@ -212,13 +248,20 @@ export function assessQuestionProposal(
     detected.add("MISSING_TRIGGER");
   }
 
-  const obligationId =
-    typeof raw.obligationId === "string" ? raw.obligationId : undefined;
-  const obligations = Array.isArray(raw.obligations) ? raw.obligations : [];
+  const obligationIdResult = ObligationIdSchema.safeParse(
+    envelope.obligationId,
+  );
+  const obligationId = obligationIdResult.success
+    ? obligationIdResult.data
+    : undefined;
+  const obligations = Array.isArray(envelope.obligations)
+    ? envelope.obligations.flatMap((value) => {
+        const obligation = CoverageObligationRecordSchema.safeParse(value);
+        return obligation.success ? [obligation.data] : [];
+      })
+    : [];
   const citedObligation = obligationId
-    ? obligations
-        .map(objectValue)
-        .find((obligation) => obligation.id === obligationId)
+    ? obligations.find((obligation) => obligation.id === obligationId)
     : undefined;
 
   if (!citedObligation) {
@@ -229,44 +272,35 @@ export function assessQuestionProposal(
     } else if (citedObligation.ownerQuestionId !== questionId) {
       detected.add("OBLIGATION_NOT_SELF_OWNED");
     }
-    if (
-      typeof citedObligation.status === "string" &&
-      isTerminalObligationStatus(
-        citedObligation.status as CoverageObligation["status"],
-      )
-    ) {
+    if (isTerminalObligationStatus(citedObligation.status)) {
       detected.add("OBLIGATION_RESOLVED");
     }
   }
 
-  const admittedFacts = Array.isArray(raw.admitted) ? raw.admitted : [];
+  const admittedFacts = Array.isArray(envelope.admitted)
+    ? envelope.admitted.flatMap((value) => {
+        const fact = AdmittedGeneratedQuestionFactSchema.safeParse(value);
+        return fact.success ? [fact.data] : [];
+      })
+    : [];
   if (
     obligationId !== undefined &&
-    admittedFacts
-      .map(objectValue)
-      .some((fact) => fact.obligationId === obligationId)
+    admittedFacts.some((fact) => fact.obligationId === obligationId)
   ) {
     detected.add("OBLIGATION_NOT_NOVEL");
   }
 
-  let maxSimilarity = admittedFacts.length === 0 ? 0 : -1;
-  const duplicateOf: string[] = [];
-  for (const rawFact of admittedFacts) {
-    const fact = objectValue(rawFact);
-    const factWording = typeof fact.wording === "string" ? fact.wording : "";
-    const factLink = objectValue(fact.link);
+  let maxSimilarity = 0;
+  const duplicateOf: QuestionId[] = [];
+  for (const fact of admittedFacts) {
+    const factQuestionId = QuestionIdSchema.safeParse(fact.link.questionId);
     const similarity = jaccard(
       wordingTokens,
-      new Set(normalizeTokens(factWording)),
+      new Set(normalizeTokens(fact.wording)),
     );
-    if (similarity > maxSimilarity) {
-      maxSimilarity = similarity;
-    }
-    if (
-      similarity >= DUPLICATE_SIMILARITY &&
-      typeof factLink.questionId === "string"
-    ) {
-      duplicateOf.push(factLink.questionId);
+    maxSimilarity = Math.max(maxSimilarity, similarity);
+    if (similarity >= DUPLICATE_SIMILARITY && factQuestionId.success) {
+      duplicateOf.push(factQuestionId.data);
     }
   }
   if (duplicateOf.length > 0) {
@@ -276,13 +310,13 @@ export function assessQuestionProposal(
   const reasons = ADMISSION_REASON_ORDER.filter((reason) =>
     detected.has(reason),
   );
-  return {
+  return deepFreeze({
     admitted: reasons.length === 0,
-    kind: "generated",
+    kind: "generated" as const,
     reasons,
     triggerSourceUnitIds,
     duplicateOf,
     maxSimilarity,
     routing,
-  };
+  });
 }
