@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "tiny",
+  "provenance": {
+    "kind": "curated-adaptation",
+    "sources": [
+      "preserved automatic-ingestion design bundle inert sample-corpus concepts"
+    ]
+  },
+  "files": [
+    {
+      "id": "tiny-file-conflict",
+      "path": "conflicting-procedure.md",
+      "sha256": "5bd3c10256287c3f649f2ec8f3c92981493f0e7bc9cfca7545365c4d283b7c31",
+      "scenarios": ["contradiction"]
+    },
+    {
+      "id": "tiny-file-note",
+      "path": "disconnected-note.md",
+      "sha256": "999615d0243384cdc4f2c907d0dea268e0f8e9380b4ecafa93165c19cfc70a92",
+      "scenarios": ["disconnected-note"]
+    },
+    {
+      "id": "tiny-file-deprecation",
+      "path": "legacy-export.md",
+      "sha256": "0e1f3f3025957cea18df29a15fe7331f0749ff8462089b97b9b7e7639351f60d",
+      "scenarios": ["deprecation"]
+    },
+    {
+      "id": "tiny-file-procedure",
+      "path": "maintainer-procedure.md",
+      "sha256": "8763df08e18b6751a05c74444b865366457af7ed8e3f97f8d76258e372a7ce1d",
+      "scenarios": ["procedure", "contradiction"]
+    },
+    {
+      "id": "tiny-file-overview-copy",
+      "path": "product-overview-copy.md",
+      "sha256": "c174dcf68b63387ce836c1a81cdb6b4f322d5df23385e2c9c90b96049da3c0a3",
+      "scenarios": ["duplicate-content"]
+    },
+    {
+      "id": "tiny-file-overview",
+      "path": "product-overview.md",
+      "sha256": "d5c69b907591ccd68d019609e640d498c563e6d244837f20b0c65b933041acf1",
+      "scenarios": ["overview", "duplicate-content"]
+    },
+    {
+      "id": "tiny-file-unsupported",
+      "path": "unsupported-question.md",
+      "sha256": "91cb13c2b43789593b661353686dcc5c433d498fbb6a9026a5a502aed2f880fe",
+      "scenarios": ["unsupported-question"]
+    }
+  ],
+  "units": [
+    {
+      "id": "tiny-unit-conflicting-procedure",
+      "fileId": "tiny-file-conflict",
+      "locator": "# Apply project settings without restart",
+      "disposition": "contradiction",
+      "scenarios": ["contradiction"]
+    },
+    {
+      "id": "tiny-unit-disconnected-note",
+      "fileId": "tiny-file-note",
+      "locator": "# Office note",
+      "disposition": "disconnected",
+      "scenarios": ["disconnected-note"]
+    },
+    {
+      "id": "tiny-unit-legacy-export",
+      "fileId": "tiny-file-deprecation",
+      "locator": "# Legacy export",
+      "disposition": "claim-evidence",
+      "scenarios": ["deprecation"]
+    },
+    {
+      "id": "tiny-unit-procedure",
+      "fileId": "tiny-file-procedure",
+      "locator": "# Apply project settings",
+      "disposition": "claim-evidence",
+      "scenarios": ["procedure", "contradiction"]
+    },
+    {
+      "id": "tiny-unit-overview-copy",
+      "fileId": "tiny-file-overview-copy",
+      "locator": "# Atlas overview copy",
+      "disposition": "duplicate",
+      "scenarios": ["duplicate-content"]
+    },
+    {
+      "id": "tiny-unit-overview",
+      "fileId": "tiny-file-overview",
+      "locator": "# Atlas overview",
+      "disposition": "claim-evidence",
+      "scenarios": ["overview", "duplicate-content"]
+    },
+    {
+      "id": "tiny-unit-unsupported-prompt",
+      "fileId": "tiny-file-unsupported",
+      "locator": "# Open question",
+      "disposition": "context-only",
+      "scenarios": ["unsupported-question"]
+    }
+  ],
+  "questions": [
+    {
+      "id": "tiny-question-purpose",
+      "text": "Where does Atlas keep portable project knowledge?",
+      "evidenceUnitIds": ["tiny-unit-overview"]
+    },
+    {
+      "id": "tiny-question-settings",
+      "text": "What must a maintainer do after changing project settings?",
+      "evidenceUnitIds": [
+        "tiny-unit-procedure",
+        "tiny-unit-conflicting-procedure"
+      ]
+    },
+    {
+      "id": "tiny-question-export",
+      "text": "May an old project use legacy export?",
+      "evidenceUnitIds": ["tiny-unit-legacy-export"]
+    },
+    {
+      "id": "tiny-question-unsupported",
+      "text": "What is Atlas's guaranteed regional-outage recovery time?",
+      "evidenceUnitIds": []
+    }
+  ],
+  "claims": [
+    {
+      "id": "tiny-claim-storage",
+      "text": "Atlas keeps portable project knowledge in Git.",
+      "qualifiers": ["portable project knowledge"],
+      "lifecycle": "current",
+      "evidenceUnitIds": ["tiny-unit-overview"],
+      "reusable": true
+    },
+    {
+      "id": "tiny-claim-restart",
+      "text": "Restart Atlas before verifying changed project settings.",
+      "qualifiers": ["after changing project settings", "maintainer mode"],
+      "lifecycle": "current",
+      "evidenceUnitIds": ["tiny-unit-procedure"],
+      "reusable": true
+    },
+    {
+      "id": "tiny-claim-legacy-export",
+      "text": "Legacy ZIP export remains available but is deprecated.",
+      "qualifiers": ["projects created before schema version 2"],
+      "lifecycle": "deprecated",
+      "evidenceUnitIds": ["tiny-unit-legacy-export"],
+      "reusable": false
+    }
+  ],
+  "duplicates": [
+    {
+      "canonicalUnitId": "tiny-unit-overview",
+      "duplicateUnitIds": ["tiny-unit-overview-copy"],
+      "outcome": "merge-with-provenance"
+    }
+  ],
+  "contradictions": [
+    {
+      "unitIds": ["tiny-unit-procedure", "tiny-unit-conflicting-procedure"],
+      "outcome": "block-until-resolved"
+    }
+  ],
+  "unsupportedQuestions": ["tiny-question-unsupported"]
+}
