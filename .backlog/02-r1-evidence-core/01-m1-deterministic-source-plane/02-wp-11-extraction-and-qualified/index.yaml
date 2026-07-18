@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P2.M1.E2
+locked: false
+name: WP-11 — Extraction and qualified representations
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P2.M1.E1.T003
+      estimate_hours: 8
+      file: T001-t-11-01-implement-a-tier-text.todo
+      id: T001
+      priority: high
+      status: pending
+      title: T-11-01 — Implement A-tier text extractors
+    - complexity: medium
+      depends_on:
+        - P2.M1.E2.T001
+      estimate_hours: 5
+      file: T002-t-11-02-implement-representati.todo
+      id: T002
+      priority: high
+      status: pending
+      title: T-11-02 — Implement representation audit framework
+    - complexity: medium
+      depends_on:
+        - P2.M1.E2.T002
+      estimate_hours: 5
+      file: T003-t-11-03-implement-immutable-re.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: T-11-03 — Implement immutable repair path

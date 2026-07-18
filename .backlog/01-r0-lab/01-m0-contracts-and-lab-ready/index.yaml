@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-00. Freeze the v3 boundaries, terminology, source–claim–question–answer model, and agent-role separation before implementation begins. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-00 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-00 — Architecture baseline and decision control
+      path: 01-wp-00-architecture-baseline-an
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-01. Implement the machine-readable contracts and validators used by every later work package. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-01 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-01 — Schema, contract, and validation toolchain
+      path: 02-wp-01-schema-contract-and-vali
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-02. Create the test harness and labeled corpora before agent quality is optimized. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-02 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-02 — Evaluation baseline and corpus laboratory
+      path: 03-wp-02-evaluation-baseline-and
+      status: pending
+estimate_hours: 120
+id: P1.M1
+locked: false
+name: M0 — Contracts and lab ready
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 10
+    total_tasks: 10
+status: pending

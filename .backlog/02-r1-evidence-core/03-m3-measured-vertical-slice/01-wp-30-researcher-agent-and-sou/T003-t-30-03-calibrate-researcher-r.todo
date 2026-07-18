@@ -1,0 +1,37 @@
+---
+complexity: high
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M3.E1.T002
+estimate_hours: 8
+id: P2.M3.E1.T003
+priority: high
+status: pending
+tags:
+    - wp-30
+    - t-30-03
+    - ingest-v3
+    - optional
+title: T-30-03 — Calibrate Researcher retrieval policy
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-30 / T-30-03
+
+Tune candidate counts, query expansion, context opening, and optional reranking on labeled corpora.
+
+Deliverables:
+- Calibration report
+- Versioned retrieval profile
+
+Acceptance criteria:
+- Recall/precision and cost are reported by question type
+- No-evidence false negatives meet pilot threshold
+- Profile changes run replay regressions
+
+Test surfaces:
+- retrieval
+- performance
+- cost
+
+Repository-normalisation notes:
+- N5: Optional measured experiment; no core or release-gating task may depend on it.

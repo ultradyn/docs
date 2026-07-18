@@ -1,0 +1,38 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M1.E1.T003
+    - P2.M1.E2.T003
+    - P1.M1.E2.T004
+estimate_hours: 5
+id: P2.M1.E4.T001
+priority: critical
+status: pending
+tags:
+    - wp-13
+    - t-13-01
+    - ingest-v3
+title: T-13-01 — Implement data and rights policy profiles
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-13 / T-13-01
+
+Define classification, providers, region, retention, logging, cache, quote, and publication rules.
+
+Deliverables:
+- Policy schema
+- Reference profiles
+
+Acceptance criteria:
+- A run cannot begin without an approved profile
+- Every profile maps to explicit processors/storage
+- License restrictions reach publication checks
+
+Test surfaces:
+- schema
+- security
+- privacy
+
+Repository-normalisation notes:
+- N3: Builds the full policy implementation from the synthetic minimal T-01-04 contract.

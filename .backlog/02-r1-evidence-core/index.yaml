@@ -1,0 +1,42 @@
+complexity: medium
+depends_on: []
+estimate_hours: 400
+id: P2
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M1 exit gate: A-tier corpus is safely replayable, unitized, searchable, and policy-filtered.'
+      estimate_hours: 120
+      id: M1
+      locked: false
+      name: M1 — Deterministic source plane
+      path: 01-m1-deterministic-source-plane
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M2 exit gate: Questions, obligations, evidence, claims, dependencies, and invalidation are durable.'
+      estimate_hours: 120
+      id: M2
+      locked: false
+      name: M2 — Knowledge core
+      path: 02-m2-knowledge-core
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M3 exit gate: One question completes Researcher→Critic→Claims→Answer with replay tests.'
+      estimate_hours: 120
+      id: M3
+      locked: false
+      name: M3 — Measured vertical slice
+      path: 03-m3-measured-vertical-slice
+      status: pending
+name: R1 Evidence core
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 37
+    total_tasks: 37
+status: pending
+weeks: 12

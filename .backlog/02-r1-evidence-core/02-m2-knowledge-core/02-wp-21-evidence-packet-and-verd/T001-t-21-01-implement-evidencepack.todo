@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M2.E1.T003
+estimate_hours: 5
+id: P2.M2.E2.T001
+priority: high
+status: pending
+tags:
+    - wp-21
+    - t-21-01
+    - ingest-v3
+title: T-21-01 — Implement EvidencePacket and SearchReceipt repository
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-21 / T-21-01
+
+Persist packet versions, references, roles, facet mappings, queries, filters, and failures.
+
+Deliverables:
+- Evidence service
+- Reference verifier
+
+Acceptance criteria:
+- All references verify snapshot/file/unit hashes
+- Packet versions are append-only
+- No-evidence packet without a receipt is rejected
+
+Test surfaces:
+- unit
+- schema
+- retrieval

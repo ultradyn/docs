@@ -1,0 +1,33 @@
+---
+complexity: high
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M3.E3.T002
+estimate_hours: 8
+id: P2.M3.E3.T003
+priority: high
+status: pending
+tags:
+    - wp-32
+    - t-32-03
+    - ingest-v3
+title: T-32-03 — Calibrate claim granularity and relationships
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-32 / T-32-03
+
+Label pilot claims and tune guidelines for reuse versus fragmentation.
+
+Deliverables:
+- Granularity guide
+- Candidate/adjudication metrics
+
+Acceptance criteria:
+- Two questions can reuse a claim in fixtures
+- Procedure and interface claims preserve ordering/preconditions
+- Reviewer agreement meets pilot target
+
+Test surfaces:
+- claim
+- human_factors
+- e2e

@@ -1,0 +1,14 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P3.M1.E1
+locked: false
+name: WP-33 — Curiosity Planner and branch scheduler
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total: 0
+status: pending
+tasks: []

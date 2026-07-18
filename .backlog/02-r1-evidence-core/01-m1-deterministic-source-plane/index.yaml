@@ -1,0 +1,50 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-10. Securely accept source packages, assign immutable snapshots, and retain replayable bytes. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-10 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-10 — Source intake and replay custody
+      path: 01-wp-10-source-intake-and-replay
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-11. Produce faithful representations and original-to-normalized locators for supported formats. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-11 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-11 — Extraction and qualified representations
+      path: 02-wp-11-extraction-and-qualified
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-12. Create stable source units and the default exact/lexical retrieval projection. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-12 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-12 — Structural unitization, maps, and lexical retrieval
+      path: 03-wp-12-structural-unitization-m
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-13. Propagate classification, rights, access, and processing policies through every source boundary. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-13 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E4
+      locked: false
+      name: WP-13 — Data policy and source access enforcement
+      path: 04-wp-13-data-policy-and-source-a
+      status: pending
+estimate_hours: 120
+id: P2.M1
+locked: false
+name: M1 — Deterministic source plane
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 13
+    total_tasks: 13
+status: pending

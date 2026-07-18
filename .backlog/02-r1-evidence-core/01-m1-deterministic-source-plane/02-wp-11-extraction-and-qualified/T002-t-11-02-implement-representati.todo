@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M1.E2.T001
+estimate_hours: 5
+id: P2.M1.E2.T002
+priority: high
+status: pending
+tags:
+    - wp-11
+    - t-11-02
+    - ingest-v3
+title: T-11-02 — Implement representation audit framework
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-11 / T-11-02
+
+Classify format tiers and run structural/render checks with audit records.
+
+Deliverables:
+- Audit service
+- Capability registry
+
+Acceptance criteria:
+- A deliberately corrupted/reordered representation fails
+- Tier C selected units require human verification
+- Tier D cannot support accepted claims
+
+Test surfaces:
+- unit
+- security
+- human_factors

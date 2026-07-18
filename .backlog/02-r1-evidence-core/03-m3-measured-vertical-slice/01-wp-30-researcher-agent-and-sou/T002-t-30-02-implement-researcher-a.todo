@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M3.E1.T001
+estimate_hours: 5
+id: P2.M3.E1.T002
+priority: high
+status: pending
+tags:
+    - wp-30
+    - t-30-02
+    - ingest-v3
+title: T-30-02 — Implement Researcher agent contract and prompt
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-30 / T-30-02
+
+Return packet proposals, reference roles, facet support, and limits only.
+
+Deliverables:
+- Researcher agent
+- Golden/adversarial fixtures
+
+Acceptance criteria:
+- Final answer prose and child questions are schema-impossible
+- No-evidence includes a sufficient receipt
+- References are minimal but complete enough for critic inspection
+
+Test surfaces:
+- agent_fixture
+- retrieval
+- security

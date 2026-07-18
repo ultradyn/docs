@@ -1,0 +1,42 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P2.M3.E1
+locked: false
+name: WP-30 — Researcher agent and source tools
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P2.M2.E2.T003
+        - P1.M1.E3.T003
+      estimate_hours: 8
+      file: T001-t-30-01-implement-researcher-s.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: T-30-01 — Implement Researcher source tools
+    - complexity: medium
+      depends_on:
+        - P2.M3.E1.T001
+      estimate_hours: 5
+      file: T002-t-30-02-implement-researcher-a.todo
+      id: T002
+      priority: high
+      status: pending
+      title: T-30-02 — Implement Researcher agent contract and prompt
+    - complexity: high
+      depends_on:
+        - P2.M3.E1.T002
+      estimate_hours: 8
+      file: T003-t-30-03-calibrate-researcher-r.todo
+      id: T003
+      priority: high
+      status: pending
+      title: T-30-03 — Calibrate Researcher retrieval policy

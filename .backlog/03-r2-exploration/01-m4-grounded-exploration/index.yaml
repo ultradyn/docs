@@ -1,0 +1,50 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-33. Implement grounded expansion after terminal evidence/claim outcomes. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-33 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-33 — Curiosity Planner and branch scheduler
+      path: 01-wp-33-curiosity-planner-and-br
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-40. Discover meaningful source content that forward question expansion did not use. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-40 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-40 — Reverse Questioner and source-led accounting
+      path: 02-wp-40-reverse-questioner-and-s
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-41. Let operators inject tacit demand and choose supplemental uncovered topics. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-41 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-41 — Human curiosity and source-topic curation
+      path: 03-wp-41-human-curiosity-and-sour
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-42. Compute the bounded completion predicate and expose exact exceptions. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-42 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded. M4 may implement only a fail-closed closure-gate framework; operational_closed remains unreachable while later deduplication, authority, invalidation, or publication producers are absent. Missing gate means unknown/fail.'
+      estimate_hours: 40
+      id: E4
+      locked: false
+      name: WP-42 — Operational closure and assurance certificate
+      path: 04-wp-42-operational-closure-and
+      status: pending
+estimate_hours: 120
+id: P3.M1
+locked: false
+name: M4 — Grounded exploration
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total_tasks: 0
+status: pending

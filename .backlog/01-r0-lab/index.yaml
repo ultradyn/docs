@@ -1,0 +1,24 @@
+complexity: medium
+depends_on: []
+estimate_hours: 400
+id: P1
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M0 exit gate: Schemas, fixtures, tiny corpus, and validation pass.'
+      estimate_hours: 120
+      id: M1
+      locked: false
+      name: M0 — Contracts and lab ready
+      path: 01-m0-contracts-and-lab-ready
+      status: pending
+name: R0 Lab
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 10
+    total_tasks: 10
+status: pending
+weeks: 12

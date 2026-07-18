@@ -1,0 +1,36 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M2.E3.T003
+    - P2.M3.E2.T002
+estimate_hours: 5
+id: P2.M3.E3.T001
+priority: high
+status: pending
+tags:
+    - wp-32
+    - t-32-01
+    - ingest-v3
+title: T-32-01 — Implement Claim Extractor agent
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-32 / T-32-01
+
+Propose minimal claims with type, scope, authority/lifecycle, evidence, and candidate relationships.
+
+Deliverables:
+- Claim Extractor
+- Extraction fixtures
+
+Acceptance criteria:
+- Examples are not generalized as universal behavior
+- Documented rationale is distinguished from inferred intent
+- All claim evidence comes from accepted packet references
+
+Test surfaces:
+- agent_fixture
+- claim
+
+Repository-normalisation notes:
+- N4: Depends on the core Evidence Critic contract T-31-02, not optional ablation T-31-03.

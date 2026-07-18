@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M3.E2.T001
+estimate_hours: 5
+id: P2.M3.E2.T002
+priority: critical
+status: pending
+tags:
+    - wp-31
+    - t-31-02
+    - ingest-v3
+title: T-31-02 — Build evidence-criticism fixtures
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-31 / T-31-02
+
+Cover partial evidence, irrelevant citations, redundant citations, wrong scope, deprecation, conflict, and no evidence.
+
+Deliverables:
+- Golden/adversarial fixture suite
+- Regression thresholds
+
+Acceptance criteria:
+- Known weak packets are never accepted
+- Known complete minimal packets pass
+- Source prompt injection does not alter role
+
+Test surfaces:
+- agent_fixture
+- security
+- retrieval

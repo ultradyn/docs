@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-61. Transform claim/question demand into reader-oriented document structure. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-61 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-61 — Information architecture and canonical homes
+      path: 01-wp-61-information-architecture
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-62. Produce and verify reader-facing documentation from sealed claims and approved IA. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-62 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-62 — Document generation, citation, and navigation review
+      path: 02-wp-62-document-generation-cita
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-63. Create a coherent reviewable transaction for provisional or canonical import. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-63 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-63 — Git publication and Docent import
+      path: 03-wp-63-git-publication-and-doce
+      status: pending
+estimate_hours: 120
+id: P4.M1
+locked: false
+name: M6 — Reader-facing publication
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total_tasks: 0
+status: pending

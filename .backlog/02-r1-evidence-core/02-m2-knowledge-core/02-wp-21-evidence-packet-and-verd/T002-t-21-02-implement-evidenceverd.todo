@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M2.E2.T001
+estimate_hours: 5
+id: P2.M2.E2.T002
+priority: high
+status: pending
+tags:
+    - wp-21
+    - t-21-02
+    - ingest-v3
+title: T-21-02 — Implement EvidenceVerdict lifecycle
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-21 / T-21-02
+
+Persist reference classifications, facet states, terminal verdicts, and bounded refinement requests.
+
+Deliverables:
+- Verdict service
+- State transition tests
+
+Acceptance criteria:
+- Accepted requires all required facets satisfied
+- Every material reference receives a classification
+- Retrieval unavailable cannot become no-supported-answer
+
+Test surfaces:
+- unit
+- schema
+- workflow

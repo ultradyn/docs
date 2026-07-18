@@ -1,0 +1,33 @@
+complexity: medium
+depends_on: []
+estimate_hours: 400
+id: P4
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M6 exit gate: IA-first documentation and Docent PR/replay pass.'
+      estimate_hours: 120
+      id: M1
+      locked: false
+      name: M6 — Reader-facing publication
+      path: 01-m6-reader-facing-publication
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M7 exit gate: Dashboard, durable orchestration, recovery, observability, and budgets pass.'
+      estimate_hours: 120
+      id: M2
+      locked: false
+      name: M7 — Operational product
+      path: 02-m7-operational-product
+      status: pending
+name: R3 Publication
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total_tasks: 0
+status: pending
+weeks: 12

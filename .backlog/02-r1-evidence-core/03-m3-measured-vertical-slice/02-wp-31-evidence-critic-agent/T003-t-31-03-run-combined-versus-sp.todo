@@ -1,0 +1,37 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M3.E2.T002
+estimate_hours: 5
+id: P2.M3.E2.T003
+priority: high
+status: pending
+tags:
+    - wp-31
+    - t-31-03
+    - ingest-v3
+    - optional
+title: T-31-03 — Run combined-versus-split ablation
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-31 / T-31-03
+
+Compare the v3 critic with a combined critic/curiosity baseline.
+
+Deliverables:
+- Ablation report
+- Go/no-go decision
+
+Acceptance criteria:
+- Measure false acceptance, refinement quality, branch factor, cost, and output stability
+- Separate role must provide a material quality/testability gain or be revisited
+- Results are reproducible on the same corpus/model versions
+
+Test surfaces:
+- agent_fixture
+- e2e
+- cost
+
+Repository-normalisation notes:
+- N5: Optional measured experiment; no core or release-gating task may depend on it.

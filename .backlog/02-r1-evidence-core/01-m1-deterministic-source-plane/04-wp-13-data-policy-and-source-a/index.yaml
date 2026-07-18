@@ -1,0 +1,44 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P2.M1.E4
+locked: false
+name: WP-13 — Data policy and source access enforcement
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P2.M1.E1.T003
+        - P2.M1.E2.T003
+        - P1.M1.E2.T004
+      estimate_hours: 5
+      file: T001-t-13-01-implement-data-and-rig.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: T-13-01 — Implement data and rights policy profiles
+    - complexity: high
+      depends_on:
+        - P2.M1.E4.T001
+        - P2.M1.E3.T003
+      estimate_hours: 8
+      file: T002-t-13-02-enforce-policy-at-retr.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: T-13-02 — Enforce policy at retrieval/model boundaries
+    - complexity: medium
+      depends_on:
+        - P2.M1.E4.T002
+      estimate_hours: 5
+      file: T003-t-13-03-implement-secret-pii-a.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: T-13-03 — Implement secret/PII and publication scans

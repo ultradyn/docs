@@ -1,0 +1,50 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-30. Implement evidence-only research with exact references and auditable search receipts. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-30 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-30 — Researcher agent and source tools
+      path: 01-wp-30-researcher-agent-and-sou
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-31. Implement the strict independent current-question evidence gate. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-31 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-31 — Evidence Critic agent
+      path: 02-wp-31-evidence-critic-agent
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-32. Turn accepted evidence into independently reviewed reusable claims. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-32 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-32 — Claim Extractor and Claim Reviewer agents
+      path: 03-wp-32-claim-extractor-and-clai
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-60. Generate question-specific answers without direct source research. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-60 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E4
+      locked: false
+      name: WP-60 — Answer composition from accepted claims
+      path: 04-wp-60-answer-composition-from
+      status: pending
+estimate_hours: 120
+id: P2.M3
+locked: false
+name: M3 — Measured vertical slice
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 12
+    total_tasks: 12
+status: pending

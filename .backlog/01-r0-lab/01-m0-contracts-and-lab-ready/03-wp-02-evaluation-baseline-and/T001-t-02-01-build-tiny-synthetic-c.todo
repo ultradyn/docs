@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P1.M1.E2.T003
+estimate_hours: 5
+id: P1.M1.E3.T001
+priority: high
+status: pending
+tags:
+    - wp-02
+    - t-02-01
+    - ingest-v3
+title: T-02-01 — Build tiny synthetic corpus and expected graph
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-02 / T-02-01
+
+Author a compact corpus with overview, procedure, deprecation, contradiction, disconnected note, duplicate content, and unsupported question.
+
+Deliverables:
+- Tiny source corpus
+- Expected source/question/claim/answer graph
+
+Acceptance criteria:
+- Every source unit has a labeled disposition
+- Expected claims preserve qualifiers and lifecycle
+- Expected duplicate and contradiction outcomes are explicit
+
+Test surfaces:
+- retrieval
+- claim
+- e2e

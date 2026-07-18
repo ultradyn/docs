@@ -1,0 +1,14 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P4.M1.E1
+locked: false
+name: WP-61 — Information architecture and canonical homes
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total: 0
+status: pending
+tasks: []

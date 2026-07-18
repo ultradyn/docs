@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-70. Expose activity, evidence, claims, coverage, assurance, and human controls accurately. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-70 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded. Ingestion-specific operations remain gated on M1-M6 domain records and read interfaces; do not fake graph/run/claim views from the existing question queue.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-70 — Live dashboard and operator workbench
+      path: 01-wp-70-live-dashboard-and-opera
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-71. Provide durable, idempotent execution for parallel paired branches and human waits. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-71 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded. Ingestion-specific operations remain gated on M1-M6 domain records and read interfaces; do not fake graph/run/claim views from the existing question queue.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-71 — Workflow orchestration, concurrency, and recovery
+      path: 02-wp-71-workflow-orchestration-c
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-72. Measure quality, operations, and economics without making cache a correctness assumption. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-72 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded. Ingestion-specific operations remain gated on M1-M6 domain records and read interfaces; do not fake graph/run/claim views from the existing question queue.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-72 — Observability, cost, and cache optimization
+      path: 03-wp-72-observability-cost-and-c
+      status: pending
+estimate_hours: 120
+id: P4.M2
+locked: false
+name: M7 — Operational product
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total_tasks: 0
+status: pending

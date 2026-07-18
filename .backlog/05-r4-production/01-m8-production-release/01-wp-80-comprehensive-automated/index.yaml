@@ -1,0 +1,14 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P5.M1.E1
+locked: false
+name: WP-80 — Comprehensive automated and adversarial test suite
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total: 0
+status: pending
+tasks: []

@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P1.M1.E3
+locked: false
+name: WP-02 — Evaluation baseline and corpus laboratory
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P1.M1.E2.T003
+      estimate_hours: 5
+      file: T001-t-02-01-build-tiny-synthetic-c.todo
+      id: T001
+      priority: high
+      status: pending
+      title: T-02-01 — Build tiny synthetic corpus and expected graph
+    - complexity: medium
+      depends_on:
+        - P1.M1.E3.T001
+      estimate_hours: 5
+      file: T002-t-02-02-define-quality-metrics.todo
+      id: T002
+      priority: high
+      status: pending
+      title: T-02-02 — Define quality metrics and labeling guide
+    - complexity: high
+      depends_on:
+        - P1.M1.E3.T002
+      estimate_hours: 8
+      file: T003-t-02-03-build-fixture-runner-a.todo
+      id: T003
+      priority: high
+      status: pending
+      title: T-02-03 — Build fixture runner and result store

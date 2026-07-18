@@ -1,0 +1,40 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M2.E3.T003
+    - P2.M2.E4.T003
+    - P2.M3.E2.T001
+    - P2.M3.E3.T003
+estimate_hours: 5
+id: P2.M3.E4.T001
+priority: critical
+status: pending
+tags:
+    - wp-60
+    - t-60-01
+    - ingest-v3
+title: T-60-01 — Implement sealed claim-pack builder
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-60 / T-60-01
+
+Assemble accepted claims, qualifiers, relationships, citations, gaps, and graph revision for one question.
+
+Deliverables:
+- Claim pack service
+- Pack hash/validity tests
+
+Acceptance criteria:
+- No proposed/stale claim enters pack
+- Required qualifier dependencies are included
+- Pack is content-addressed and reproducible
+
+Test surfaces:
+- unit
+- claim
+- recovery
+
+Repository-normalisation notes:
+- N1/N4: Depends on core Evidence Critic and accepted Claim Reviewer output, not optional ablation.
+- AnswerComposition is distinct from the existing transcript-derived Structured answer; answers/structured.md remains unchanged.

@@ -20,6 +20,8 @@ Ledgers are cross-linked by ID but never auto-generated from one another. Backlo
 
 Multi-agent execution gets atomic claims and dependency-aware scheduling without disturbing the existing ledgers' meanings. The cost is one more surface to keep honest: only R0/R1-scope atomic tasks are instantiated now, and later bundle milestones enter as dependency-gated epic stubs expanded at their milestone gates, so the backlog never advertises work that current repository reality cannot support.
 
+**Worktree constraint.** `bl` refuses mutating commands (init/add/claim/done/…) from a git worktree; backlog mutations run in the MAIN checkout only. The per-task sequence is therefore: `bl claim` in the main checkout → commit the claim → create the slice worktree from the claim tip → implement → review/merge → `bl done` in the main checkout. Read-only commands (`list`, `tree`, `check`, `show`) work anywhere.
+
 ## Implementation status
 
-`.backlog/` initialized in the automatic-ingestion S1 transaction with 5 phases (R0–R4), 9 milestones (M0–M8), 31 epics (15 populated with 46 atomic tasks; 16 dependency-gated stubs), normalization N1–N5 applied (see DESIGN.md appendix).
+`.backlog/` initialized in the automatic-ingestion S1 transaction with 5 phases (R0–R4), 9 milestones (M0–M8), 31 epics (15 populated with 47 atomic tasks incl. the N3 policy-profile contract task; 16 dependency-gated stubs), normalizations N1–N8 applied (see DESIGN.md appendix). Populated by the dual-authored, cross-reviewed script (SHA-256 `8863746b…` recorded in the S1 commit message); because of the worktree constraint above, the validated script ran in a disposable directory against the identical committed `source-bundle` (hash-pinned inputs) and its deterministic output — identical across runs except record timestamps; no machine-specific content — was committed from the S1 worktree.

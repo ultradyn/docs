@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M2.E3.T002
+estimate_hours: 5
+id: P2.M2.E3.T003
+priority: critical
+status: pending
+tags:
+    - wp-22
+    - t-22-03
+    - ingest-v3
+title: T-22-03 — Implement ClaimReview application
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-22 / T-22-03
+
+Apply split, qualifier, acceptance, rejection, authority, and extraction outcomes idempotently.
+
+Deliverables:
+- Review application service
+- Claim mutation fixtures
+
+Acceptance criteria:
+- Extractor cannot self-accept claims
+- Split claims preserve provenance
+- Rejected claims cannot enter answer/document packs
+
+Test surfaces:
+- workflow
+- claim
+- recovery

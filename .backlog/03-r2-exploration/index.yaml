@@ -1,0 +1,33 @@
+complexity: medium
+depends_on: []
+estimate_hours: 400
+id: P3
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M4 exit gate: Forward, reverse, and human exploration close under finite obligations.'
+      estimate_hours: 120
+      id: M1
+      locked: false
+      name: M4 — Grounded exploration
+      path: 01-m4-grounded-exploration
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M5 exit gate: Duplicates, authority, contradictions, and source updates are reversible and precise.'
+      estimate_hours: 120
+      id: M2
+      locked: false
+      name: M5 — Convergent maintained graph
+      path: 02-m5-convergent-maintained-graph
+      status: pending
+name: R2 Exploration
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total_tasks: 0
+status: pending
+weeks: 12

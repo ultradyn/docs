@@ -1,0 +1,33 @@
+---
+complexity: low
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P1.M1.E2.T002
+estimate_hours: 2
+id: P1.M1.E2.T003
+priority: medium
+status: pending
+tags:
+    - wp-01
+    - t-01-03
+    - ingest-v3
+title: T-01-03 — Implement bundle and link validator
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-01 / T-01-03
+
+Check internal links, source-copy hashes, diagrams, task dependencies, and forbidden artifacts.
+
+Deliverables:
+- Bundle validator
+- Validation report generator
+
+Acceptance criteria:
+- A clean bundle produces one reproducible pass report
+- Injected broken links/dependencies/binary indexes fail
+- Task dependency cycles are detected
+
+Test surfaces:
+- unit
+- schema
+- integration

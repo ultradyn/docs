@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M1.E2.T002
+estimate_hours: 5
+id: P2.M1.E2.T003
+priority: medium
+status: pending
+tags:
+    - wp-11
+    - t-11-03
+    - ingest-v3
+title: T-11-03 — Implement immutable repair path
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-11 / T-11-03
+
+Allow human-corrected representations with provenance and supersession without changing originals.
+
+Deliverables:
+- Repair workflow
+- Repair review UI contract
+
+Acceptance criteria:
+- Repair creates a new representation version
+- Original and faulty representation remain inspectable
+- Dependent source units are regenerated and invalidated correctly
+
+Test surfaces:
+- workflow
+- recovery
+- migration

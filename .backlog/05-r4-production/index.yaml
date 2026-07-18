@@ -1,0 +1,24 @@
+complexity: medium
+depends_on: []
+estimate_hours: 400
+id: P5
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle M8 exit gate: Representative pilot, adversarial, DR, deletion, and rollout gates pass.'
+      estimate_hours: 120
+      id: M1
+      locked: false
+      name: M8 — Production release
+      path: 01-m8-production-release
+      status: pending
+name: R4 Production
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total_tasks: 0
+status: pending
+weeks: 12

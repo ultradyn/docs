@@ -1,0 +1,42 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P2.M3.E2
+locked: false
+name: WP-31 — Evidence Critic agent
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P2.M2.E2.T003
+        - P1.M1.E3.T003
+      estimate_hours: 5
+      file: T001-t-31-01-implement-evidence-cri.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: T-31-01 — Implement Evidence Critic contract and prompt
+    - complexity: medium
+      depends_on:
+        - P2.M3.E2.T001
+      estimate_hours: 5
+      file: T002-t-31-02-build-evidence-critici.todo
+      id: T002
+      priority: critical
+      status: pending
+      title: T-31-02 — Build evidence-criticism fixtures
+    - complexity: medium
+      depends_on:
+        - P2.M3.E2.T002
+      estimate_hours: 5
+      file: T003-t-31-03-run-combined-versus-sp.todo
+      id: T003
+      priority: high
+      status: pending
+      title: T-31-03 — Run combined-versus-split ablation

@@ -1,0 +1,37 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M1.E3.T003
+estimate_hours: 5
+id: P2.M1.E3.T004
+priority: medium
+status: pending
+tags:
+    - wp-12
+    - t-12-04
+    - ingest-v3
+    - optional
+title: T-12-04 — Benchmark optional semantic retrieval
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-12 / T-12-04
+
+Compare lexical-only and dense/hybrid candidates on representative replay fixtures.
+
+Deliverables:
+- Benchmark report
+- Enable/disable decision
+
+Acceptance criteria:
+- Quality, cost, and latency are reported together
+- Vectors remain disabled unless material improvement is demonstrated
+- Disabling vectors requires no source/data migration
+
+Test surfaces:
+- retrieval
+- performance
+- cost
+
+Repository-normalisation notes:
+- N5: Optional measured experiment; no core or release-gating task may depend on it.

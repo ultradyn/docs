@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M3.E3.T001
+estimate_hours: 5
+id: P2.M3.E3.T002
+priority: critical
+status: pending
+tags:
+    - wp-32
+    - t-32-02
+    - ingest-v3
+title: T-32-02 — Implement Claim Reviewer agent
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-32 / T-32-02
+
+Verify entailment, atomicity, scope, qualifiers, authority eligibility, and split/merge candidates.
+
+Deliverables:
+- Claim Reviewer
+- Review fixtures
+
+Acceptance criteria:
+- Unsupported generalization is rejected
+- Overbroad claims are split without provenance loss
+- Review runs in fresh context
+
+Test surfaces:
+- agent_fixture
+- claim
+- security

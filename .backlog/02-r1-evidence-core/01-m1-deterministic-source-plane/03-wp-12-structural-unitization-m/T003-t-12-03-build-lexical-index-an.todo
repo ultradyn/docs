@@ -1,0 +1,35 @@
+---
+complexity: high
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M1.E3.T002
+estimate_hours: 8
+id: P2.M1.E3.T003
+priority: high
+status: pending
+tags:
+    - wp-12
+    - t-12-03
+    - ingest-v3
+title: T-12-03 — Build lexical index and search receipts
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-12 / T-12-03
+
+Index structural fields, apply scope/status filters, and emit engine-neutral search receipts.
+
+Deliverables:
+- Lexical index adapter
+- Retrieval API
+- Search receipt records
+
+Acceptance criteria:
+- Expected units are retrieved in tiny/small fixtures
+- Index outage is distinguishable from no evidence
+- A deleted index rebuilds without knowledge loss
+
+Test surfaces:
+- retrieval
+- integration
+- performance
+- recovery

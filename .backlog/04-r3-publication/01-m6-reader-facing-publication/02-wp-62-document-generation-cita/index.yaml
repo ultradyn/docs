@@ -1,0 +1,14 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P4.M1.E2
+locked: false
+name: WP-62 — Document generation, citation, and navigation review
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total: 0
+status: pending
+tasks: []

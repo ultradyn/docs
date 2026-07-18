@@ -1,0 +1,50 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P1.M1.E2
+locked: false
+name: WP-01 — Schema, contract, and validation toolchain
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P1.M1.E1.T003
+      estimate_hours: 5
+      file: T001-t-01-01-implement-schema-regis.todo
+      id: T001
+      priority: high
+      status: pending
+      title: T-01-01 — Implement schema registry
+    - complexity: medium
+      depends_on:
+        - P1.M1.E2.T001
+      estimate_hours: 5
+      file: T002-t-01-02-implement-agent-and-wo.todo
+      id: T002
+      priority: high
+      status: pending
+      title: T-01-02 — Implement agent and workflow manifest validation
+    - complexity: low
+      depends_on:
+        - P1.M1.E2.T002
+      estimate_hours: 2
+      file: T003-t-01-03-implement-bundle-and-l.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: T-01-03 — Implement bundle and link validator
+    - complexity: low
+      depends_on:
+        - P1.M1.E2.T003
+      estimate_hours: 2
+      file: T004-t-01-04-define-minimal-ingesti.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: T-01-04 — Define minimal ingestion policy-profile contract

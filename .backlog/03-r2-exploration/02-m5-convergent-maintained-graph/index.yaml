@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-50. Detect and safely reconcile duplicate/equivalent work without deleting provenance. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-50 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-50 — Question and claim convergence
+      path: 01-wp-50-question-and-claim-conve
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-51. Keep current, historical, scoped, and conflicting claims honest. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-51 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-51 — Authority, lifecycle, and contradiction resolution
+      path: 02-wp-51-authority-lifecycle-and
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-52. Update a seeded knowledge base from replacement source snapshots without rebuilding all logical work blindly. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-52 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-52 — Incremental re-ingestion and invalidation
+      path: 03-wp-52-incremental-re-ingestion
+      status: pending
+estimate_hours: 120
+id: P3.M2
+locked: false
+name: M5 — Convergent maintained graph
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total_tasks: 0
+status: pending

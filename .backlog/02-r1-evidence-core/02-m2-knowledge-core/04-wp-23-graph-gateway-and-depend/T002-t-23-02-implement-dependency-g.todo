@@ -1,0 +1,33 @@
+---
+complexity: high
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M2.E4.T001
+estimate_hours: 8
+id: P2.M2.E4.T002
+priority: high
+status: pending
+tags:
+    - wp-23
+    - t-23-02
+    - ingest-v3
+title: T-23-02 — Implement dependency graph and SCC analysis
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-23 / T-23-02
+
+Track source→evidence→claim→answer/document dependencies and strongly connected components.
+
+Deliverables:
+- Dependency service
+- SCC fixtures
+
+Acceptance criteria:
+- Cycles are condensed deterministically
+- Every downstream artifact reports dependency IDs
+- Missing dependencies block readiness
+
+Test surfaces:
+- unit
+- claim
+- workflow

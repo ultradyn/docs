@@ -1,0 +1,50 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-20. Implement questions as demand/navigation records and obligations as finite work ownership. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-20 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-20 — Question and coverage-obligation model
+      path: 01-wp-20-question-and-coverage-ob
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-21. Implement immutable evidence/search artifacts and bounded evidence-refinement state. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-21 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-21 — Evidence packet and verdict model
+      path: 02-wp-21-evidence-packet-and-verd
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-22. Implement reusable claims between evidence and answers/documents. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-22 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-22 — Claim registry and independent review
+      path: 03-wp-22-claim-registry-and-indep
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-23. Provide serialized logical mutations, dependency graphs, and invalidation primitives. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-23 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
+      estimate_hours: 40
+      id: E4
+      locked: false
+      name: WP-23 — Graph gateway and dependency validity
+      path: 04-wp-23-graph-gateway-and-depend
+      status: pending
+estimate_hours: 120
+id: P2.M2
+locked: false
+name: M2 — Knowledge core
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 12
+    total_tasks: 12
+status: pending

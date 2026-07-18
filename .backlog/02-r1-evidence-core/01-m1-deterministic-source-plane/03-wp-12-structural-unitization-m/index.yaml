@@ -1,0 +1,50 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P2.M1.E3
+locked: false
+name: WP-12 — Structural unitization, maps, and lexical retrieval
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 4
+    total: 4
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P2.M1.E2.T002
+      estimate_hours: 8
+      file: T001-t-12-01-implement-structural-s.todo
+      id: T001
+      priority: high
+      status: pending
+      title: T-12-01 — Implement structural source-unit parser
+    - complexity: medium
+      depends_on:
+        - P2.M1.E3.T001
+      estimate_hours: 5
+      file: T002-t-12-02-build-exact-maps-and-a.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: T-12-02 — Build exact maps and aliases
+    - complexity: high
+      depends_on:
+        - P2.M1.E3.T002
+      estimate_hours: 8
+      file: T003-t-12-03-build-lexical-index-an.todo
+      id: T003
+      priority: high
+      status: pending
+      title: T-12-03 — Build lexical index and search receipts
+    - complexity: medium
+      depends_on:
+        - P2.M1.E3.T003
+      estimate_hours: 5
+      file: T004-t-12-04-benchmark-optional-sem.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: T-12-04 — Benchmark optional semantic retrieval

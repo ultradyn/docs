@@ -4,7 +4,7 @@ Scope: bundle milestones M0–M3 (backlog phases P1–P2; 47 atomic tasks). Writ
 
 ## Ground rules (apply to every task)
 
-- Worktree per slice under `.worktrees/`; `bl claim` → commit claim → worktree from the claim tip → implement → parent review → merge → `bl done`.
+- Worktree per slice under `.worktrees/`; `bl claim` **in the main checkout** (bl refuses mutations from worktrees) → commit claim → worktree from the claim tip → implement → parent review → merge → `bl done` in the main checkout.
 - TDD at pre-agreed seams only. New seams MUST be proposed in `docs/engineering/tdd-seams.md` in the same change that first tests them; never mock internal modules.
 - `pnpm check` green before any merge. Limit builds/tests to 2 threads.
 - Deterministic services own IDs/writes/state; agents only propose (ADR 0001/0005). Nothing under `docs/specs/automatic-ingestion-v3/source-bundle/` is imported at runtime (N8).

@@ -1,0 +1,32 @@
+---
+complexity: low
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P1.M1.E1.T002
+estimate_hours: 2
+id: P1.M1.E1.T003
+priority: medium
+status: pending
+tags:
+    - wp-00
+    - t-00-03
+    - ingest-v3
+title: T-00-03 — Create decision-change workflow
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-00 / T-00-03
+
+Define how architecture, schema, workflow, agent, and policy changes are proposed and reviewed.
+
+Deliverables:
+- Change workflow
+- Risk classification rules
+
+Acceptance criteria:
+- High-impact evaluator/model changes require appropriate review
+- Every decision change records version and migration impact
+- Fixtures are required for agent contract changes
+
+Test surfaces:
+- workflow
+- contract

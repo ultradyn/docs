@@ -1,0 +1,38 @@
+---
+complexity: high
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P1.M1.E2.T003
+    - P1.M1.E3.T003
+    - P1.M1.E2.T004
+estimate_hours: 8
+id: P2.M1.E1.T001
+priority: critical
+status: pending
+tags:
+    - wp-10
+    - t-10-01
+    - ingest-v3
+title: T-10-01 — Implement package preflight
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-10 / T-10-01
+
+Validate archive paths, file counts/sizes, media types, include/exclude rules, and policy prerequisites.
+
+Deliverables:
+- Preflight service
+- Adversarial archive fixtures
+
+Acceptance criteria:
+- Traversal/symlink/decompression-bomb fixtures fail before extraction
+- All included/excluded paths appear in the manifest
+- Unclassified/prohibited content cannot proceed
+
+Test surfaces:
+- unit
+- security
+- privacy
+
+Repository-normalisation notes:
+- N3: Depends on the synthetic minimal policy-profile contract T-01-04.

@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:11Z"
+depends_on:
+    - P2.M3.E4.T002
+estimate_hours: 5
+id: P2.M3.E4.T003
+priority: critical
+status: pending
+tags:
+    - wp-60
+    - t-60-03
+    - ingest-v3
+title: T-60-03 — Implement answer citation/validity review
+updated_at: "2026-07-18T08:10:11Z"
+---
+Bundle provenance: WP-60 / T-60-03
+
+Verify sentence support, scope, graph revision, and dependency hashes.
+
+Deliverables:
+- Answer review service
+- Invalidation fixtures
+
+Acceptance criteria:
+- Unsupported synthesis blocks promotable state
+- Stale graph revision blocks publication
+- Source/claim mutation invalidates answer
+
+Test surfaces:
+- claim
+- workflow
+- recovery

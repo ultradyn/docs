@@ -1,0 +1,36 @@
+---
+complexity: high
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M1.E2.T002
+estimate_hours: 8
+id: P2.M1.E3.T001
+priority: high
+status: pending
+tags:
+    - wp-12
+    - t-12-01
+    - ingest-v3
+title: T-12-01 — Implement structural source-unit parser
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-12 / T-12-01
+
+Create document/section/paragraph/list/table/code units with parent and heading relationships.
+
+Deliverables:
+- Unitizer
+- Unit identity fixtures
+
+Acceptance criteria:
+- Units remain stable under unrelated edits where possible
+- All units retain original and normalized locators
+- No selected text is silently dropped
+
+Test surfaces:
+- unit
+- integration
+- retrieval
+
+Repository-normalisation notes:
+- N4: Depends on representation audit T-11-02, not repair completion T-11-03.

@@ -1,0 +1,41 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-80. Integrate deterministic, agent, workflow, security, migration, and end-to-end tests in CI. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-80 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded. Ingestion-specific operations remain gated on M1-M6 domain records and read interfaces; do not fake graph/run/claim views from the existing question queue. Any source-custody deletion work first requires an ADR distinguishing authorised source purge from append-only portable audit history.'
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: WP-80 — Comprehensive automated and adversarial test suite
+      path: 01-wp-80-comprehensive-automated
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-81. Validate the two v3 changes and optional retrieval choices on realistic projects. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-81 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded. Ingestion-specific operations remain gated on M1-M6 domain records and read interfaces; do not fake graph/run/claim views from the existing question queue.'
+      estimate_hours: 40
+      id: E2
+      locked: false
+      name: WP-81 — Pilot corpora and architecture ablations
+      path: 02-wp-81-pilot-corpora-and-archit
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'Bundle provenance: WP-82. Turn pilot evidence into a supportable production service and operating model. Deferred epic stub; expand into repository-native atomic tasks only after all predecessor milestone interfaces and fixtures exist. Exit gate: All WP-82 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded. Ingestion-specific operations remain gated on M1-M6 domain records and read interfaces; do not fake graph/run/claim views from the existing question queue. Any source-custody deletion work first requires an ADR distinguishing authorised source purge from append-only portable audit history.'
+      estimate_hours: 40
+      id: E3
+      locked: false
+      name: WP-82 — Production readiness and staged rollout
+      path: 03-wp-82-production-readiness-and
+      status: pending
+estimate_hours: 120
+id: P5.M1
+locked: false
+name: M8 — Production release
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 0
+    total_tasks: 0
+status: pending

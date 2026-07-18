@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-18T08:10:10Z"
+depends_on:
+    - P2.M2.E1.T001
+estimate_hours: 5
+id: P2.M2.E1.T002
+priority: high
+status: pending
+tags:
+    - wp-20
+    - t-20-02
+    - ingest-v3
+title: T-20-02 — Implement CoverageObligation ledger
+updated_at: "2026-07-18T08:10:10Z"
+---
+Bundle provenance: WP-20 / T-20-02
+
+Create, assign, transfer, satisfy, block, and revoke finite obligations.
+
+Deliverables:
+- Obligation service
+- Ownership invariants
+
+Acceptance criteria:
+- An automatic branch cannot exist without an owned open obligation
+- One obligation has one canonical owner at a time
+- Budget pause does not satisfy obligations
+
+Test surfaces:
+- unit
+- workflow
+- recovery

@@ -1,0 +1,81 @@
+critical_path:
+    - P1.M1.E1.T001
+    - P1.M1.E1.T002
+    - P1.M1.E1.T003
+    - P1.M1.E2.T001
+    - P1.M1.E2.T002
+    - P1.M1.E2.T003
+    - P1.M1.E3.T001
+    - P1.M1.E3.T002
+    - P1.M1.E3.T003
+    - P2.M1.E1.T001
+    - P2.M1.E1.T002
+    - P2.M1.E1.T003
+    - P2.M1.E2.T001
+    - P2.M1.E2.T002
+    - P2.M1.E3.T001
+    - P2.M1.E3.T002
+    - P2.M1.E3.T003
+    - P2.M1.E4.T002
+    - P2.M1.E4.T003
+description: Question-driven, Git-portable documentation with automatic evidence-grounded ingestion
+next_available: P1.M1.E1.T001
+phases:
+    - depends_on: []
+      description: Contracts, fixtures, and a measured evaluation laboratory.
+      estimate_hours: 400
+      id: P1
+      locked: false
+      name: R0 Lab
+      path: 01-r0-lab
+      priority: high
+      status: pending
+      weeks: 12
+    - depends_on: []
+      description: Deterministic source, evidence, claim, and answer-composition core.
+      estimate_hours: 400
+      id: P2
+      locked: false
+      name: R1 Evidence core
+      path: 02-r1-evidence-core
+      priority: critical
+      status: pending
+      weeks: 12
+    - depends_on: []
+      description: Dependency-gated grounded exploration and convergence.
+      estimate_hours: 400
+      id: P3
+      locked: false
+      name: R2 Exploration
+      path: 03-r2-exploration
+      priority: high
+      status: pending
+      weeks: 12
+    - depends_on: []
+      description: Dependency-gated reader-facing publication and operations.
+      estimate_hours: 400
+      id: P4
+      locked: false
+      name: R3 Publication
+      path: 04-r3-publication
+      priority: high
+      status: pending
+      weeks: 12
+    - depends_on: []
+      description: Dependency-gated adversarial validation and staged rollout.
+      estimate_hours: 400
+      id: P5
+      locked: false
+      name: R4 Production
+      path: 05-r4-production
+      priority: high
+      status: pending
+      weeks: 12
+project: ultradyn-docs
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 47
+    total_tasks: 47
+timeline_weeks: 52

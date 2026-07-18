@@ -1,0 +1,43 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P2.M1.E1
+locked: false
+name: WP-10 — Source intake and replay custody
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
+status: pending
+tasks:
+    - complexity: high
+      depends_on:
+        - P1.M1.E2.T003
+        - P1.M1.E3.T003
+        - P1.M1.E2.T004
+      estimate_hours: 8
+      file: T001-t-10-01-implement-package-pref.todo
+      id: T001
+      priority: critical
+      status: pending
+      title: T-10-01 — Implement package preflight
+    - complexity: high
+      depends_on:
+        - P2.M1.E1.T001
+      estimate_hours: 8
+      file: T002-t-10-02-create-immutable-sourc.todo
+      id: T002
+      priority: high
+      status: pending
+      title: T-10-02 — Create immutable source snapshot
+    - complexity: high
+      depends_on:
+        - P2.M1.E1.T002
+      estimate_hours: 8
+      file: T003-t-10-03-implement-replay-capsu.todo
+      id: T003
+      priority: critical
+      status: pending
+      title: T-10-03 — Implement replay capsule lifecycle
