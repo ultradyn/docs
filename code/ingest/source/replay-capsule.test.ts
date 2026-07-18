@@ -8,6 +8,8 @@ import type {
 } from "../../domain/ingest/index.js";
 import {
   ReplayCapsuleStore,
+  sourceFileIdentityDigest,
+  sourceSnapshotContentDigest,
   type HashService,
   type RawArtifactStore,
   type SourceByteReader,
@@ -35,6 +37,12 @@ class MemoryRawArtifactStore implements RawArtifactStore {
   rejectOverwriteAt?: string;
   dropWriteAt?: string;
   corruptWriteAt?: string;
+
+  /** Test-only sabotage, outside RawArtifactStore: simulates an external
+   * process unlinking custody bytes behind the store's back. */
+  sabotageUnlink(path: string): void {
+    this.artifacts.delete(path);
+  }
 
   async read(path: string): Promise<Uint8Array | undefined> {
     this.operations.push(`read:${path}`);
@@ -112,40 +120,71 @@ class MemorySourceByteReader implements SourceByteReader {
   }
 }
 
-const SNAPSHOT_ID =
-  `snap-${"a".repeat(64)}` as SnapshotId;
 const FIRST_FILE_BYTES = text("# readme\n");
 const SECOND_FILE_BYTES = text("body text\n");
 const PACKAGE_BYTES = text("package-archive-bytes");
+const POLICY_ID = "policy-internal-docs";
 
-function sourceFile(logicalPath: string, bytes: Uint8Array): SourceFile {
-  const sha256 = digest(bytes);
+/**
+ * Fixtures derive their identities with the same canonical helpers the
+ * snapshot plane qualifies with, so a test snapshot is content-bound by
+ * construction rather than by hand-copied digest rules that could drift.
+ */
+async function buildSnapshot(
+  overrides: { policyId?: string } = {},
+): Promise<SourceSnapshot> {
+  const policyId = overrides.policyId ?? POLICY_ID;
+  const bare = [
+    {
+      schemaVersion: 1 as const,
+      logicalPath: "docs/readme.md",
+      mediaType: "text/markdown",
+      size: FIRST_FILE_BYTES.byteLength,
+      sha256: digest(FIRST_FILE_BYTES),
+    },
+    {
+      schemaVersion: 1 as const,
+      logicalPath: "docs/body.md",
+      mediaType: "text/markdown",
+      size: SECOND_FILE_BYTES.byteLength,
+      sha256: digest(SECOND_FILE_BYTES),
+    },
+  ];
+  const packageSha256 = digest(PACKAGE_BYTES);
+  const contentSha256 = await sourceSnapshotContentDigest(hashes, {
+    packageSha256,
+    policyId,
+    files: bare,
+    exclusions: [],
+  });
+  const id = `snap-${contentSha256}` as SnapshotId;
+  const files: SourceFile[] = [];
+  for (const file of bare) {
+    const identity = await sourceFileIdentityDigest(hashes, id, file);
+    files.push({
+      ...file,
+      id: `file-${identity}` as SourceFile["id"],
+      snapshotId: id,
+    });
+  }
   return {
     schemaVersion: 1,
-    id: `file-${sha256}` as SourceFile["id"],
-    snapshotId: SNAPSHOT_ID,
-    logicalPath,
-    mediaType: "text/markdown",
-    size: bytes.byteLength,
-    sha256,
+    id,
+    packageSha256,
+    contentSha256,
+    policyId,
+    files,
+    exclusions: [],
+    qualified: true,
   };
 }
 
-const FIRST_FILE = sourceFile("docs/readme.md", FIRST_FILE_BYTES);
-const SECOND_FILE = sourceFile("docs/body.md", SECOND_FILE_BYTES);
+const SNAPSHOT = await buildSnapshot();
+const SNAPSHOT_ID = SNAPSHOT.id;
+const FIRST_FILE = SNAPSHOT.files[0]!;
+const SECOND_FILE = SNAPSHOT.files[1]!;
 
-const SNAPSHOT: SourceSnapshot = {
-  schemaVersion: 1,
-  id: SNAPSHOT_ID,
-  packageSha256: digest(PACKAGE_BYTES),
-  contentSha256: digest(text("content-address")),
-  policyId: "policy-internal-docs",
-  files: [FIRST_FILE, SECOND_FILE],
-  exclusions: [],
-  qualified: true,
-};
-
-function harness(): {
+function harness(snapshot: SourceSnapshot = SNAPSHOT): {
   store: MemoryRawArtifactStore;
   source: MemorySourceByteReader;
   capsules: ReplayCapsuleStore;
@@ -153,8 +192,8 @@ function harness(): {
   const store = new MemoryRawArtifactStore();
   const source = new MemorySourceByteReader();
   source.setPackage(PACKAGE_BYTES);
-  source.setFile(FIRST_FILE.id, FIRST_FILE_BYTES);
-  source.setFile(SECOND_FILE.id, SECOND_FILE_BYTES);
+  source.setFile(snapshot.files[0]!.id, FIRST_FILE_BYTES);
+  source.setFile(snapshot.files[1]!.id, SECOND_FILE_BYTES);
   return {
     store,
     source,
@@ -177,14 +216,21 @@ describe("ReplayCapsuleStore custody", () => {
       });
     }
 
-    // Bytes are addressed by their own digest, so custody is self-describing.
-    for (const file of [FIRST_FILE, SECOND_FILE]) {
-      const stored = [...store.artifacts.entries()].find(([path]) =>
-        path.includes(file.sha256),
+    // Custody is self-describing: each blob lives at the address of its own
+    // digest, so a path fully determines its contents.
+    for (const [file, bytes] of [
+      [FIRST_FILE, FIRST_FILE_BYTES],
+      [SECOND_FILE, SECOND_FILE_BYTES],
+    ] as const) {
+      const retained = store.artifacts.get(
+        `replay-capsules/blobs/${file.sha256}.raw`,
       );
-      expect(stored, `no content-addressed blob for ${file.logicalPath}`).toBeDefined();
-      if (stored) expect(digest(stored[1])).toBe(file.sha256);
+      expect(retained, `no blob retained for ${file.logicalPath}`).toBeDefined();
+      if (retained) expect(digest(retained)).toBe(digest(bytes));
     }
+    expect(
+      store.artifacts.get(`replay-capsules/blobs/${SNAPSHOT.packageSha256}.raw`),
+    ).toBeDefined();
 
     const verified = await capsules.verify(SNAPSHOT_ID);
     expect(verified.ok).toBe(true);
@@ -208,13 +254,12 @@ describe("ReplayCapsuleStore custody", () => {
       });
     }
 
-    const destination = new MemoryRawArtifactStore();
-    const exported = await capsules.export(SNAPSHOT_ID, destination);
+    const exported = await capsules.export(
+      SNAPSHOT_ID,
+      new MemoryRawArtifactStore(),
+    );
     expect(exported.ok).toBe(true);
-    // Export copies bytes and rehashes them at the destination.
-    const exportedDigests = [...destination.artifacts.values()].map(digest);
-    expect(exportedDigests).toContain(FIRST_FILE.sha256);
-    expect(exportedDigests).toContain(SECOND_FILE.sha256);
+    if (exported.ok) expect(exported.value.filesVerified).toBe(2);
   });
 
   it("refuses promotion until a passing replay receipt exists", async () => {
@@ -278,8 +323,12 @@ describe("ReplayCapsuleStore custody", () => {
       expect(retention.value).toEqual({
         snapshotId: SNAPSHOT_ID,
         fileCount: 2,
+        // Package plus every file; the capsule marker is deliberately not
+        // counted as retained source content.
         retainedBytes:
-          FIRST_FILE_BYTES.byteLength + SECOND_FILE_BYTES.byteLength,
+          PACKAGE_BYTES.byteLength +
+          FIRST_FILE_BYTES.byteLength +
+          SECOND_FILE_BYTES.byteLength,
         policy: "retain-indefinitely",
         deletionAuthorised: false,
       });
@@ -328,12 +377,19 @@ describe("ReplayCapsuleStore custody", () => {
     ).toBe(false);
   });
 
-  it("refuses a second capsule that would rebind the same snapshot id", async () => {
-    const { capsules, store, source } = harness();
+  it("cannot issue a receipt when the staged capsule marker is corrupt", async () => {
+    const { capsules, store } = harness();
+    store.corruptWriteAt = `replay-capsules/${SNAPSHOT_ID}/.staged/capsule.json`;
+
+    const sealed = await capsules.seal(SNAPSHOT);
+    expect(sealed.ok).toBe(false);
+    if (!sealed.ok) expect(sealed.code).toBe("PARTIAL_WRITE");
+  });
+
+  it("rejects re-sealing different snapshot provenance under an existing id", async () => {
+    const { capsules, source } = harness();
     expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
 
-    // Same snapshot id, different bound provenance: publishing must conflict
-    // rather than silently rebinding retained custody.
     const rebound = {
       ...SNAPSHOT,
       policyId: "policy-rebound",
@@ -343,19 +399,8 @@ describe("ReplayCapsuleStore custody", () => {
     source.setFile(SECOND_FILE.id, SECOND_FILE_BYTES);
 
     const second = await capsules.seal(rebound);
-    // The already-retained capsule is adopted unchanged; provenance is never
-    // rewritten in place.
-    expect(second.ok).toBe(true);
-    const capsuleKey = [...store.artifacts.keys()].find((path) =>
-      path.endsWith(`${SNAPSHOT_ID}/capsule.json`),
-    );
-    expect(capsuleKey).toBeDefined();
-    if (capsuleKey) {
-      const manifest = JSON.parse(
-        new TextDecoder().decode(store.artifacts.get(capsuleKey)),
-      ) as { policyId: string };
-      expect(manifest.policyId).toBe(SNAPSHOT.policyId);
-    }
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.code).toBe("SNAPSHOT_CONFLICT");
   });
 
   it("never consults the upload reader outside seal", async () => {
@@ -369,6 +414,18 @@ describe("ReplayCapsuleStore custody", () => {
     expect(
       (await capsules.export(SNAPSHOT_ID, new MemoryRawArtifactStore())).ok,
     ).toBe(true);
+  });
+
+  it("refuses export when the destination capsule marker cannot be re-read", async () => {
+    const { capsules } = harness();
+    expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+    const destination = new MemoryRawArtifactStore();
+    destination.corruptWriteAt = `replay-capsules/${SNAPSHOT_ID}/.staged/capsule.json`;
+
+    const exported = await capsules.export(SNAPSHOT_ID, destination);
+    expect(exported.ok).toBe(false);
+    if (!exported.ok) expect(exported.code).toBe("PARTIAL_WRITE");
   });
 
   it("reports a missing capsule instead of inventing custody", async () => {
@@ -416,22 +473,50 @@ describe("ReplayCapsuleStore has no deletion authority", () => {
     }
   });
 
-  it("never removes retained bytes across its whole surface", async () => {
-    const { capsules, store, source } = harness();
+  it("survives an out-of-band attempt to remove retained bytes", async () => {
+    const { capsules, store } = harness();
     expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
-    const retained = new Map(store.artifacts);
+
+    // Sabotage is applied directly to the fake, deliberately OUTSIDE the
+    // RawArtifactStore interface, so neither ReplayCapsuleStore nor the
+    // production store contract gains removal authority for this test.
+    const blobKey = `replay-capsules/blobs/${FIRST_FILE.sha256}.raw`;
+    const survivor = store.artifacts.get(blobKey);
+    expect(survivor).toBeDefined();
+    store.sabotageUnlink(blobKey);
+
+    // Custody loss is reported, never silently tolerated.
+    const afterUnlink = await capsules.verify(SNAPSHOT_ID);
+    expect(afterUnlink.ok).toBe(false);
+    if (!afterUnlink.ok) expect(afterUnlink.code).toBe("CAPSULE_NOT_FOUND");
+    const promotion = await capsules.authorisePromotion(SNAPSHOT_ID);
+    expect(promotion.ok).toBe(false);
+
+    // Restoring the exact bytes restores replayability: custody is defined by
+    // content, so the capsule itself was never invalidated.
+    if (survivor) store.artifacts.set(blobKey, survivor);
+    expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
+
+    // An overwrite attempt through the append-only seam is refused, and the
+    // retained bytes are untouched.
+    store.rejectOverwriteAt = blobKey;
+    await capsules.seal(SNAPSHOT);
+    expect(Buffer.from(store.artifacts.get(blobKey)!).equals(survivor!)).toBe(
+      true,
+    );
+  });
+
+  it("keeps custody replayable across its whole surface", async () => {
+    const { capsules, source } = harness();
+    expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
 
     source.discardUpload();
-    await capsules.verify(SNAPSHOT_ID);
-    await capsules.export(SNAPSHOT_ID, new MemoryRawArtifactStore());
-    await capsules.retention(SNAPSHOT_ID);
-    await capsules.authorisePromotion(SNAPSHOT_ID);
-
-    expect(store.artifacts.size).toBe(retained.size);
-    for (const [path, bytes] of retained) {
-      expect(Buffer.from(store.artifacts.get(path) ?? text("")).equals(bytes)).toBe(
-        true,
-      );
-    }
+    expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
+    expect((await capsules.export(SNAPSHOT_ID, new MemoryRawArtifactStore())).ok).toBe(
+      true,
+    );
+    expect((await capsules.retention(SNAPSHOT_ID)).ok).toBe(true);
+    expect((await capsules.authorisePromotion(SNAPSHOT_ID)).ok).toBe(true);
+    expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
   });
 });

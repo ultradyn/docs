@@ -116,6 +116,70 @@ function serialize(value: unknown): Uint8Array {
   return encoder.encode(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+/**
+ * The canonical content-address rules for source snapshots. These are exported
+ * so that every custody surface (snapshot qualification and replay capsules
+ * alike) derives identity from one definition; a second copy of these rules
+ * could drift and let a capsule vouch for a snapshot the snapshot plane would
+ * reject.
+ */
+export interface SourceSnapshotContentInput {
+  packageSha256: Sha256;
+  policyId: string;
+  files: readonly {
+    logicalPath: string;
+    mediaType: string;
+    size: number;
+    sha256: Sha256;
+  }[];
+  exclusions: readonly SourceExclusion[];
+}
+
+export function sourceSnapshotContentDigest(
+  hashes: HashService,
+  value: SourceSnapshotContentInput,
+): Promise<Sha256> {
+  return hashes.sha256(
+    serialize({
+      schemaVersion: 1,
+      packageSha256: value.packageSha256,
+      policyId: value.policyId,
+      files: value.files.map(({ logicalPath, mediaType, size, sha256 }) => ({
+        schemaVersion: 1,
+        logicalPath,
+        mediaType,
+        size,
+        sha256,
+      })),
+      exclusions: value.exclusions,
+      qualified: true,
+    }),
+  );
+}
+
+export function sourceFileIdentityDigest(
+  hashes: HashService,
+  snapshotId: SnapshotId,
+  file: {
+    schemaVersion: 1;
+    logicalPath: string;
+    mediaType: string;
+    size: number;
+    sha256: Sha256;
+  },
+): Promise<Sha256> {
+  return hashes.sha256(
+    serialize({
+      schemaVersion: file.schemaVersion,
+      snapshotId,
+      logicalPath: file.logicalPath,
+      mediaType: file.mediaType,
+      size: file.size,
+      sha256: file.sha256,
+    }),
+  );
+}
+
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return Buffer.from(left).equals(right);
 }
@@ -525,33 +589,8 @@ export class SourceSnapshotService {
     return value;
   }
 
-  async #contentDigest(value: {
-    packageSha256: Sha256;
-    policyId: string;
-    files: readonly {
-      logicalPath: string;
-      mediaType: string;
-      size: number;
-      sha256: Sha256;
-    }[];
-    exclusions: readonly SourceExclusion[];
-  }): Promise<Sha256> {
-    return this.#hashes.sha256(
-      serialize({
-        schemaVersion: 1,
-        packageSha256: value.packageSha256,
-        policyId: value.policyId,
-        files: value.files.map(({ logicalPath, mediaType, size, sha256 }) => ({
-          schemaVersion: 1,
-          logicalPath,
-          mediaType,
-          size,
-          sha256,
-        })),
-        exclusions: value.exclusions,
-        qualified: true,
-      }),
-    );
+  #contentDigest(value: SourceSnapshotContentInput): Promise<Sha256> {
+    return sourceSnapshotContentDigest(this.#hashes, value);
   }
 
   #intentMatchesInput(

@@ -7,6 +7,8 @@ import {
   type Sha256,
 } from "../../domain/ingest/index.js";
 import {
+  sourceFileIdentityDigest,
+  sourceSnapshotContentDigest,
   SourceSnapshotService,
   type HashService,
   type RawArtifactStore,
@@ -160,6 +162,35 @@ function input() {
 }
 
 describe("SourceSnapshotService", () => {
+  it("pins the extracted canonical helpers to service-produced identity", async () => {
+    // Extraction-only guard: the exported helpers must reproduce, exactly, the
+    // identity that SourceSnapshotService assigns to a qualified snapshot. If
+    // the helpers and the qualification path ever drift, a replay capsule
+    // could vouch for a snapshot the snapshot plane would reject.
+    const store = new MemoryRawArtifactStore();
+    const service = new SourceSnapshotService({ store, hashes, ids: ids() });
+
+    const created = await service.create(input());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const snapshot = created.value;
+
+    const contentSha256 = await sourceSnapshotContentDigest(hashes, {
+      packageSha256: snapshot.packageSha256,
+      policyId: snapshot.policyId,
+      files: snapshot.files,
+      exclusions: snapshot.exclusions,
+    });
+    expect(contentSha256).toBe(snapshot.contentSha256);
+    expect(`snap-${contentSha256}`).toBe(snapshot.id);
+
+    for (const file of snapshot.files) {
+      const identity = await sourceFileIdentityDigest(hashes, snapshot.id, file);
+      expect(`file-${identity}`).toBe(file.id);
+      expect(file.snapshotId).toBe(snapshot.id);
+    }
+  });
+
   it("returns the same qualified snapshot for the same package and policy", async () => {
     const store = new MemoryRawArtifactStore();
     const service = new SourceSnapshotService({ store, hashes, ids: ids() });
