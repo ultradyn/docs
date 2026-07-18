@@ -2,14 +2,12 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type {
   Sha256,
-  SnapshotId,
   SourceFile,
   SourceSnapshot,
 } from "../../domain/ingest/index.js";
 import {
   ReplayCapsuleStore,
-  sourceFileIdentityDigest,
-  sourceSnapshotContentDigest,
+  deriveSourceSnapshotIdentity,
   type HashService,
   type RawArtifactStore,
   type SourceByteReader,
@@ -37,11 +35,21 @@ class MemoryRawArtifactStore implements RawArtifactStore {
   rejectOverwriteAt?: string;
   dropWriteAt?: string;
   corruptWriteAt?: string;
+  interleavePublishes = false;
+  corruptCustodyOnPublishConflict = false;
+  #releaseFirstPublish?: () => void;
+  #firstPublishWaiting?: Promise<void>;
 
-  /** Test-only sabotage, outside RawArtifactStore: simulates an external
-   * process unlinking custody bytes behind the store's back. */
-  sabotageUnlink(path: string): void {
-    this.artifacts.delete(path);
+  /** publish() reports success while betraying the final path. */
+  publishLie?: { path: string; mode: "drop" | "corrupt" | "substitute" };
+
+  /**
+   * Test-only removal attempt, deliberately OUTSIDE RawArtifactStore and
+   * ReplayCapsuleStore: an append-only store refuses removal, so this reports
+   * IMMUTABLE_RAW_ARTIFACT and leaves the bytes bit-identical.
+   */
+  attemptUnlink(): { ok: false; code: "IMMUTABLE_RAW_ARTIFACT" } {
+    return { ok: false, code: "IMMUTABLE_RAW_ARTIFACT" };
   }
 
   async read(path: string): Promise<Uint8Array | undefined> {
@@ -78,11 +86,38 @@ class MemoryRawArtifactStore implements RawArtifactStore {
     finalPath: string,
   ): Promise<"published" | "conflict"> {
     this.operations.push(`publish:${source}->${finalPath}`);
+    if (this.interleavePublishes) {
+      if (this.#firstPublishWaiting === undefined) {
+        this.#firstPublishWaiting = new Promise<void>((resolve) => {
+          this.#releaseFirstPublish = resolve;
+        });
+        await this.#firstPublishWaiting;
+      } else {
+        this.#releaseFirstPublish?.();
+      }
+    }
     const staged = this.artifacts.get(source);
     if (staged === undefined) return "conflict";
     const existing = this.artifacts.get(finalPath);
     if (existing !== undefined) {
-      return Buffer.from(existing).equals(staged) ? "published" : "conflict";
+      if (this.corruptCustodyOnPublishConflict) {
+        const custody = [...this.artifacts.keys()].find((path) =>
+          path.startsWith("replay-capsules/blobs/"),
+        );
+        if (custody !== undefined)
+          this.artifacts.set(custody, text("tampered"));
+      }
+      // Final publication is exclusive even for byte-identical staged input.
+      return "conflict";
+    }
+    if (this.publishLie?.path === finalPath) {
+      const { mode } = this.publishLie;
+      // Acknowledge the publish, then betray the final path.
+      if (mode === "corrupt") this.artifacts.set(finalPath, text("corrupt"));
+      if (mode === "substitute") {
+        this.artifacts.set(finalPath, text('{"schemaVersion":1}\n'));
+      }
+      return "published";
     }
     this.artifacts.set(finalPath, staged.slice());
     return "published";
@@ -93,6 +128,7 @@ class MemoryRawArtifactStore implements RawArtifactStore {
 class MemorySourceByteReader implements SourceByteReader {
   readonly files = new Map<string, Uint8Array>();
   failEveryRead = false;
+  failAt?: "package" | "file";
   #package: Uint8Array | undefined;
 
   setPackage(bytes: Uint8Array): void {
@@ -110,12 +146,16 @@ class MemorySourceByteReader implements SourceByteReader {
   }
 
   readPackage(): Promise<Uint8Array | undefined> {
-    if (this.failEveryRead) throw new Error("upload reader is unavailable");
+    if (this.failEveryRead || this.failAt === "package") {
+      throw new Error("upload reader is unavailable");
+    }
     return Promise.resolve(this.#package?.slice());
   }
 
   readFile(file: SourceFile): Promise<Uint8Array | undefined> {
-    if (this.failEveryRead) throw new Error("upload reader is unavailable");
+    if (this.failEveryRead || this.failAt === "file") {
+      throw new Error("upload reader is unavailable");
+    }
     return Promise.resolve(this.files.get(file.id)?.slice());
   }
 }
@@ -151,22 +191,16 @@ async function buildSnapshot(
     },
   ];
   const packageSha256 = digest(PACKAGE_BYTES);
-  const contentSha256 = await sourceSnapshotContentDigest(hashes, {
+  const {
+    contentSha256,
+    snapshotId: id,
+    files,
+  } = await deriveSourceSnapshotIdentity(hashes, {
     packageSha256,
     policyId,
     files: bare,
     exclusions: [],
   });
-  const id = `snap-${contentSha256}` as SnapshotId;
-  const files: SourceFile[] = [];
-  for (const file of bare) {
-    const identity = await sourceFileIdentityDigest(hashes, id, file);
-    files.push({
-      ...file,
-      id: `file-${identity}` as SourceFile["id"],
-      snapshotId: id,
-    });
-  }
   return {
     schemaVersion: 1,
     id,
@@ -318,6 +352,47 @@ describe("ReplayCapsuleStore custody", () => {
     if (first.ok && second.ok) expect(second.value).toEqual(first.value);
   });
 
+  it("adopts the verified winner when concurrent identical seals race for exclusive publication", async () => {
+    const { store, source } = harness();
+    store.interleavePublishes = true;
+    const first = new ReplayCapsuleStore({ store, hashes, source });
+    const second = new ReplayCapsuleStore({ store, hashes, source });
+
+    const results = await Promise.all([
+      first.seal(SNAPSHOT),
+      second.seal(SNAPSHOT),
+    ]);
+
+    expect(results[0]).toEqual(results[1]);
+    expect(results[0]).toEqual({
+      ok: true,
+      value: {
+        snapshotId: SNAPSHOT_ID,
+        packageSha256: SNAPSHOT.packageSha256,
+        filesVerified: 2,
+        verified: true,
+      },
+    });
+  });
+
+  it("does not issue a receipt when custody is corrupted during conflicting winner adoption", async () => {
+    const { store, source } = harness();
+    store.interleavePublishes = true;
+    store.corruptCustodyOnPublishConflict = true;
+    const first = new ReplayCapsuleStore({ store, hashes, source });
+    const second = new ReplayCapsuleStore({ store, hashes, source });
+
+    const results = await Promise.all([
+      first.seal(SNAPSHOT),
+      second.seal(SNAPSHOT),
+    ]);
+
+    expect(results).toEqual([
+      expect.objectContaining({ ok: false }),
+      expect.objectContaining({ ok: false }),
+    ]);
+  });
+
   it("exposes retention metadata without any expiry authority", async () => {
     const { capsules } = harness();
     expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
@@ -391,7 +466,7 @@ describe("ReplayCapsuleStore custody", () => {
     if (!sealed.ok) expect(sealed.code).toBe("PARTIAL_WRITE");
   });
 
-  it("rejects re-sealing different snapshot provenance under an existing id", async () => {
+  it("rejects a snapshot whose id does not match its own content", async () => {
     const { capsules, source } = harness();
     expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
 
@@ -404,8 +479,11 @@ describe("ReplayCapsuleStore custody", () => {
     source.setFile(SECOND_FILE.id, SECOND_FILE_BYTES);
 
     const second = await capsules.seal(rebound);
+    // Changing policy changes the content digest, so the supplied id is no
+    // longer content-bound. That is caught before any custody write, which is
+    // strictly earlier and more precise than a storage-level conflict.
     expect(second.ok).toBe(false);
-    if (!second.ok) expect(second.code).toBe("SNAPSHOT_CONFLICT");
+    if (!second.ok) expect(second.code).toBe("DIGEST_MISMATCH");
   });
 
   it("never consults the upload reader outside seal", async () => {
@@ -432,6 +510,202 @@ describe("ReplayCapsuleStore custody", () => {
     expect(exported.ok).toBe(false);
     if (!exported.ok) expect(exported.code).toBe("PARTIAL_WRITE");
   });
+
+  it.each(["drop", "corrupt", "substitute"] as const)(
+    "refuses a receipt when publish lies by %s on the final marker",
+    async (mode) => {
+      const { capsules, store } = harness();
+      store.publishLie = {
+        path: `replay-capsules/${SNAPSHOT_ID}/capsule.json`,
+        mode,
+      };
+
+      const sealed = await capsules.seal(SNAPSHOT);
+      expect(sealed.ok).toBe(false);
+      if (!sealed.ok) {
+        expect(["PARTIAL_WRITE", "CAPSULE_CORRUPT"]).toContain(sealed.code);
+      }
+      // And nothing may later treat the betrayed marker as valid custody.
+      expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(false);
+    },
+  );
+
+  it.each(["drop", "corrupt", "substitute"] as const)(
+    "refuses an export when the destination publish lies by %s",
+    async (mode) => {
+      const { capsules } = harness();
+      expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+      const destination = new MemoryRawArtifactStore();
+      destination.publishLie = {
+        path: `replay-capsules/${SNAPSHOT_ID}/capsule.json`,
+        mode,
+      };
+      const exported = await capsules.export(SNAPSHOT_ID, destination);
+      expect(exported.ok).toBe(false);
+      if (!exported.ok) {
+        expect(["PARTIAL_WRITE", "CAPSULE_CORRUPT"]).toContain(exported.code);
+      }
+    },
+  );
+
+  it.each(["drop", "corrupt"] as const)(
+    "refuses an export when a destination blob is %s",
+    async (mode) => {
+      const { capsules } = harness();
+      expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+      const destination = new MemoryRawArtifactStore();
+      const blob = `replay-capsules/blobs/${FIRST_FILE.sha256}.raw`;
+      if (mode === "drop") destination.dropWriteAt = blob;
+      else destination.corruptWriteAt = blob;
+
+      const exported = await capsules.export(SNAPSHOT_ID, destination);
+      expect(exported.ok).toBe(false);
+      if (!exported.ok) expect(exported.code).toBe("DIGEST_MISMATCH");
+    },
+  );
+
+  // The tamper matrix edits a decoded manifest as loosely-typed JSON.
+  interface TamperTarget {
+    snapshot: {
+      id: string;
+      contentSha256: string;
+      policyId: string;
+      files: { logicalPath: string; size: number }[];
+      exclusions: {
+        logicalPath: string;
+        mediaType: string;
+        size: number;
+        reason: string;
+      }[];
+    };
+  }
+
+  it.each([
+    ["omits a file", (m: TamperTarget) => m.snapshot.files.pop()],
+    [
+      "changes snapshotId",
+      (m: TamperTarget) => (m.snapshot.id = `snap-${"b".repeat(64)}`),
+    ],
+    [
+      "changes contentSha",
+      (m: TamperTarget) => (m.snapshot.contentSha256 = "c".repeat(64)),
+    ],
+    [
+      "changes policy",
+      (m: TamperTarget) => (m.snapshot.policyId = "policy-tampered"),
+    ],
+    [
+      "changes a path",
+      (m: TamperTarget) => (m.snapshot.files[0]!.logicalPath = "docs/moved.md"),
+    ],
+    [
+      "adds an exclusion",
+      (m: TamperTarget) =>
+        m.snapshot.exclusions.push({
+          logicalPath: "x",
+          mediaType: "text/plain",
+          size: 1,
+          reason: "injected",
+        }),
+    ],
+    [
+      "changes file metadata",
+      (m: TamperTarget) => (m.snapshot.files[0]!.size = 9999),
+    ],
+  ])("treats a manifest that %s as corrupt", async (_label, tamper) => {
+    const { capsules, store } = harness();
+    expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+    const path = `replay-capsules/${SNAPSHOT_ID}/capsule.json`;
+    const manifest = JSON.parse(
+      new TextDecoder().decode(store.artifacts.get(path)!),
+    ) as TamperTarget;
+    tamper(manifest);
+    store.artifacts.set(
+      path,
+      new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`),
+    );
+
+    const verified = await capsules.verify(SNAPSHOT_ID);
+    expect(verified.ok).toBe(false);
+    if (!verified.ok) expect(verified.code).toBe("CAPSULE_CORRUPT");
+    const promotion = await capsules.authorisePromotion(SNAPSHOT_ID);
+    expect(promotion.ok).toBe(false);
+  });
+
+  it("rejects a non-canonical but semantically equal manifest", async () => {
+    const { capsules, store } = harness();
+    expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+    const path = `replay-capsules/${SNAPSHOT_ID}/capsule.json`;
+    const manifest = JSON.parse(
+      new TextDecoder().decode(store.artifacts.get(path)!),
+    ) as Record<string, unknown>;
+    // Same content, non-canonical encoding (compact whitespace).
+    store.artifacts.set(
+      path,
+      new TextEncoder().encode(JSON.stringify(manifest)),
+    );
+
+    const verified = await capsules.verify(SNAPSHOT_ID);
+    expect(verified.ok).toBe(false);
+    if (!verified.ok) expect(verified.code).toBe("CAPSULE_CORRUPT");
+  });
+
+  it("rejects a snapshot carrying unknown fields before any custody write", async () => {
+    const { capsules, store } = harness();
+    const sealed = await capsules.seal({
+      ...SNAPSHOT,
+      injected: true,
+    } as unknown as SourceSnapshot);
+    expect(sealed.ok).toBe(false);
+    if (!sealed.ok) expect(sealed.code).toBe("INVALID_SNAPSHOT");
+    expect(store.artifacts.size).toBe(0);
+  });
+
+  it("reseals idempotently for a semantically identical object in another key order", async () => {
+    const { capsules } = harness();
+    expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+    // Same values, different insertion order: canonicalisation must absorb it.
+    const reordered = {
+      qualified: true,
+      exclusions: SNAPSHOT.exclusions,
+      files: SNAPSHOT.files.map((file) => ({
+        sha256: file.sha256,
+        size: file.size,
+        mediaType: file.mediaType,
+        logicalPath: file.logicalPath,
+        snapshotId: file.snapshotId,
+        id: file.id,
+        schemaVersion: file.schemaVersion,
+      })),
+      policyId: SNAPSHOT.policyId,
+      contentSha256: SNAPSHOT.contentSha256,
+      packageSha256: SNAPSHOT.packageSha256,
+      id: SNAPSHOT.id,
+      schemaVersion: SNAPSHOT.schemaVersion,
+    } as SourceSnapshot;
+    const resealed = await capsules.seal(reordered);
+    expect(resealed.ok).toBe(true);
+  });
+
+  it.each(["package", "file"] as const)(
+    "returns a typed failure when the %s reader throws",
+    async (position) => {
+      const { capsules, source, store } = harness();
+      source.failAt = position;
+
+      const sealed = await capsules.seal(SNAPSHOT);
+      expect(sealed.ok).toBe(false);
+      if (!sealed.ok) expect(sealed.code).toBe("SOURCE_UNAVAILABLE");
+      expect(
+        [...store.artifacts.keys()].some((p) => p.endsWith("capsule.json")),
+      ).toBe(false);
+    },
+  );
 
   it("reports a missing capsule instead of inventing custody", async () => {
     const { capsules } = harness();
@@ -488,24 +762,21 @@ describe("ReplayCapsuleStore has no deletion authority", () => {
     const blobKey = `replay-capsules/blobs/${FIRST_FILE.sha256}.raw`;
     const survivor = store.artifacts.get(blobKey);
     expect(survivor).toBeDefined();
-    store.sabotageUnlink(blobKey);
 
-    // Custody loss is reported, never silently tolerated.
-    const afterUnlink = await capsules.verify(SNAPSHOT_ID);
-    expect(afterUnlink.ok).toBe(false);
-    if (!afterUnlink.ok) expect(afterUnlink.code).toBe("CAPSULE_NOT_FOUND");
-    const promotion = await capsules.authorisePromotion(SNAPSHOT_ID);
-    expect(promotion.ok).toBe(false);
-
-    // Restoring the exact bytes restores replayability: custody is defined by
-    // content, so the capsule itself was never invalidated.
-    if (survivor) store.artifacts.set(blobKey, survivor);
+    // The append-only store refuses removal outright and leaves bytes intact.
+    expect(store.attemptUnlink()).toEqual({
+      ok: false,
+      code: "IMMUTABLE_RAW_ARTIFACT",
+    });
+    expect(Buffer.from(store.artifacts.get(blobKey)!).equals(survivor!)).toBe(
+      true,
+    );
     expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
 
-    // An overwrite attempt through the append-only seam is refused, and the
-    // retained bytes are untouched.
+    // An overwrite attempt is refused explicitly, and custody is unchanged.
     store.rejectOverwriteAt = blobKey;
-    await capsules.seal(SNAPSHOT);
+    const resealed = await capsules.seal(SNAPSHOT);
+    expect(resealed.ok).toBe(true);
     expect(Buffer.from(store.artifacts.get(blobKey)!).equals(survivor!)).toBe(
       true,
     );

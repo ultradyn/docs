@@ -10,8 +10,7 @@ import type {
 } from "../../domain/ingest/index.js";
 import { SourceSnapshotSchema } from "../../domain/ingest/index.js";
 import {
-  sourceFileIdentityDigest,
-  sourceSnapshotContentDigest,
+  deriveSourceSnapshotIdentity,
   type HashService,
   type RawArtifactStore,
 } from "./snapshot-service.js";
@@ -34,6 +33,7 @@ export type ReplayCapsuleErrorCode =
   | "DIGEST_MISMATCH"
   | "PARTIAL_WRITE"
   | "SNAPSHOT_CONFLICT"
+  | "INVALID_SNAPSHOT"
   | "SOURCE_UNAVAILABLE"
   | "REPLAY_UNVERIFIED";
 
@@ -110,6 +110,46 @@ function capsuleDigests(manifest: CapsuleManifest): readonly Sha256[] {
   ];
 }
 
+/**
+ * Projects a snapshot into canonical field order. Both the digest and the
+ * stored bytes are derived from this projection, so two semantically identical
+ * caller objects with different insertion order canonicalize to the same
+ * capsule and re-seal idempotently.
+ */
+/** Canonical field order for a fully identified file. */
+function canonicalFileRecord(file: SourceFile): SourceFile {
+  return {
+    schemaVersion: 1,
+    id: file.id,
+    snapshotId: file.snapshotId,
+    logicalPath: file.logicalPath,
+    mediaType: file.mediaType,
+    size: file.size,
+    sha256: file.sha256,
+  };
+}
+
+function canonicalSnapshot(
+  snapshot: SourceSnapshot,
+  files: readonly SourceFile[],
+): SourceSnapshot {
+  return {
+    schemaVersion: 1,
+    id: snapshot.id,
+    packageSha256: snapshot.packageSha256,
+    contentSha256: snapshot.contentSha256,
+    policyId: snapshot.policyId,
+    files,
+    exclusions: snapshot.exclusions.map((exclusion) => ({
+      logicalPath: exclusion.logicalPath,
+      mediaType: exclusion.mediaType,
+      size: exclusion.size,
+      reason: exclusion.reason,
+    })),
+    qualified: true,
+  };
+}
+
 function serialize(manifest: CapsuleManifest): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
 }
@@ -136,8 +176,32 @@ export class ReplayCapsuleStore {
   }
 
   async seal(
-    snapshot: SourceSnapshot,
+    input: SourceSnapshot,
   ): Promise<IngestResult<ReplayReceipt, ReplayCapsuleErrorCode>> {
+    // Strict-parse the caller's snapshot BEFORE any custody write, so unknown
+    // or malformed fields are rejected with a typed result rather than being
+    // partially retained.
+    const parsedInput = SourceSnapshotSchema.safeParse(input);
+    if (!parsedInput.success) {
+      return failure(
+        "INVALID_SNAPSHOT",
+        `snapshot failed strict validation: ${parsedInput.error.issues
+          .map(
+            (issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`,
+          )
+          .join("; ")}`,
+      );
+    }
+
+    const identity = await this.#deriveIdentity(input);
+    if (!identity.ok) {
+      return failure(
+        "DIGEST_MISMATCH",
+        `refusing to seal a snapshot whose identity is not content-bound: ${input.id}`,
+      );
+    }
+    const snapshot = identity.value;
+
     // Re-sealing adopts retained custody only when the proposed snapshot is
     // canonically identical. Retained provenance is never rewritten, so a
     // caller whose input disagrees learns it rather than silently inheriting
@@ -150,6 +214,10 @@ export class ReplayCapsuleStore {
       // objects would be key-order sensitive and could report a spurious
       // conflict for an identical re-seal.
       const proposed = serialize({ schemaVersion: 1, snapshot });
+      // Defence in depth: content addressing means a canonical capsule bound
+      // to this id must already have this exact content, so this branch is
+      // unreachable short of a hash collision or a store that returns bytes
+      // from another key. It is retained so such a store fails loudly.
       if (!Buffer.from(retainedBytes).equals(Buffer.from(proposed))) {
         return failure(
           "SNAPSHOT_CONFLICT",
@@ -159,17 +227,17 @@ export class ReplayCapsuleStore {
       return this.#verifyManifest(existing.value);
     }
 
-    const identity = await this.#verifyIdentity(snapshot);
-    if (!identity.ok) {
-      return failure(
-        "DIGEST_MISMATCH",
-        `refusing to seal a snapshot whose identity is not content-bound: ${snapshot.id}`,
-      );
-    }
-
     // The package is re-hashed against the snapshot's own digest, so upload
     // bytes that drifted from the qualified snapshot can never enter custody.
-    const packageBytes = await this.#source.readPackage(snapshot);
+    let packageBytes: Uint8Array | undefined;
+    try {
+      packageBytes = await this.#source.readPackage(snapshot);
+    } catch (error) {
+      return failure(
+        "SOURCE_UNAVAILABLE",
+        `upload package for ${snapshot.id} could not be read: ${String(error)}`,
+      );
+    }
     if (packageBytes === undefined) {
       return failure(
         "SOURCE_UNAVAILABLE",
@@ -186,7 +254,15 @@ export class ReplayCapsuleStore {
     if (!retained.ok) return retained;
 
     for (const file of snapshot.files) {
-      const bytes = await this.#source.readFile(file);
+      let bytes: Uint8Array | undefined;
+      try {
+        bytes = await this.#source.readFile(file);
+      } catch (error) {
+        return failure(
+          "SOURCE_UNAVAILABLE",
+          `upload bytes for ${file.logicalPath} could not be read: ${String(error)}`,
+        );
+      }
       if (bytes === undefined) {
         return failure(
           "SOURCE_UNAVAILABLE",
@@ -417,10 +493,36 @@ export class ReplayCapsuleStore {
     if (!written.ok) return written;
     const outcome = await this.#store.publish(staged, capsulePath(snapshotId));
     if (outcome === "conflict") {
-      return failure(
-        "IMMUTABLE_RAW_ARTIFACT",
-        `a different replay capsule is already retained for ${snapshotId}`,
+      // Publication is exclusive: an identical contender loses the marker
+      // race too. It may adopt that winner only after the same readback,
+      // strict parsing, and exact-byte comparison used for its own publish,
+      // followed by a full custody verification.
+      const confirmed = await this.#confirmPublishedMarker(
+        snapshotId,
+        serialize(manifest),
+        this.#store,
       );
+      if (!confirmed.ok) {
+        return failure(
+          "IMMUTABLE_RAW_ARTIFACT",
+          `a different replay capsule is already retained for ${snapshotId}`,
+        );
+      }
+      const winner = await this.#readManifest(snapshotId);
+      if (!winner.ok) {
+        return failure(
+          "IMMUTABLE_RAW_ARTIFACT",
+          `a different replay capsule is already retained for ${snapshotId}`,
+        );
+      }
+      const verified = await this.#verifyManifest(winner.value);
+      if (!verified.ok) {
+        return failure(
+          "IMMUTABLE_RAW_ARTIFACT",
+          `the retained replay capsule for ${snapshotId} failed custody verification`,
+        );
+      }
+      return { ok: true, value: true };
     }
     return this.#confirmPublishedMarker(
       snapshotId,
@@ -530,53 +632,72 @@ export class ReplayCapsuleStore {
       snapshot: parsed.data.snapshot as unknown as SourceSnapshot,
     };
 
-    const bound = await this.#verifyIdentity(manifest.snapshot);
+    const bound = await this.#deriveIdentity(manifest.snapshot);
     if (!bound.ok) return bound;
-    if (manifest.snapshot.id !== snapshotId) {
+    if (bound.value.id !== snapshotId) {
       return failure(
         "CAPSULE_CORRUPT",
-        `replay capsule at ${snapshotId} is bound to ${manifest.snapshot.id}`,
+        `replay capsule at ${snapshotId} is bound to ${bound.value.id}`,
       );
     }
-    return { ok: true, value: manifest };
+
+    // Stored bytes must be exactly the canonical serialization. Reordered keys
+    // or non-canonical whitespace are treated as corruption, not accepted, so
+    // there is exactly one byte representation of any given capsule.
+    const canonical: CapsuleManifest = {
+      schemaVersion: 1,
+      snapshot: bound.value,
+    };
+    if (!Buffer.from(bytes).equals(Buffer.from(serialize(canonical)))) {
+      return failure(
+        "CAPSULE_CORRUPT",
+        `replay capsule for ${snapshotId} is not in canonical form`,
+      );
+    }
+    return { ok: true, value: canonical };
   }
 
   /**
    * Recomputes the content-derived snapshot id, content digest, and every file
    * identity using the same canonical rules the snapshot plane qualifies with.
    */
-  async #verifyIdentity(
+  /**
+   * Re-derives identity from content and returns the canonical projection of
+   * the snapshot. Callers use the returned value so that both digests and
+   * stored bytes are independent of the caller's field order.
+   */
+  async #deriveIdentity(
     snapshot: SourceSnapshot,
-  ): Promise<IngestResult<true, ReplayCapsuleErrorCode>> {
-    const contentSha256 = await sourceSnapshotContentDigest(this.#hashes, {
+  ): Promise<IngestResult<SourceSnapshot, ReplayCapsuleErrorCode>> {
+    const identity = await deriveSourceSnapshotIdentity(this.#hashes, {
       packageSha256: snapshot.packageSha256,
       policyId: snapshot.policyId,
       files: snapshot.files,
       exclusions: snapshot.exclusions,
     });
     if (
-      contentSha256 !== snapshot.contentSha256 ||
-      snapshot.id !== `snap-${contentSha256}`
+      identity.contentSha256 !== snapshot.contentSha256 ||
+      snapshot.id !== identity.snapshotId
     ) {
       return failure(
         "CAPSULE_CORRUPT",
         `snapshot content binding is invalid for ${snapshot.id}`,
       );
     }
-    for (const file of snapshot.files) {
-      const identity = await sourceFileIdentityDigest(
-        this.#hashes,
-        snapshot.id,
-        file,
+    // Every file id, path, media type, size and digest must match what the
+    // canonical derivation produces, so metadata tampering cannot survive.
+    // Compare canonical-to-canonical: the caller's field order must not
+    // decide whether identity matches.
+    if (
+      JSON.stringify(identity.files) !==
+      JSON.stringify(snapshot.files.map(canonicalFileRecord))
+    ) {
+      return failure(
+        "CAPSULE_CORRUPT",
+        `snapshot file identity binding is invalid for ${snapshot.id}`,
       );
-      if (file.snapshotId !== snapshot.id || file.id !== `file-${identity}`) {
-        return failure(
-          "CAPSULE_CORRUPT",
-          `snapshot file identity binding is invalid: ${file.logicalPath}`,
-        );
-      }
     }
-    return { ok: true, value: true };
+    return { ok: true, value: canonicalSnapshot(snapshot, identity.files) };
   }
 
   #retain(

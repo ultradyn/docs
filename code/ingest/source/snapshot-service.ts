@@ -135,49 +135,95 @@ export interface SourceSnapshotContentInput {
   exclusions: readonly SourceExclusion[];
 }
 
-export function sourceSnapshotContentDigest(
+export interface SourceSnapshotIdentity {
+  contentSha256: Sha256;
+  snapshotId: SnapshotId;
+  files: readonly SourceFile[];
+}
+
+/**
+ * Projects a file into canonical field order. Identity must never depend on
+ * the insertion order of a caller's object literal.
+ */
+function canonicalFile(file: {
+  logicalPath: string;
+  mediaType: string;
+  size: number;
+  sha256: Sha256;
+}): {
+  schemaVersion: 1;
+  logicalPath: string;
+  mediaType: string;
+  size: number;
+  sha256: Sha256;
+} {
+  return {
+    schemaVersion: 1,
+    logicalPath: file.logicalPath,
+    mediaType: file.mediaType,
+    size: file.size,
+    sha256: file.sha256,
+  };
+}
+
+/** Projects an exclusion into canonical field order, for the same reason. */
+function canonicalExclusion(exclusion: SourceExclusion): SourceExclusion {
+  return {
+    logicalPath: exclusion.logicalPath,
+    mediaType: exclusion.mediaType,
+    size: exclusion.size,
+    reason: exclusion.reason,
+  };
+}
+
+/**
+ * The single canonical identity derivation for source snapshots: content
+ * digest, content-derived snapshot id, and every content-derived file id.
+ *
+ * Both the snapshot plane (qualification) and the replay plane (custody) call
+ * this one implementation. A second copy of these rules could drift and let a
+ * capsule vouch for a snapshot the snapshot plane would reject.
+ */
+export async function deriveSourceSnapshotIdentity(
   hashes: HashService,
-  value: SourceSnapshotContentInput,
-): Promise<Sha256> {
-  return hashes.sha256(
+  input: SourceSnapshotContentInput,
+): Promise<SourceSnapshotIdentity> {
+  const files = input.files.map(canonicalFile);
+  const contentSha256 = await hashes.sha256(
     serialize({
       schemaVersion: 1,
-      packageSha256: value.packageSha256,
-      policyId: value.policyId,
-      files: value.files.map(({ logicalPath, mediaType, size, sha256 }) => ({
-        schemaVersion: 1,
-        logicalPath,
-        mediaType,
-        size,
-        sha256,
-      })),
-      exclusions: value.exclusions,
+      packageSha256: input.packageSha256,
+      policyId: input.policyId,
+      files,
+      exclusions: input.exclusions.map(canonicalExclusion),
       qualified: true,
     }),
   );
-}
+  const snapshotId = `snap-${contentSha256}` as SnapshotId;
 
-export function sourceFileIdentityDigest(
-  hashes: HashService,
-  snapshotId: SnapshotId,
-  file: {
-    schemaVersion: 1;
-    logicalPath: string;
-    mediaType: string;
-    size: number;
-    sha256: Sha256;
-  },
-): Promise<Sha256> {
-  return hashes.sha256(
-    serialize({
-      schemaVersion: file.schemaVersion,
+  const identified: SourceFile[] = [];
+  for (const file of files) {
+    const identity = await hashes.sha256(
+      serialize({
+        schemaVersion: file.schemaVersion,
+        snapshotId,
+        logicalPath: file.logicalPath,
+        mediaType: file.mediaType,
+        size: file.size,
+        sha256: file.sha256,
+      }),
+    );
+    identified.push({
+      schemaVersion: 1,
+      id: `file-${identity}` as SourceFileId,
       snapshotId,
       logicalPath: file.logicalPath,
       mediaType: file.mediaType,
       size: file.size,
       sha256: file.sha256,
-    }),
-  );
+    });
+  }
+  return { contentSha256, snapshotId, files: identified };
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -293,36 +339,13 @@ export class SourceSnapshotService {
             size,
             reason,
           }));
-        const contentSha256 = await this.#contentDigest({
-          packageSha256: packageDigest,
-          policyId: input.policyId,
-          files: verifiedFiles,
-          exclusions,
-        });
-        const snapshotId = `snap-${contentSha256}` as SnapshotId;
-        const files: SourceFile[] = [];
-        for (const file of verifiedFiles) {
-          const identity = {
-            schemaVersion: 1 as const,
-            snapshotId,
-            logicalPath: file.logicalPath,
-            mediaType: file.mediaType,
-            size: file.size,
-            sha256: file.sha256,
-          };
-          const fileIdentitySha256 = await this.#hashes.sha256(
-            serialize(identity),
-          );
-          files.push({
-            schemaVersion: identity.schemaVersion,
-            id: `file-${fileIdentitySha256}` as SourceFileId,
-            snapshotId: identity.snapshotId,
-            logicalPath: identity.logicalPath,
-            mediaType: identity.mediaType,
-            size: identity.size,
-            sha256: identity.sha256,
+        const { contentSha256, snapshotId, files } =
+          await deriveSourceSnapshotIdentity(this.#hashes, {
+            packageSha256: packageDigest,
+            policyId: input.policyId,
+            files: verifiedFiles,
+            exclusions,
           });
-        }
         const proposed: SnapshotIntent = {
           schemaVersion: 1,
           idempotencyKey,
@@ -488,37 +511,22 @@ export class SourceSnapshotService {
     ) {
       throw new Error(`source snapshot manifest is modified or unbound: ${id}`);
     }
-    const contentSha256 = await this.#contentDigest({
+    const identity = await deriveSourceSnapshotIdentity(this.#hashes, {
       packageSha256: snapshot.packageSha256,
       policyId: snapshot.policyId,
       files: snapshot.files,
       exclusions: snapshot.exclusions,
     });
     if (
-      contentSha256 !== snapshot.contentSha256 ||
-      snapshot.id !== `snap-${contentSha256}`
+      identity.contentSha256 !== snapshot.contentSha256 ||
+      snapshot.id !== identity.snapshotId
     ) {
       throw new Error(`source snapshot content binding is invalid: ${id}`);
     }
-    for (const file of snapshot.files) {
-      const fileIdentitySha256 = await this.#hashes.sha256(
-        serialize({
-          schemaVersion: file.schemaVersion,
-          snapshotId: snapshot.id,
-          logicalPath: file.logicalPath,
-          mediaType: file.mediaType,
-          size: file.size,
-          sha256: file.sha256,
-        }),
+    if (!sameJson(identity.files, snapshot.files)) {
+      throw new Error(
+        `source snapshot file identity binding is invalid: ${id}`,
       );
-      if (
-        file.snapshotId !== snapshot.id ||
-        file.id !== `file-${fileIdentitySha256}`
-      ) {
-        throw new Error(
-          `source snapshot file identity binding is invalid: ${file.logicalPath}`,
-        );
-      }
     }
 
     const packageBytes = await this.#store.read(packagePath(idempotencyKey));
@@ -572,25 +580,21 @@ export class SourceSnapshotService {
       throw new SnapshotConflictError("snapshot transaction intent is invalid");
     }
     const value = parsed.data as unknown as SnapshotIntent;
-    const contentSha256 = await this.#contentDigest({
+    const identity = await deriveSourceSnapshotIdentity(this.#hashes, {
       packageSha256: value.packageSha256,
       policyId: value.policyId,
       files: value.files,
       exclusions: value.exclusions,
     });
     if (
-      contentSha256 !== value.contentSha256 ||
-      value.snapshotId !== `snap-${contentSha256}`
+      identity.contentSha256 !== value.contentSha256 ||
+      value.snapshotId !== identity.snapshotId
     ) {
       throw new SnapshotConflictError(
         "snapshot transaction intent has an invalid content binding",
       );
     }
     return value;
-  }
-
-  #contentDigest(value: SourceSnapshotContentInput): Promise<Sha256> {
-    return sourceSnapshotContentDigest(this.#hashes, value);
   }
 
   #intentMatchesInput(

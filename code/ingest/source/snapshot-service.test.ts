@@ -7,8 +7,7 @@ import {
   type Sha256,
 } from "../../domain/ingest/index.js";
 import {
-  sourceFileIdentityDigest,
-  sourceSnapshotContentDigest,
+  deriveSourceSnapshotIdentity,
   SourceSnapshotService,
   type HashService,
   type RawArtifactStore,
@@ -175,22 +174,17 @@ describe("SourceSnapshotService", () => {
     if (!created.ok) return;
     const snapshot = created.value;
 
-    const contentSha256 = await sourceSnapshotContentDigest(hashes, {
+    const identity = await deriveSourceSnapshotIdentity(hashes, {
       packageSha256: snapshot.packageSha256,
       policyId: snapshot.policyId,
       files: snapshot.files,
       exclusions: snapshot.exclusions,
     });
-    expect(contentSha256).toBe(snapshot.contentSha256);
-    expect(`snap-${contentSha256}`).toBe(snapshot.id);
+    expect(identity.contentSha256).toBe(snapshot.contentSha256);
+    expect(identity.snapshotId).toBe(snapshot.id);
+    expect(identity.files).toEqual(snapshot.files);
 
     for (const file of snapshot.files) {
-      const identity = await sourceFileIdentityDigest(
-        hashes,
-        snapshot.id,
-        file,
-      );
-      expect(`file-${identity}`).toBe(file.id);
       expect(file.snapshotId).toBe(snapshot.id);
     }
   });
