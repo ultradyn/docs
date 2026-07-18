@@ -7,6 +7,8 @@ describe("integration public module surface", () => {
     expect(Object.keys(integration).sort()).toEqual([
       "ChangeRequestBlockedError",
       "LocalChangeRequestManager",
+      "nodeFileReader",
+      "validateIngestBundle",
     ]);
   });
 });
