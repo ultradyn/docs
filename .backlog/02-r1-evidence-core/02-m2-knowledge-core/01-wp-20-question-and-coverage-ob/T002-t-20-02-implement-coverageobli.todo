@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-18T13:35:30Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-18T16:03:33Z"
 complexity: medium
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P2.M2.E1.T001
+duration_minutes: 148.05223723273335
 estimate_hours: 5
 id: P2.M2.E1.T002
 priority: high
 started_at: "2026-07-18T13:35:30Z"
-status: in_progress
+status: done
 tags: []
 title: T-20-02 — Implement CoverageObligation ledger
-updated_at: "2026-07-18T13:35:30Z"
+updated_at: "2026-07-18T16:03:33Z"
 ---
 Bundle provenance: WP-20 / T-20-02
 
