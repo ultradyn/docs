@@ -1,6 +1,10 @@
 export {
+  nodeFileReader,
   validateIngestBundle,
   type BundleValidationReport,
+  type FileEntry,
+  type FileKind,
+  type FileReader,
 } from "./ingest-bundle-validator.js";
 export {
   ChangeRequestBlockedError,

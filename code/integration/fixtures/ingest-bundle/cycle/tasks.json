@@ -1,0 +1,4 @@
+[
+  { "id": "T-A", "dependencies": ["T-B"] },
+  { "id": "T-B", "dependencies": ["T-A"] }
+]
