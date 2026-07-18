@@ -35,6 +35,14 @@ class MemoryRawArtifactStore implements RawArtifactStore {
   rejectOverwriteAt?: string;
   dropWriteAt?: string;
   corruptWriteAt?: string;
+  swapAfterFirstRead?: string;
+  #readCounts = new Map<string, number>();
+
+  /** Arms the swap and forgets earlier reads, so counting starts from now. */
+  armSwapAfterFirstRead(path: string): void {
+    this.swapAfterFirstRead = path;
+    this.#readCounts.clear();
+  }
   interleavePublishes = false;
   corruptCustodyOnPublishConflict = false;
   #releaseFirstPublish?: () => void;
@@ -61,7 +69,15 @@ class MemoryRawArtifactStore implements RawArtifactStore {
 
   async read(path: string): Promise<Uint8Array | undefined> {
     this.operations.push(`read:${path}`);
-    return this.artifacts.get(path)?.slice();
+    const seen = (this.#readCounts.get(path) ?? 0) + 1;
+    this.#readCounts.set(path, seen);
+    const bytes = this.artifacts.get(path)?.slice();
+    // Any read after the first returns different bytes, so a second traversal
+    // is detectable from public results alone.
+    if (bytes && path === this.swapAfterFirstRead && seen > 1) {
+      return text("swapped-on-second-read");
+    }
+    return bytes;
   }
 
   async write(
@@ -138,6 +154,7 @@ class MemorySourceByteReader implements SourceByteReader {
   failAt?: "package" | "file";
   failAtFileId?: string | undefined;
   mutateAfterRead = false;
+  recordHandedOut?: Uint8Array[];
   #package: Uint8Array | undefined;
 
   setPackage(bytes: Uint8Array): void {
@@ -158,7 +175,9 @@ class MemorySourceByteReader implements SourceByteReader {
     if (this.failEveryRead || this.failAt === "package") {
       throw new Error("upload reader is unavailable");
     }
-    return Promise.resolve(this.#package?.slice());
+    const bytes = this.#package?.slice();
+    if (bytes) this.recordHandedOut?.push(bytes);
+    return Promise.resolve(bytes);
   }
 
   readFile(file: SourceFile): Promise<Uint8Array | undefined> {
@@ -170,6 +189,7 @@ class MemorySourceByteReader implements SourceByteReader {
       throw new Error("upload reader is unavailable");
     }
     const bytes = this.files.get(file.id)?.slice();
+    if (bytes) this.recordHandedOut?.push(bytes);
     if (bytes && this.mutateAfterRead) {
       // Hand back a buffer we keep scribbling on.
       queueMicrotask(() => bytes.fill(0));
@@ -749,7 +769,7 @@ describe("ReplayCapsuleStore custody", () => {
     expect(verified.ok).toBe(true);
   });
 
-  it("fails closed when a reader mutates a buffer it handed back", async () => {
+  it("fails closed when a reader mutates at handoff, before any copy", async () => {
     const { capsules, store, source } = harness();
     // The reader keeps ownership and zeroes the buffer in the same microtask
     // turn as its return. A caller-side copy cannot win that race, so the
@@ -771,6 +791,67 @@ describe("ReplayCapsuleStore custody", () => {
       `replay-capsules/blobs/${FIRST_FILE.sha256}.raw`,
     );
     expect(retained && digest(retained)).toBe(FIRST_FILE.sha256);
+  });
+
+  it("keeps custody stable when a reader mutates after settlement", async () => {
+    const handedOut: Uint8Array[] = [];
+    const store = new MemoryRawArtifactStore();
+    const source = new MemorySourceByteReader();
+    source.setPackage(PACKAGE_BYTES);
+    source.setFile(FIRST_FILE.id, FIRST_FILE_BYTES);
+    source.setFile(SECOND_FILE.id, SECOND_FILE_BYTES);
+    source.recordHandedOut = handedOut;
+
+    // Hashing is deliberately delayed, so mutation lands after settlement but
+    // while seal is still in flight. A borrowed-buffer implementation would
+    // hash the mutated bytes; an immediate-copy implementation is unaffected.
+    let mutated = false;
+    const delayedHashes: HashService = {
+      sha256: async (bytes) => {
+        if (!mutated && handedOut.length > 0) {
+          mutated = true;
+          for (const buffer of handedOut) buffer.fill(0);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return digest(bytes);
+      },
+    };
+
+    const capsules = new ReplayCapsuleStore({
+      store,
+      hashes: delayedHashes,
+      source,
+    });
+    const sealed = await capsules.seal(SNAPSHOT);
+    expect(mutated).toBe(true);
+    expect(sealed.ok).toBe(true);
+
+    // Custody holds the ORIGINAL bytes, not the zeroed borrow.
+    const retained = store.artifacts.get(
+      `replay-capsules/blobs/${FIRST_FILE.sha256}.raw`,
+    );
+    expect(retained && digest(retained)).toBe(FIRST_FILE.sha256);
+    expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
+  });
+
+  it("reads each retained blob once during retention", async () => {
+    const { capsules, store } = harness();
+    expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+    // Bytes change between a first and any second read. A single-traversal
+    // retention never observes the swap; a two-pass one would.
+    store.armSwapAfterFirstRead(
+      `replay-capsules/blobs/${SECOND_FILE.sha256}.raw`,
+    );
+    const retention = await capsules.retention(SNAPSHOT_ID);
+    expect(retention.ok).toBe(true);
+    if (retention.ok) {
+      expect(retention.value.retainedBytes).toBe(
+        PACKAGE_BYTES.byteLength +
+          FIRST_FILE_BYTES.byteLength +
+          SECOND_FILE_BYTES.byteLength,
+      );
+    }
   });
 
   it.each(["missing", "truncated", "corrupt"] as const)(

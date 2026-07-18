@@ -20,6 +20,13 @@ import {
  * upload area is owned by whoever staged the snapshot and may disappear once
  * custody is established; every guarantee after sealing is served from the
  * capsule's own retained bytes, never from here.
+ *
+ * Buffer ownership: a returned `Uint8Array` is BORROWED only until its promise
+ * settles. `ReplayCapsuleStore` copies it immediately on receipt and owns that
+ * copy thereafter, so any mutation after settlement cannot affect custody.
+ * Mutation before or at handoff may still be observed — no caller-side copy can
+ * win that race — but it is caught fail-closed by digest binding rather than
+ * poisoning a capsule.
  */
 export interface SourceByteReader {
   readPackage(snapshot: SourceSnapshot): Promise<Uint8Array | undefined>;
@@ -50,6 +57,12 @@ export interface RetentionState {
    */
   policy: "retain-indefinitely";
   deletionAuthorised: false;
+}
+
+/** Byte lengths measured during the same traversal that verified them. */
+interface RetainedByteMeasurement {
+  totalBytes: number;
+  lengths: ReadonlyMap<Sha256, number>;
 }
 
 export interface ReplayCapsuleStoreDependencies {
@@ -419,38 +432,19 @@ export class ReplayCapsuleStore {
     if (!read.ok) return read;
     const snapshot = read.value.snapshot;
 
-    // Custody is verified before it is measured, so retention can never report
-    // a stale size for bytes that are missing, truncated, or corrupt.
-    const verified = await this.#verifyRetainedBytes(read.value);
-    if (!verified.ok) return verified;
+    // Custody is verified and measured in ONE traversal, so retention can
+    // never report a size for bytes other than the ones it verified.
+    const measured = await this.#verifyRetainedBytes(read.value);
+    if (!measured.ok) return measured;
 
-    // Sizes are measured from the retained blobs themselves, not trusted from
-    // the manifest, and each file's actual length must match what it declares.
-    const packageBytes = await this.#store.read(
-      blobPath(snapshot.packageSha256),
-    );
-    if (packageBytes === undefined) {
-      return failure(
-        "CAPSULE_NOT_FOUND",
-        `retained package bytes are missing for ${snapshotId}`,
-      );
-    }
-    let retainedBytes = packageBytes.byteLength;
     for (const file of snapshot.files) {
-      const bytes = await this.#store.read(blobPath(file.sha256));
-      if (bytes === undefined) {
-        return failure(
-          "CAPSULE_NOT_FOUND",
-          `retained bytes are missing for ${file.logicalPath}`,
-        );
-      }
-      if (bytes.byteLength !== file.size) {
+      const actual = measured.value.lengths.get(file.sha256);
+      if (actual !== file.size) {
         return failure(
           "DIGEST_MISMATCH",
-          `retained bytes for ${file.logicalPath} are ${bytes.byteLength}, manifest declares ${file.size}`,
+          `retained bytes for ${file.logicalPath} are ${String(actual)}, manifest declares ${file.size}`,
         );
       }
-      retainedBytes += bytes.byteLength;
     }
 
     return {
@@ -460,7 +454,7 @@ export class ReplayCapsuleStore {
         fileCount: snapshot.files.length,
         // Package plus every file. The capsule marker describes custody rather
         // than being retained source content, so it is deliberately excluded.
-        retainedBytes,
+        retainedBytes: measured.value.totalBytes,
         policy: "retain-indefinitely",
         deletionAuthorised: false,
       },
@@ -488,7 +482,9 @@ export class ReplayCapsuleStore {
 
   async #verifyRetainedBytes(
     manifest: CapsuleManifest,
-  ): Promise<IngestResult<true, ReplayCapsuleErrorCode>> {
+  ): Promise<IngestResult<RetainedByteMeasurement, ReplayCapsuleErrorCode>> {
+    const lengths = new Map<Sha256, number>();
+    let totalBytes = 0;
     for (const sha256 of capsuleDigests(manifest)) {
       const bytes = await this.#store.read(blobPath(sha256));
       if (bytes === undefined) {
@@ -503,8 +499,12 @@ export class ReplayCapsuleStore {
           `retained bytes ${sha256} no longer match their content address`,
         );
       }
+      // Measure the very bytes that were just hashed: a second read could
+      // return something different from what was verified.
+      lengths.set(sha256, bytes.byteLength);
+      totalBytes += bytes.byteLength;
     }
-    return { ok: true, value: true };
+    return { ok: true, value: { totalBytes, lengths } };
   }
 
   /**

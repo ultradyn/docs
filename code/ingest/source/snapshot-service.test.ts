@@ -161,6 +161,62 @@ function input() {
 }
 
 describe("SourceSnapshotService", () => {
+  it("refuses a forged intent file id before any manifest is published", async () => {
+    const store = new MemoryRawArtifactStore();
+    const service = new SourceSnapshotService({ store, hashes, ids: ids() });
+    const created = input();
+
+    // Build the intent the service would legitimately persist, then forge ONE
+    // file id while leaving every other field coherent. Only exact canonical
+    // identity comparison catches this.
+    const packageSha256 = digest("package-v1");
+    const identity = await deriveSourceSnapshotIdentity(hashes, {
+      packageSha256,
+      policyId: created.policyId,
+      files: [
+        {
+          logicalPath: "docs/Guide.md",
+          mediaType: "text/markdown",
+          size: 5,
+          sha256: digest("guide"),
+        },
+      ],
+      exclusions: [],
+    });
+    const idempotencyKey = await hashes.sha256(
+      new TextEncoder().encode(`${packageSha256}\0${created.policyId}`),
+    );
+    const forgedIntent = {
+      schemaVersion: 1,
+      idempotencyKey,
+      snapshotId: identity.snapshotId,
+      packageSha256,
+      contentSha256: identity.contentSha256,
+      policyId: created.policyId,
+      files: identity.files.map((file) => ({
+        ...file,
+        id: `file-${"f".repeat(64)}`,
+      })),
+      exclusions: [],
+    };
+    store.artifacts.set(
+      `source-snapshots/.transactions/${idempotencyKey}/intent.json`,
+      new TextEncoder().encode(`${JSON.stringify(forgedIntent, null, 2)}\n`),
+    );
+
+    const result = await service.create(created);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("SNAPSHOT_CONFLICT");
+    // The decisive assertion: nothing was published, so this failed BEFORE the
+    // final manifest existed rather than being caught by a later verify.
+    expect(
+      [...store.artifacts.keys()].some((path) =>
+        /^source-snapshots\/[^.][^/]*\/manifest\.json$/.test(path),
+      ),
+    ).toBe(false);
+  });
+
   it("pins the extracted canonical helpers to service-produced identity", async () => {
     // Extraction-only guard: the exported helpers must reproduce, exactly, the
     // identity that SourceSnapshotService assigns to a qualified snapshot. If
