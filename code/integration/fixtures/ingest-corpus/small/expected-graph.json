@@ -4,8 +4,10 @@
   "provenance": {
     "kind": "curated-adaptation",
     "sources": [
-      "this repository's documentation",
-      "CONTEXT.md, ADRs, engineering guidance, agent guidance, and automatic-ingestion specification"
+      "CONTEXT.md#Knowledge flow",
+      "CONTEXT.md#Automatic ingestion",
+      "CONTEXT.md#State and priority",
+      "CONTEXT.md#Local boundaries"
     ]
   },
   "files": [

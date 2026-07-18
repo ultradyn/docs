@@ -2,63 +2,104 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
 
 const fixtureRoot = join(import.meta.dirname, "fixtures", "ingest-corpus");
+const scenarioSchema = z.enum([
+  "overview",
+  "procedure",
+  "deprecation",
+  "contradiction",
+  "disconnected-note",
+  "duplicate-content",
+  "unsupported-question",
+  "repository-doc-subset",
+]);
+const identifierSchema = z.string().min(1);
+const unitIdListSchema = z.array(identifierSchema);
 
-interface CorpusFile {
-  id: string;
-  path: string;
-  sha256: string;
-  scenarios: string[];
-}
+const expectedCorpusGraphSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    corpusId: z.enum(["tiny", "small"]),
+    provenance: z
+      .object({
+        kind: z.literal("curated-adaptation"),
+        sources: z
+          .array(z.string().regex(/^(?:CONTEXT\.md|docs\/)[^#]*(?:#[^#]+)?$/))
+          .min(1),
+      })
+      .strict(),
+    files: z.array(
+      z
+        .object({
+          id: identifierSchema,
+          path: z.string().regex(/^[a-z0-9][a-z0-9./-]*\.md$/),
+          sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          scenarios: z.array(scenarioSchema).min(1),
+        })
+        .strict(),
+    ),
+    units: z.array(
+      z
+        .object({
+          id: identifierSchema,
+          fileId: identifierSchema,
+          locator: z.string().min(1),
+          disposition: z.enum([
+            "claim-evidence",
+            "duplicate",
+            "contradiction",
+            "disconnected",
+            "context-only",
+          ]),
+          scenarios: z.array(scenarioSchema).min(1),
+        })
+        .strict(),
+    ),
+    questions: z.array(
+      z
+        .object({
+          id: identifierSchema,
+          text: z.string().min(1),
+          evidenceUnitIds: unitIdListSchema,
+        })
+        .strict(),
+    ),
+    claims: z.array(
+      z
+        .object({
+          id: identifierSchema,
+          text: z.string().min(1),
+          qualifiers: z.array(z.string().min(1)).min(1),
+          lifecycle: z.enum(["current", "deprecated"]),
+          evidenceUnitIds: unitIdListSchema.min(1),
+          reusable: z.boolean(),
+        })
+        .strict(),
+    ),
+    duplicates: z.array(
+      z
+        .object({
+          canonicalUnitId: identifierSchema,
+          duplicateUnitIds: unitIdListSchema.min(1),
+          outcome: z.enum(["merge-with-provenance", "keep-separate"]),
+        })
+        .strict(),
+    ),
+    contradictions: z.array(
+      z
+        .object({
+          unitIds: unitIdListSchema.min(2),
+          outcome: z.literal("block-until-resolved"),
+        })
+        .strict(),
+    ),
+    unsupportedQuestions: z.array(identifierSchema),
+  })
+  .strict();
 
-interface CorpusUnit {
-  id: string;
-  fileId: string;
-  locator: string;
-  disposition:
-    | "claim-evidence"
-    | "duplicate"
-    | "contradiction"
-    | "disconnected"
-    | "context-only";
-  scenarios: string[];
-}
-
-interface CorpusQuestion {
-  id: string;
-  text: string;
-  evidenceUnitIds: string[];
-}
-
-interface CorpusClaim {
-  id: string;
-  text: string;
-  qualifiers: string[];
-  lifecycle: "current" | "deprecated";
-  evidenceUnitIds: string[];
-  reusable: boolean;
-}
-
-interface ExpectedCorpusGraph {
-  schemaVersion: 1;
-  corpusId: string;
-  provenance: { kind: "curated-adaptation"; sources: string[] };
-  files: CorpusFile[];
-  units: CorpusUnit[];
-  questions: CorpusQuestion[];
-  claims: CorpusClaim[];
-  duplicates: Array<{
-    canonicalUnitId: string;
-    duplicateUnitIds: string[];
-    outcome: "merge-with-provenance" | "keep-separate";
-  }>;
-  contradictions: Array<{
-    unitIds: string[];
-    outcome: "block-until-resolved";
-  }>;
-  unsupportedQuestions: string[];
-}
+type ExpectedCorpusGraph = z.infer<typeof expectedCorpusGraphSchema>;
 
 async function sourcePaths(corpus: string): Promise<string[]> {
   const sourceRoot = join(fixtureRoot, corpus, "source");
@@ -77,9 +118,11 @@ async function sourcePaths(corpus: string): Promise<string[]> {
 }
 
 async function loadCorpus(corpus: string): Promise<ExpectedCorpusGraph> {
-  return JSON.parse(
-    await readFile(join(fixtureRoot, corpus, "expected-graph.json"), "utf8"),
-  ) as ExpectedCorpusGraph;
+  return expectedCorpusGraphSchema.parse(
+    JSON.parse(
+      await readFile(join(fixtureRoot, corpus, "expected-graph.json"), "utf8"),
+    ),
+  );
 }
 
 const expectedCorpusDigests = {
@@ -95,6 +138,9 @@ async function assertCorpusIntegrity(
   expect(graph.corpusId).toBe(corpus);
   expect(graph.provenance.kind).toBe("curated-adaptation");
   expect(graph.provenance.sources.length).toBeGreaterThan(0);
+  expect(graph.provenance.sources.every((source) => source.includes("#"))).toBe(
+    true,
+  );
 
   const fileIds = new Set(graph.files.map((file) => file.id));
   const unitIds = new Set(graph.units.map((unit) => unit.id));
@@ -143,15 +189,47 @@ async function assertCorpusIntegrity(
   }
   for (const duplicate of graph.duplicates) {
     expect(unitIds.has(duplicate.canonicalUnitId)).toBe(true);
-    expect(duplicate.duplicateUnitIds.length).toBeGreaterThan(0);
-    for (const unitId of duplicate.duplicateUnitIds)
+    expect(
+      graph.units.find((unit) => unit.id === duplicate.canonicalUnitId)
+        ?.disposition,
+    ).not.toBe("duplicate");
+    for (const unitId of duplicate.duplicateUnitIds) {
       expect(unitIds.has(unitId)).toBe(true);
+      expect(graph.units.find((unit) => unit.id === unitId)?.disposition).toBe(
+        "duplicate",
+      );
+    }
   }
+  expect(
+    graph.units
+      .filter((unit) => unit.disposition === "duplicate")
+      .map((unit) => unit.id)
+      .sort(),
+  ).toEqual(
+    graph.duplicates.flatMap((duplicate) => duplicate.duplicateUnitIds).sort(),
+  );
   for (const contradiction of graph.contradictions) {
-    expect(contradiction.unitIds.length).toBeGreaterThanOrEqual(2);
-    for (const unitId of contradiction.unitIds)
+    for (const unitId of contradiction.unitIds) {
       expect(unitIds.has(unitId)).toBe(true);
+      expect(
+        graph.units.find((unit) => unit.id === unitId)?.scenarios,
+      ).toContain("contradiction");
+    }
+    expect(
+      contradiction.unitIds.some(
+        (unitId) =>
+          graph.units.find((unit) => unit.id === unitId)?.disposition ===
+          "contradiction",
+      ),
+    ).toBe(true);
   }
+  expect(
+    graph.units
+      .filter((unit) => unit.disposition === "contradiction")
+      .every((unit) =>
+        graph.contradictions.some((record) => record.unitIds.includes(unit.id)),
+      ),
+  ).toBe(true);
   for (const questionId of graph.unsupportedQuestions) {
     expect(questionIds.has(questionId)).toBe(true);
     expect(
@@ -221,9 +299,7 @@ describe("labelled ingestion corpus fixtures", () => {
   test("small is a stable repository-doc subset with reusable claims", async () => {
     const graph = await assertCorpusIntegrity("small");
     expect(graph.files.length).toBeGreaterThanOrEqual(20);
-    expect(graph.provenance.sources).toContain(
-      "this repository's documentation",
-    );
+    expect(graph.provenance.sources).toContain("CONTEXT.md#Knowledge flow");
     expect(
       graph.claims.filter((claim) => claim.reusable).length,
     ).toBeGreaterThanOrEqual(2);
