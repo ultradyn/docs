@@ -1,0 +1,34 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+async function readArchitecture(): Promise<string> {
+  return readFile(
+    path.join(
+      process.cwd(),
+      "docs",
+      "architecture",
+      "automatic-ingestion-v3.md",
+    ),
+    "utf8",
+  );
+}
+
+describe("automatic ingestion architecture", () => {
+  it("records the adopted authority and isolation boundaries", async () => {
+    const architecture = await readArchitecture();
+
+    expect(architecture).toContain("## Authority boundaries");
+    expect(architecture).toContain("canonical `QuestionRecord.state`");
+    expect(architecture).toContain("orthogonal ingestion records");
+    expect(architecture).toContain("inert source bundle");
+    expect(architecture).toContain("deterministic services own writes");
+    expect(architecture).toContain("fresh Evidence Critic");
+    expect(architecture).toContain("fresh Claim Reviewer");
+    expect(architecture).toContain("distinct `AnswerComposition`");
+    expect(architecture).toContain("existing change-request manager");
+    expect(architecture).toContain("## Agent isolation");
+    expect(architecture).toContain("## Completion predicate");
+    expect(architecture).toContain("## Deferred activation");
+  });
+});

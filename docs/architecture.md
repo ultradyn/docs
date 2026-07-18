@@ -71,4 +71,8 @@ Question records are strict at the top level and in nested asker, origin, and pr
 
 Draft-07 cannot express uniqueness of an object property within an array, and its string-length semantics count Unicode code points rather than JavaScript UTF-16 code units. The shipped schemas use standard `uniqueItems` for identical asker objects, `x-uniqueBy: "id"` for the stronger invariant, and `x-utf16MinLength`/`x-utf16MaxLength` beside bounded strings to match canonical Zod behavior. Portable integer fields that map to Zod integers carry explicit `Number.MIN_SAFE_INTEGER`/`Number.MAX_SAFE_INTEGER`-compatible bounds; current nonnegative fields therefore use `0..9007199254740991`. Portable consumers must register the complete shipped schema set with `createPortableSchemaValidator` from `code/domain/index.ts` and validate by schema name. That production validator enforces the extension keywords plus the calendar-valid explicit-offset date-time format used by Zod. Compiling an individual JSON file with a validator that ignores unknown keywords, counts only Unicode code points, accepts unsafe integers, or delegates date-time to permissive host parsing is not the Ultradyn validation contract.
 
+## Automatic ingestion
+
+The adopted ingestion architecture and its load-bearing diagrams are recorded in [`docs/architecture/automatic-ingestion-v3.md`](architecture/automatic-ingestion-v3.md). The decision register is [`docs/specs/automatic-ingestion-v3/DECISION_LOG.md`](specs/automatic-ingestion-v3/DECISION_LOG.md).
+
 See ADRs under `docs/adr/` for reconciled lifecycle, state, packaging, and Git decisions.
