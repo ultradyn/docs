@@ -11,10 +11,7 @@ import type { QuestionRecord } from "../../domain/schemas.js";
 import { QuestionNotFoundError } from "../../repository/index.js";
 
 export type QuestionLinkError =
-  | "INVALID_LINK"
-  | "QUESTION_NOT_FOUND"
-  | "ORIGIN_MISMATCH"
-  | "LINK_EXISTS";
+  "INVALID_LINK" | "QUESTION_NOT_FOUND" | "ORIGIN_MISMATCH" | "LINK_EXISTS";
 
 export interface QuestionReader {
   getQuestion(id: string): Promise<QuestionRecord | undefined>;
@@ -73,7 +70,10 @@ export function createQuestionLinkService(options: {
         return failure(
           "INVALID_LINK",
           parsed.error.issues
-            .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+            .map(
+              (issue) =>
+                `${issue.path.join(".") || "<root>"}: ${issue.message}`,
+            )
             .join("; "),
         );
       }
