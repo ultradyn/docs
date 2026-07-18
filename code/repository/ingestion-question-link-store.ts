@@ -16,7 +16,7 @@ import {
   IngestionQuestionLinkSchema,
   type IngestionQuestionLink,
   type QuestionLinkStore,
-} from "../domain/ingest/question-link.js";
+} from "../domain/ingest/index.js";
 import { resolveContainedPathNoSymlinks } from "../shared/safe-path.js";
 import {
   withRepositoryLock,

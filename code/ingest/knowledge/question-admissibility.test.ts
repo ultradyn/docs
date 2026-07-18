@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   COVERAGE_OBLIGATION_TERMINAL_STATUSES,
+  IngestionQuestionLinkSchema,
   type CoverageObligation,
   type IngestionQuestionLink,
   type ObligationId,
@@ -37,7 +38,7 @@ function obligation(
     questionId: CHILD_ID,
     trigger: "replay-guarantee",
     ownerQuestionId: CHILD_ID,
-    status: "open",
+    status: "assigned",
     version: 1,
     ...overrides,
   };
@@ -50,18 +51,19 @@ const ARTIFACT_ID = "art-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 function link(
   overrides: Partial<IngestionQuestionLink> = {},
 ): IngestionQuestionLink {
-  return {
+  const valid = IngestionQuestionLinkSchema.parse({
     schemaVersion: 1,
     questionId: CHILD_ID,
-    snapshotId: "snap-1",
+    snapshotId: `snap-${"a".repeat(64)}`,
     origin: "ingestion-generated",
     systemActor: "curiosity-planner",
     rawArtifactId: ARTIFACT_ID,
     generation: 1,
-    sourceUnitIds: ["unit-1"],
+    sourceUnitIds: ["unit-01J00000000000000000000001"],
     createdRevision: 0,
-    ...overrides,
-  };
+  });
+  // Some adversarial cases deliberately construct malformed runtime input.
+  return { ...valid, ...overrides };
 }
 
 /** An admitted generated question, carried as link + canonical wording. */
@@ -75,7 +77,7 @@ function admittedFact(
   return {
     link: link({
       questionId: overrides.questionId ?? SIBLING_ID,
-      sourceUnitIds: ["unit-9"],
+      sourceUnitIds: ["unit-01J00000000000000000000009"] as never,
     }),
     wording:
       overrides.wording ?? "A different concrete enquiry about manifests",
@@ -191,7 +193,7 @@ describe("generated admissibility", () => {
     },
   );
 
-  it.each(["open", "assigned", "blocked", "transferred"] as const)(
+  it.each(["assigned", "blocked", "transferred"] as const)(
     "treats non-terminal status %s as unresolved",
     (status) => {
       const decision = assessQuestionProposal(
@@ -239,10 +241,8 @@ describe("generated admissibility", () => {
     expect(decision.reasons).not.toContain("OBLIGATION_NOT_SELF_OWNED");
   });
 
-  it.each([
-    ["a sibling question", SIBLING_ID],
-    ["nobody", null],
-  ])("rejects an obligation owned by %s", (_label, ownerQuestionId) => {
+  it("rejects an obligation owned by a sibling question", () => {
+    const ownerQuestionId = SIBLING_ID;
     const decision = assessQuestionProposal(
       generated({ obligations: [obligation({ ownerQuestionId })] }),
     );
@@ -293,12 +293,21 @@ describe("generated admissibility", () => {
   it("deduplicates trigger ids deterministically", () => {
     const decision = assessQuestionProposal(
       generated({
-        link: link({ sourceUnitIds: ["unit-2", "unit-1", "unit-2"] }),
+        link: link({
+          sourceUnitIds: [
+            "unit-01J00000000000000000000002",
+            "unit-01J00000000000000000000001",
+            "unit-01J00000000000000000000002",
+          ] as never,
+        }),
       }),
     );
     expect(decision.admitted).toBe(true);
     // First-occurrence order preserved, duplicates removed.
-    expect(decision.triggerSourceUnitIds).toEqual(["unit-2", "unit-1"]);
+    expect(decision.triggerSourceUnitIds).toEqual([
+      "unit-01J00000000000000000000002",
+      "unit-01J00000000000000000000001",
+    ]);
   });
 
   it.each([
@@ -306,17 +315,17 @@ describe("generated admissibility", () => {
       "unknown origin",
       { link: link({ origin: "telepathy" as never }) },
       ["INVALID_PROPOSAL"],
-      ["unit-1"],
+      ["unit-01J00000000000000000000001"],
     ],
     [
       "malformed question id",
-      { link: link({ questionId: "not-a-question-id" }) },
+      { link: link({ questionId: "not-a-question-id" as never }) },
       ["INVALID_PROPOSAL", "OBLIGATION_NOT_FOR_QUESTION"],
-      ["unit-1"],
+      ["unit-01J00000000000000000000001"],
     ],
     [
       "blank trigger id",
-      { link: link({ sourceUnitIds: ["   "] }) },
+      { link: link({ sourceUnitIds: ["   "] as never }) },
       ["INVALID_PROPOSAL", "MISSING_TRIGGER"],
       [],
     ],
@@ -324,7 +333,7 @@ describe("generated admissibility", () => {
       "blank wording",
       { wording: "   " },
       ["INVALID_PROPOSAL", "GENERIC_WORDING"],
-      ["unit-1"],
+      ["unit-01J00000000000000000000001"],
     ],
   ] as const)(
     "sanitises %s and reports every applicable typed reason",
@@ -554,14 +563,23 @@ describe("trigger provenance is sanitised", () => {
     const decision = assessQuestionProposal(
       generated({
         link: link({
-          sourceUnitIds: [" unit-2 ", "", "unit-1", "unit-2", "   "],
+          sourceUnitIds: [
+            " unit-01J00000000000000000000002 ",
+            "",
+            "unit-01J00000000000000000000001",
+            "unit-01J00000000000000000000002",
+            "   ",
+          ] as never,
         }),
       }),
     );
     expect(decision.admitted).toBe(false);
     expect(decision.reasons).toContain("INVALID_PROPOSAL");
     expect(decision.reasons).not.toContain("MISSING_TRIGGER");
-    expect(decision.triggerSourceUnitIds).toEqual(["unit-2", "unit-1"]);
+    expect(decision.triggerSourceUnitIds).toEqual([
+      "unit-01J00000000000000000000002",
+      "unit-01J00000000000000000000001",
+    ]);
   });
 });
 

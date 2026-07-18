@@ -2,24 +2,12 @@ import { z } from "zod";
 export { CoverageObligationRecordSchema as CoverageObligationSchema } from "./coverage-obligation.js";
 export { PolicyProfileSchema } from "./policy-profile.js";
 export { IngestionQuestionLinkSchema } from "./question-link.js";
+import { SnapshotIdSchema, SourceFileIdSchema } from "./id-schemas.js";
 
 const IdSchema = z.string().min(1);
 const Sha256Schema = z
   .string()
   .regex(/^[a-f0-9]{64}$/, "must be 64 lowercase hex characters");
-const SnapshotIdSchema = z
-  .string()
-  .regex(
-    /^snap-[a-f0-9]{64}$/,
-    "must be snap- followed by 64 lowercase hex characters",
-  );
-const SourceFileIdSchema = z
-  .string()
-  .regex(
-    /^file-[a-f0-9]{64}$/,
-    "must be file- followed by 64 lowercase hex characters",
-  );
-
 export const SourceFileSchema = z
   .object({
     schemaVersion: z.literal(1),

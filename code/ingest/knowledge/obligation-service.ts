@@ -19,6 +19,7 @@ export type CoverageObligationError =
   | "AUTOMATIC_OWNER_REQUIRED"
   | "ALREADY_OWNED"
   | "VERSION_CONFLICT"
+  | "IDEMPOTENCY_CONFLICT"
   | "INVALID_TRANSITION"
   | "CORRUPT_HISTORY";
 
@@ -104,6 +105,15 @@ function corrupt(message: string): CoverageObligationEventsResult {
 
 function validText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function createCommandDigest(command: CreateCoverageObligationCommand): string {
+  return JSON.stringify({
+    questionId: command.questionId,
+    trigger: command.trigger.trim(),
+    ownerQuestionId: command.ownerQuestionId ?? null,
+    expectedVersion: command.expectedVersion,
+  });
 }
 
 function deepFreeze<T>(value: T): T {
@@ -251,6 +261,7 @@ export function createCoverageObligationService(options: {
   async function append(
     expectedVersion: number,
     idempotencyKey: string,
+    commandDigest: string,
     next: CoverageObligation,
     event: Omit<CoverageObligationEvent, "obligation" | "idempotencyKey">,
     claimUnresolvedOwnerQuestionId?: QuestionId,
@@ -265,11 +276,18 @@ export function createCoverageObligationService(options: {
       obligationId: immutable.id,
       expectedVersion,
       idempotencyKey,
+      commandDigest,
       ...(claimUnresolvedOwnerQuestionId
         ? { claimUnresolvedOwnerQuestionId }
         : {}),
       event: fullEvent,
     });
+    if (result.status === "idempotency_conflict") {
+      return failure(
+        "IDEMPOTENCY_CONFLICT",
+        "The idempotency key was already used for a different command.",
+      );
+    }
     if (result.status === "ownership_conflict") {
       return failure(
         "ALREADY_OWNED",
@@ -303,6 +321,7 @@ export function createCoverageObligationService(options: {
   async function transition(
     obligation: CoverageObligation,
     idempotencyKey: string,
+    commandDigest: string,
     type: CoverageObligationEvent["type"],
     status: ObligationStatus,
     ownerQuestionId: QuestionId | null,
@@ -316,6 +335,7 @@ export function createCoverageObligationService(options: {
     return append(
       obligation.version,
       idempotencyKey,
+      commandDigest,
       next,
       {
         obligationId: obligation.id,
@@ -375,7 +395,7 @@ export function createCoverageObligationService(options: {
           };
         }
         return failure(
-          "VERSION_CONFLICT",
+          "IDEMPOTENCY_CONFLICT",
           "The idempotency key was already used for a different command.",
         );
       }
@@ -402,9 +422,46 @@ export function createCoverageObligationService(options: {
           `Unknown owner question ${ownerQuestionId}.`,
         );
       }
+      const reservation = await options.events.reserveCreate({
+        idempotencyKey: command.idempotencyKey,
+        commandDigest: createCommandDigest(command),
+        allocateObligationId: () =>
+          options.ids.next("obligation") as CoverageObligation["id"],
+      });
+      if (reservation.status === "idempotency_conflict") {
+        return failure(
+          "IDEMPOTENCY_CONFLICT",
+          "The idempotency key was already used for a different command.",
+        );
+      }
+      const reservedHistory = await readHistory(reservation.obligationId);
+      if (!reservedHistory.ok) return reservedHistory;
+      const committed = reservedHistory.value.at(-1);
+      if (committed) {
+        if (reservation.status === "reserved") {
+          return failure(
+            "VERSION_CONFLICT",
+            `Reserved obligation ID ${reservation.obligationId} already has history.`,
+          );
+        }
+        return committed.type === "created" &&
+          committed.idempotencyKey === command.idempotencyKey &&
+          createCommandDigest({
+            questionId: committed.obligation.questionId,
+            trigger: committed.obligation.trigger,
+            ownerQuestionId: committed.obligation.ownerQuestionId,
+            expectedVersion: 0,
+            idempotencyKey: committed.idempotencyKey,
+          }) === createCommandDigest(command)
+          ? { ok: true, value: immutableRecord(committed.obligation) }
+          : failure(
+              "CORRUPT_HISTORY",
+              "Reserved create operation points to a conflicting obligation history.",
+            );
+      }
       const obligation = immutableRecord({
         schemaVersion: 1,
-        id: options.ids.next("obligation"),
+        id: reservation.obligationId,
         questionId: command.questionId,
         trigger: command.trigger,
         ownerQuestionId,
@@ -414,6 +471,7 @@ export function createCoverageObligationService(options: {
       return append(
         0,
         command.idempotencyKey,
+        createCommandDigest(command),
         obligation,
         {
           obligationId: obligation.id,
@@ -476,6 +534,7 @@ export function createCoverageObligationService(options: {
       return transition(
         found.value,
         command.idempotencyKey,
+        JSON.stringify(command),
         "assigned",
         "assigned",
         command.ownerQuestionId as QuestionId,
@@ -531,6 +590,7 @@ export function createCoverageObligationService(options: {
       return transition(
         found.value,
         command.idempotencyKey,
+        JSON.stringify(command),
         "transferred",
         "transferred",
         command.ownerQuestionId as QuestionId,
@@ -572,6 +632,7 @@ export function createCoverageObligationService(options: {
       return transition(
         found.value,
         command.idempotencyKey,
+        JSON.stringify(command),
         "resolved",
         requestedStatus,
         found.value.ownerQuestionId,

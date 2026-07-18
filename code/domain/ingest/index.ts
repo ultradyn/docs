@@ -1,4 +1,5 @@
 export * from "./coverage-obligation.js";
+export * from "./id-schemas.js";
 export * from "./policy-profile.js";
 export * from "./question-link.js";
 export * from "./schema-registry.js";

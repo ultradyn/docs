@@ -20,6 +20,10 @@ import {
   type QuestionRecord,
 } from "../../domain/index.js";
 import {
+  IngestionQuestionLinkSchema,
+  type IngestionQuestionLink,
+} from "../../domain/ingest/index.js";
+import {
   createFileQuestionLinkStore,
   KnowledgeRepository,
 } from "../../repository/index.js";
@@ -101,7 +105,7 @@ function serviceWith(records: QuestionRecord[]): QuestionLinkService {
 
 const humanLinkInput = {
   questionId: HUMAN_QUESTION_ID,
-  snapshotId: "snap-1",
+  snapshotId: `snap-${"a".repeat(64)}`,
   origin: "human",
   rawArtifactId: "art-01ARZ3NDEKTSV4RRFFQ69G5FAV",
   generation: 0,
@@ -110,19 +114,22 @@ const humanLinkInput = {
 
 const generatedLinkInput = {
   questionId: GENERATED_QUESTION_ID,
-  snapshotId: "snap-1",
+  snapshotId: `snap-${"a".repeat(64)}`,
   origin: "ingestion-generated",
   systemActor: "curiosity-planner",
   rawArtifactId: "art-01BX5ZZKBKACTAV9WEVGEMMVRZ",
   generation: 1,
-  sourceUnitIds: ["unit-1", "unit-2"],
+  sourceUnitIds: [
+    "unit-01J00000000000000000000001",
+    "unit-01J00000000000000000000002",
+  ],
 } as const;
 
-const storedHumanLink = {
+const storedHumanLink = IngestionQuestionLinkSchema.parse({
   schemaVersion: 1,
   ...humanLinkInput,
   createdRevision: 0,
-} as const;
+});
 
 describe("public seams", () => {
   it("exposes link services and stores through directory barrels", async () => {
@@ -180,11 +187,11 @@ describe("filesystem QuestionLinkStore", () => {
         storedHumanLink,
       );
 
-      const generatedStoredLink = {
+      const generatedStoredLink = IngestionQuestionLinkSchema.parse({
         schemaVersion: 1,
         ...generatedLinkInput,
         createdRevision: 0,
-      } as const;
+      });
       const otherRoot = join(parent, "other-repository");
       await mkdir(otherRoot);
       await rm(alias);
@@ -250,7 +257,12 @@ describe("filesystem QuestionLinkStore", () => {
         storedHumanLink,
       );
       await expect(
-        restarted.create({ ...storedHumanLink, snapshotId: "snap-rewritten" }),
+        restarted.create(
+          IngestionQuestionLinkSchema.parse({
+            ...storedHumanLink,
+            snapshotId: `snap-${"b".repeat(64)}`,
+          }),
+        ),
       ).resolves.toBe(false);
       await expect(
         readFile(
@@ -343,10 +355,10 @@ describe("filesystem QuestionLinkStore", () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
     try {
       const store = createFileQuestionLinkStore(root);
-      const rival = {
+      const rival = IngestionQuestionLinkSchema.parse({
         ...storedHumanLink,
-        snapshotId: "snap-rival",
-      } as const;
+        snapshotId: `snap-${"b".repeat(64)}`,
+      });
       const outcomes = await Promise.all([
         store.create(storedHumanLink),
         store.create(rival),
@@ -382,7 +394,7 @@ describe("filesystem QuestionLinkStore", () => {
 
         const attackerLink = {
           ...storedHumanLink,
-          snapshotId: "snap-attacker",
+          snapshotId: `snap-${"c".repeat(64)}`,
         };
         swap = async () => {
           await mkdir(join(attacker, "question-links"), { recursive: true });
@@ -427,11 +439,11 @@ describe("filesystem QuestionLinkStore", () => {
           await rename(join(root, "ingest"), join(root, "ingest-moved"));
           await symlink(attacker, join(root, "ingest"));
         };
-        const generatedStoredLink = {
+        const generatedStoredLink = IngestionQuestionLinkSchema.parse({
           schemaVersion: 1,
           ...generatedLinkInput,
           createdRevision: 0,
-        } as const;
+        });
         await expect(store.create(generatedStoredLink)).resolves.toBe(true);
 
         await expect(
@@ -458,7 +470,10 @@ describe("filesystem QuestionLinkStore", () => {
   it("enforces OS no-replace publication independently of the advisory lock", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
     const lockRoot = await mkdtemp(join(tmpdir(), "ultradyn-lock-root-"));
-    const rival = { ...storedHumanLink, snapshotId: "snap-rival" } as const;
+    const rival = IngestionQuestionLinkSchema.parse({
+      ...storedHumanLink,
+      snapshotId: `snap-${"b".repeat(64)}`,
+    });
     try {
       // The rival writer publishes directly, without ever touching our
       // advisory lock, in the window between directory resolution and this
@@ -506,7 +521,12 @@ describe("filesystem QuestionLinkStore", () => {
       await expect(store.create(storedHumanLink)).resolves.toBe(true);
       expect(synced).toBe(1);
       await expect(
-        store.create({ ...storedHumanLink, snapshotId: "snap-dup" }),
+        store.create(
+          IngestionQuestionLinkSchema.parse({
+            ...storedHumanLink,
+            snapshotId: `snap-${"d".repeat(64)}`,
+          }),
+        ),
       ).resolves.toBe(false);
       expect(synced).toBe(1);
     } finally {
@@ -552,7 +572,7 @@ describe("filesystem QuestionLinkStore", () => {
             origin: "ingestion-generated",
             systemActor: "curiosity-planner",
             generation: 1,
-            sourceUnitIds: ["unit-1"],
+            sourceUnitIds: ["unit-01J00000000000000000000001"],
           },
           null,
           2,
@@ -617,7 +637,7 @@ describe("QuestionLinkService", () => {
     const service = serviceWith([humanQuestion()]);
     const result = await service.link({
       ...humanLinkInput,
-      sourceUnitIds: ["unit-1"],
+      sourceUnitIds: ["unit-01J00000000000000000000001"],
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("INVALID_LINK");
@@ -627,12 +647,12 @@ describe("QuestionLinkService", () => {
     const service = serviceWith([humanQuestion(), generatedQuestion()]);
     const reverseLinkInput = {
       questionId: HUMAN_QUESTION_ID,
-      snapshotId: "snap-1",
+      snapshotId: `snap-${"a".repeat(64)}`,
       origin: "reverse",
       systemActor: "reverse-ingestor",
       rawArtifactId: "art-01ARZ3NDEKTSV4RRFFQ69G5FAV",
       generation: 1,
-      sourceUnitIds: ["unit-1"],
+      sourceUnitIds: ["unit-01J00000000000000000000001"],
     } as const;
 
     expect((await service.link(reverseLinkInput)).ok).toBe(true);
@@ -645,6 +665,30 @@ describe("QuestionLinkService", () => {
     if (!reverseOnGenerated.ok) {
       expect(reverseOnGenerated.code).toBe("ORIGIN_MISMATCH");
     }
+  });
+
+  it("deep-clones and freezes fake-store inputs and outputs", async () => {
+    const store = createInMemoryQuestionLinkStore();
+    const input = structuredClone(storedHumanLink) as IngestionQuestionLink;
+    await expect(store.create(input)).resolves.toBe(true);
+
+    (input.sourceUnitIds as unknown as string[]).push(
+      "unit-01J00000000000000000000009",
+    );
+    const first = await store.get(HUMAN_QUESTION_ID);
+    expect(first?.sourceUnitIds).toEqual([]);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first?.sourceUnitIds)).toBe(true);
+    expect(() =>
+      (first?.sourceUnitIds as unknown as string[]).push(
+        "unit-01J00000000000000000000008",
+      ),
+    ).toThrow();
+
+    const second = await store.get(HUMAN_QUESTION_ID);
+    expect(second).toEqual(storedHumanLink);
+    expect(second).not.toBe(first);
+    expect(second?.sourceUnitIds).not.toBe(first?.sourceUnitIds);
   });
 
   it("captures createdRevision inside the store's exclusive section", async () => {

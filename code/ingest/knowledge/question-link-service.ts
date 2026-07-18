@@ -1,13 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import type { QuestionRecord } from "../../domain/index.js";
 import {
   IngestionQuestionLinkSchema,
   QuestionLinkInputSchema,
   type IngestionQuestionLink,
+  type IngestResult,
   type QuestionLinkStore,
-} from "../../domain/ingest/question-link.js";
-import type { IngestResult } from "../../domain/ingest/types.js";
-import type { QuestionRecord } from "../../domain/schemas.js";
+} from "../../domain/ingest/index.js";
 import { QuestionNotFoundError } from "../../repository/index.js";
 
 export type QuestionLinkError =
@@ -26,14 +26,29 @@ export interface QuestionLinkService {
   ): Promise<IngestResult<IngestionQuestionLink, "LINK_NOT_FOUND">>;
 }
 
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+function immutableLink(value: unknown): IngestionQuestionLink {
+  return deepFreeze(IngestionQuestionLinkSchema.parse(structuredClone(value)));
+}
+
 export function createInMemoryQuestionLinkStore(): QuestionLinkStore {
   const links = new Map<string, IngestionQuestionLink>();
   const holder = new AsyncLocalStorage<true>();
   let queue: Promise<unknown> = Promise.resolve();
   return {
-    get: async (questionId) => links.get(questionId),
+    get: async (questionId) => {
+      const link = links.get(questionId);
+      return link ? immutableLink(link) : undefined;
+    },
     create: async (input) => {
-      const link = IngestionQuestionLinkSchema.parse(input);
+      const link = immutableLink(input);
       if (links.has(link.questionId)) return false;
       links.set(link.questionId, link);
       return true;

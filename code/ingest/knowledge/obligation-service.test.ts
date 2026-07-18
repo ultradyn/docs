@@ -12,6 +12,8 @@ import {
   type CoverageObligationEvent,
   type CoverageObligationEventWriter,
   type QuestionId,
+  type ReserveCoverageObligationCreateCommand,
+  type ReserveCoverageObligationCreateResult,
 } from "../../domain/ingest/index.js";
 import { createCoverageObligationService } from "./index.js";
 
@@ -39,6 +41,22 @@ function createInMemoryCoverageObligationEventWriter(
     : [];
   if (!Array.isArray(decoded)) throw new Error("Invalid event writer bytes.");
   const records = decoded.map(immutableEvent);
+  const createReservations = new Map<
+    string,
+    { commandDigest: string; obligationId: string }
+  >();
+  for (const event of records) {
+    if (event.type !== "created") continue;
+    createReservations.set(event.idempotencyKey, {
+      commandDigest: JSON.stringify({
+        questionId: event.obligation.questionId,
+        trigger: event.obligation.trigger,
+        ownerQuestionId: event.obligation.ownerQuestionId,
+        expectedVersion: 0,
+      }),
+      obligationId: event.obligationId,
+    });
+  }
   let queue: Promise<unknown> = Promise.resolve();
 
   function exclusive<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -60,6 +78,25 @@ function createInMemoryCoverageObligationEventWriter(
   }
 
   return {
+    reserveCreate(command: ReserveCoverageObligationCreateCommand) {
+      return exclusive((): ReserveCoverageObligationCreateResult => {
+        const prior = createReservations.get(command.idempotencyKey);
+        if (prior) {
+          return prior.commandDigest === command.commandDigest
+            ? {
+                status: "idempotent",
+                obligationId: prior.obligationId as never,
+              }
+            : { status: "idempotency_conflict" };
+        }
+        const obligationId = command.allocateObligationId();
+        createReservations.set(command.idempotencyKey, {
+          commandDigest: command.commandDigest,
+          obligationId,
+        });
+        return { status: "reserved", obligationId };
+      });
+    },
     append(command: AppendCoverageObligationEventCommand) {
       return exclusive((): AppendCoverageObligationEventResult => {
         const expectedVersion = command.expectedVersion;
@@ -87,10 +124,7 @@ function createInMemoryCoverageObligationEventWriter(
             JSON.stringify(command.event) === JSON.stringify(prior);
           return same
             ? { status: "idempotent", event: immutableEvent(prior) }
-            : {
-                status: "version_conflict",
-                currentVersion: currentVersion(command.obligationId),
-              };
+            : { status: "idempotency_conflict" };
         }
         const version = currentVersion(command.obligationId);
         if (version !== expectedVersion) {
@@ -368,6 +402,55 @@ describe("coverage-obligation public seam", () => {
     ).resolves.toMatchObject({ ok: false, code: "VERSION_CONFLICT" });
   });
 
+  it("reserves one generated ID for concurrent same-key creates and binds the key to its payload", async () => {
+    const writer = createInMemoryCoverageObligationEventWriter();
+    let sequence = 2;
+    let allocations = 0;
+    const makeService = () =>
+      createCoverageObligationService({
+        questions: {
+          getQuestion: (id) =>
+            Promise.resolve(
+              id === GENERATED_QUESTION_ID
+                ? question(GENERATED_QUESTION_ID, {
+                    kind: "generated",
+                    parentQuestionId: PARENT_QUESTION_ID,
+                    findingId: FINDING_ID,
+                    goal: "understand-replay",
+                  })
+                : undefined,
+            ),
+        },
+        ids: {
+          next: () => {
+            allocations += 1;
+            return `obl-01BX5ZZKBKACTAV9WEVGEMMVS${sequence++}`;
+          },
+        },
+        events: writer,
+      });
+    const command = {
+      questionId: GENERATED_QUESTION_ID,
+      trigger: "unit-replay-guarantee",
+      ownerQuestionId: GENERATED_QUESTION_ID,
+      expectedVersion: 0 as const,
+      idempotencyKey: "concurrent-global-create",
+    };
+
+    const [left, right] = await Promise.all([
+      makeService().create(command),
+      makeService().create(command),
+    ]);
+
+    expect(left).toEqual(right);
+    expect(left).toMatchObject({ ok: true, value: { version: 1 } });
+    expect(allocations).toBe(1);
+    expect(await writer.readAll()).toHaveLength(1);
+    await expect(
+      makeService().create({ ...command, trigger: "different payload" }),
+    ).resolves.toMatchObject({ ok: false, code: "IDEMPOTENCY_CONFLICT" });
+  });
+
   it("makes compare-and-append atomic across service instances", async () => {
     const { service, makeService } = fixture();
     const created = await createAssigned(service);
@@ -447,6 +530,7 @@ describe("coverage-obligation public seam", () => {
 
     for (const history of corruptions) {
       const writer: CoverageObligationEventWriter = {
+        reserveCreate: () => Promise.reject(new Error("unused")),
         append: () => Promise.reject(new Error("unused")),
         read: () => Promise.resolve(history),
         readAll: () => Promise.resolve(history),
@@ -470,6 +554,7 @@ describe("coverage-obligation public seam", () => {
     const raw = (await base.events.read(created.value.id))[0];
 
     const crossWired = fixture({
+      reserveCreate: () => Promise.reject(new Error("unused")),
       append: () => Promise.reject(new Error("unused")),
       read: () => Promise.resolve([raw]),
       readAll: () => Promise.resolve([raw]),
@@ -491,6 +576,7 @@ describe("coverage-obligation public seam", () => {
         obligationId: "obl-01BX5ZZKBKACTAV9WEVGEMMVS9" as never,
         expectedVersion: 0,
         idempotencyKey: "mismatched-envelope",
+        commandDigest: "mismatched-envelope",
         event: raw as CoverageObligationEvent,
       }),
     ).rejects.toThrow("append command");
@@ -499,6 +585,7 @@ describe("coverage-obligation public seam", () => {
         obligationId: OBLIGATION_ID as never,
         expectedVersion: 0,
         idempotencyKey: "poisoned-envelope",
+        commandDigest: "poisoned-envelope",
         event: {
           ...(raw as CoverageObligationEvent),
           idempotencyKey: "poisoned-envelope",
@@ -648,6 +735,7 @@ describe("coverage-obligation public seam", () => {
       },
     };
     const corruptWriter: CoverageObligationEventWriter = {
+      reserveCreate: () => Promise.reject(new Error("unused")),
       append: () => Promise.reject(new Error("unused")),
       read: (id) =>
         Promise.resolve(
@@ -723,6 +811,7 @@ describe("coverage-obligation public seam", () => {
     const writer = createInMemoryCoverageObligationEventWriter();
     let loseAcknowledgement = true;
     const ackLossWriter: CoverageObligationEventWriter = {
+      reserveCreate: (command) => writer.reserveCreate(command),
       append: async (command) => {
         const result = await writer.append(command);
         if (loseAcknowledgement) {
@@ -762,7 +851,7 @@ describe("coverage-obligation public seam", () => {
     });
     await expect(
       service.create({ ...command, trigger: "different-command" }),
-    ).resolves.toMatchObject({ ok: false, code: "VERSION_CONFLICT" });
+    ).resolves.toMatchObject({ ok: false, code: "IDEMPOTENCY_CONFLICT" });
     expect(await writer.readAll()).toHaveLength(1);
   });
 
@@ -782,6 +871,7 @@ describe("coverage-obligation public seam", () => {
 
     let loseAcknowledgement = true;
     const ackLossWriter: CoverageObligationEventWriter = {
+      reserveCreate: (command) => recoveredWriter.reserveCreate(command),
       append: async (command) => {
         const result = await recoveredWriter.append(command);
         if (loseAcknowledgement) {

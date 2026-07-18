@@ -44,6 +44,13 @@ describe("ingestion schema registry", () => {
     ).toBe(false);
     expect(CoverageObligationSchema.parse(complete)).toEqual(complete);
     expect(
+      CoverageObligationSchema.safeParse({
+        ...complete,
+        status: "open",
+        ownerQuestionId: complete.questionId,
+      }).success,
+    ).toBe(false);
+    expect(
       ingestSchemaRegistry.get("CoverageObligation", 1).parse(complete),
     ).toEqual(complete);
   });

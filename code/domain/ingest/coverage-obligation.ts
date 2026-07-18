@@ -1,16 +1,7 @@
 import { z } from "zod";
 
+import { ObligationIdSchema, QuestionIdSchema } from "./id-schemas.js";
 import type { ObligationId, QuestionId } from "./types.js";
-
-const ULID_PATTERN = "[0-9A-HJKMNP-TV-Z]{26}";
-const QuestionIdSchema = z
-  .string()
-  .regex(new RegExp(`^q-${ULID_PATTERN}$`))
-  .transform((value) => value as QuestionId);
-const ObligationIdSchema = z
-  .string()
-  .regex(new RegExp(`^obl-${ULID_PATTERN}$`))
-  .transform((value) => value as ObligationId);
 
 export const COVERAGE_OBLIGATION_TERMINAL_STATUSES = [
   "satisfied",
@@ -35,6 +26,17 @@ export type ObligationStatus = z.infer<typeof ObligationStatusSchema>;
 export type TerminalObligationStatus =
   (typeof COVERAGE_OBLIGATION_TERMINAL_STATUSES)[number];
 
+export function isCoherentObligationOwner(
+  status: ObligationStatus,
+  ownerQuestionId: QuestionId | null,
+): boolean {
+  if (status === "open") return ownerQuestionId === null;
+  if (["assigned", "transferred", "blocked"].includes(status)) {
+    return ownerQuestionId !== null;
+  }
+  return true;
+}
+
 export const CoverageObligationRecordSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -45,7 +47,16 @@ export const CoverageObligationRecordSchema = z
     status: ObligationStatusSchema,
     version: z.number().int().positive(),
   })
-  .strict();
+  .strict()
+  .superRefine((record, context) => {
+    if (!isCoherentObligationOwner(record.status, record.ownerQuestionId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["ownerQuestionId"],
+        message: `Status ${record.status} has an invalid owner relationship.`,
+      });
+    }
+  });
 export type CoverageObligation = z.infer<typeof CoverageObligationRecordSchema>;
 
 export const CoverageObligationEventTypeSchema = z.enum([
@@ -74,10 +85,26 @@ export type CoverageObligationEvent = z.infer<
   typeof CoverageObligationEventSchema
 >;
 
+export interface ReserveCoverageObligationCreateCommand {
+  readonly idempotencyKey: string;
+  readonly commandDigest: string;
+  /** Invoked only by the globally winning reservation while under the writer's lock. */
+  readonly allocateObligationId: () => ObligationId;
+}
+
+export type ReserveCoverageObligationCreateResult =
+  | {
+      readonly status: "reserved" | "idempotent";
+      readonly obligationId: ObligationId;
+    }
+  | { readonly status: "idempotency_conflict" };
+
 export interface AppendCoverageObligationEventCommand {
   readonly obligationId: ObligationId;
   readonly expectedVersion: number;
   readonly idempotencyKey: string;
+  /** Canonical payload digest bound by the global operation-key record. */
+  readonly commandDigest: string;
   /**
    * Atomically rejects the append when another unresolved obligation already
    * names this owner. The current obligation is excluded from the check.
@@ -90,12 +117,16 @@ export type AppendCoverageObligationEventResult =
   | { readonly status: "appended"; readonly event: CoverageObligationEvent }
   | { readonly status: "idempotent"; readonly event: CoverageObligationEvent }
   | { readonly status: "version_conflict"; readonly currentVersion: number }
+  | { readonly status: "idempotency_conflict" }
   | {
       readonly status: "ownership_conflict";
       readonly ownerQuestionId: QuestionId;
     };
 
 export interface CoverageObligationEventWriter {
+  reserveCreate(
+    command: ReserveCoverageObligationCreateCommand,
+  ): Promise<ReserveCoverageObligationCreateResult>;
   append(
     command: AppendCoverageObligationEventCommand,
   ): Promise<AppendCoverageObligationEventResult>;

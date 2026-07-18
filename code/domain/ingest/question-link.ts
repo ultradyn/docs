@@ -1,16 +1,24 @@
 import { z } from "zod";
 
+import {
+  QuestionIdSchema,
+  RawArtifactIdSchema,
+  SnapshotIdSchema,
+  SourceUnitIdSchema,
+} from "./id-schemas.js";
+import type { QuestionId, SnapshotId, SourceUnitId } from "./types.js";
+
 export type QuestionLinkOrigin = "human" | "ingestion-generated" | "reverse";
 
 export interface IngestionQuestionLink {
   schemaVersion: 1;
-  questionId: string;
-  snapshotId: string;
+  questionId: QuestionId;
+  snapshotId: SnapshotId;
   origin: QuestionLinkOrigin;
   systemActor?: string | undefined;
   rawArtifactId: string;
   generation: number;
-  sourceUnitIds: readonly string[];
+  sourceUnitIds: readonly SourceUnitId[];
   createdRevision: number;
 }
 
@@ -26,15 +34,6 @@ export interface QuestionLinkStore {
 }
 
 const NonEmptyStringSchema = z.string().trim().min(1);
-
-// Mirrors IdSchemas in ../schemas.ts; duplicated locally because importing
-// ../schemas.js from here would close an ESM evaluation cycle (schemas.ts
-// re-exports this module's schema via ./ingest/index.js).
-const ULID_PATTERN = "[0-9A-HJKMNP-TV-Z]{26}";
-const QuestionIdSchema = z.string().regex(new RegExp(`^q-${ULID_PATTERN}$`));
-const RawArtifactIdSchema = z
-  .string()
-  .regex(new RegExp(`^art-${ULID_PATTERN}$`));
 
 // System-created links (N6): non-human origins must name the acting system and
 // carry source-unit provenance; human demand carries neither.
@@ -107,12 +106,12 @@ function refineOrigin(
 // reference records that DO exist today and must match their ID formats.
 const linkShape = {
   questionId: QuestionIdSchema,
-  snapshotId: NonEmptyStringSchema,
+  snapshotId: SnapshotIdSchema,
   origin: z.enum(["human", "ingestion-generated", "reverse"]),
   systemActor: NonEmptyStringSchema.optional(),
   rawArtifactId: RawArtifactIdSchema,
   generation: z.number().int().nonnegative(),
-  sourceUnitIds: z.array(NonEmptyStringSchema),
+  sourceUnitIds: z.array(SourceUnitIdSchema),
 };
 
 // Strict shape: wording, canonical-origin, and lifecycle fields are unknown
