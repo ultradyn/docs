@@ -1,13 +1,10 @@
 import { z } from "zod";
+export { PolicyProfileSchema } from "./policy-profile.js";
 
 const IdSchema = z.string().min(1);
 const Sha256Schema = z
   .string()
   .regex(/^[a-f0-9]{64}$/i, "must be 64 hex characters");
-
-export const PolicyProfileSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
 
 export const SourceFileSchema = z
   .object({
