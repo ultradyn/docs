@@ -34,4 +34,31 @@ describe("automatic ingestion architecture", () => {
     );
     expect(architecture).toContain("## Deferred activation");
   });
+
+  it("defines repository paths and agreed ingestion seams", async () => {
+    const architecture = await readArchitecture();
+    const seams = await readFile(
+      path.join(process.cwd(), "docs", "engineering", "tdd-seams.md"),
+      "utf8",
+    );
+
+    for (const seam of [
+      "Source custody",
+      "Source representation",
+      "Ingestion knowledge repository",
+      "Ingestion graph gateway",
+      "Ingestion fixture runner",
+    ]) {
+      expect(seams).toContain(`| ${seam}`);
+    }
+
+    expect(architecture).toContain("`sources/snapshots/`");
+    expect(architecture).toContain("`ingest/claims/`");
+    expect(architecture).toContain("`.ultradyn/runtime/ingest/`");
+    expect(architecture).toContain("one file per accepted logical record");
+    expect(architecture).toContain("`IdGenerator.next(kind): string`");
+    expect(architecture.replace(/\s+/g, " ")).toContain(
+      "queue folders remain projections",
+    );
+  });
 });

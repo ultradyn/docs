@@ -13,6 +13,13 @@ accepted logical records; machine-local projections and replay bytes are not.
 Agents propose typed results, while deterministic services own writes, IDs,
 transitions, priorities, idempotency, and graph validity.
 
+Accepted logical ingestion records use one file per accepted logical record under
+fixed portable roots such as `sources/snapshots/` and `ingest/claims/`. Replay
+bytes, live events, leases, and derived indexes live under the machine-local
+`.ultradyn/runtime/ingest/` boundary. Identifiers are content-derived or supplied
+by an injected deterministic `IdGenerator.next(kind): string`; queue folders
+remain projections rather than lifecycle authority.
+
 ## Agent isolation
 
 A fresh Evidence Critic evaluates evidence without proposing child questions. A

@@ -2,20 +2,25 @@
 
 The product request explicitly requires TDD and names the following observable boundaries. Tests may use public interfaces at these seams; they must not reach into private helpers.
 
-| Seam                  | Observable behavior                                                                                                  |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| CLI process           | Arguments/stdin produce stable screens, exit codes, and a usable target directory.                                   |
-| Scaffold filesystem   | A destination is created transactionally, existing files are preserved, and the result is a valid Git repository.    |
-| Knowledge repository  | Commands create/read/list/transition records and regenerate identical committed projections.                         |
-| Raw artifact store    | First writes persist bytes durably; later mutation/deletion is rejected.                                             |
-| HTTP/SSE API          | Requests, responses, status codes, and event streams implement the documented contract.                              |
-| Provider contract     | A capability reports availability/consent, streams typed events, and can be swapped for its deterministic fake.      |
-| Agent runtime         | Definition inputs yield schema-valid outputs and evaluator calls receive only their permitted context.               |
-| Audio session         | Ordered chunks are acknowledged durably; finalize verifies/transcodes before raw cleanup and exposes failure states. |
-| Web routes            | A user can complete Ask, Queue, Answer, Settings, and conditional Maintenance flows through accessible controls.     |
-| Maintenance scheduler | Poll inputs plus durable cursors yield idempotent local review tasks and re-review invalidation.                     |
-| Change request        | A documentation proposal exposes an actual diff, checks, approval mode, and local/GitHub backend state.              |
-| Desktop launcher      | Tauri starts or connects to the same server contract and opens the bundled UI.                                       |
+| Seam                           | Observable behavior                                                                                                                    |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI process                    | Arguments/stdin produce stable screens, exit codes, and a usable target directory.                                                     |
+| Scaffold filesystem            | A destination is created transactionally, existing files are preserved, and the result is a valid Git repository.                      |
+| Knowledge repository           | Commands create/read/list/transition records and regenerate identical committed projections.                                           |
+| Raw artifact store             | First writes persist bytes durably; later mutation/deletion is rejected.                                                               |
+| HTTP/SSE API                   | Requests, responses, status codes, and event streams implement the documented contract.                                                |
+| Provider contract              | A capability reports availability/consent, streams typed events, and can be swapped for its deterministic fake.                        |
+| Agent runtime                  | Definition inputs yield schema-valid outputs and evaluator calls receive only their permitted context.                                 |
+| Audio session                  | Ordered chunks are acknowledged durably; finalize verifies/transcodes before raw cleanup and exposes failure states.                   |
+| Web routes                     | A user can complete Ask, Queue, Answer, Settings, and conditional Maintenance flows through accessible controls.                       |
+| Maintenance scheduler          | Poll inputs plus durable cursors yield idempotent local review tasks and re-review invalidation.                                       |
+| Change request                 | A documentation proposal exposes an actual diff, checks, approval mode, and local/GitHub backend state.                                |
+| Desktop launcher               | Tauri starts or connects to the same server contract and opens the bundled UI.                                                         |
+| Source custody                 | Package preflight plus append-only snapshot and replay storage produce idempotent verified custody records.                            |
+| Source representation          | A-tier extraction and structural parsing produce immutable qualified representations and source units.                                 |
+| Ingestion knowledge repository | Commands create/read/review evidence, claims, obligations, and answer compositions without replacing the canonical question lifecycle. |
+| Ingestion graph gateway        | Expected-version, idempotent mutations produce dependency revisions and precise invalidation through one deterministic writer.         |
+| Ingestion fixture runner       | Versioned tiny/small corpus inputs produce reproducible results and decisive regression reports with provider caches disabled.         |
 
 External APIs, OS keyrings/credential clients, clocks, randomness, microphones, codecs, process execution, and GitHub are system boundaries and may be replaced by explicit fakes. Internal modules are not mocked.
 
