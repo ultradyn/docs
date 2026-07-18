@@ -30,6 +30,7 @@ flowchart TB
   CE --> CR[Claim Reviewer]
   CR --> CP[Curiosity Planner]
   EC -->|gap / special terminal| CP
+  EC -->|contradiction| P1[Active P1 resolution, done=false]
   CP --> NG{Novel obligation?}
   NG -->|yes| Children[Child questions]
   NG -->|no| Reject[Reject / rewrite]
