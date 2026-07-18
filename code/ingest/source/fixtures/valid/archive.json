@@ -1,0 +1,16 @@
+{
+  "entries": [
+    {
+      "logicalPath": "docs\\guide.md",
+      "mediaType": "text/markdown",
+      "size": 20,
+      "kind": "file"
+    },
+    {
+      "logicalPath": "docs/private/notes.txt",
+      "mediaType": "text/plain",
+      "size": 20,
+      "kind": "file"
+    }
+  ]
+}

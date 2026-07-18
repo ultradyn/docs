@@ -1,0 +1,10 @@
+{
+  "entries": [
+    {
+      "logicalPath": "docs/payload.bin",
+      "mediaType": "application/octet-stream",
+      "size": 1,
+      "kind": "file"
+    }
+  ]
+}

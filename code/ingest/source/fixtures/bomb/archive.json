@@ -1,0 +1,22 @@
+{
+  "entries": [
+    {
+      "logicalPath": "docs/one.md",
+      "mediaType": "text/markdown",
+      "size": 20,
+      "kind": "file"
+    },
+    {
+      "logicalPath": "docs/two.md",
+      "mediaType": "text/markdown",
+      "size": 20,
+      "kind": "file"
+    },
+    {
+      "logicalPath": "README.md",
+      "mediaType": "text/markdown",
+      "size": 1,
+      "kind": "file"
+    }
+  ]
+}

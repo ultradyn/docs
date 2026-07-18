@@ -1,0 +1,11 @@
+{
+  "entries": [
+    {
+      "logicalPath": "docs/current.md",
+      "mediaType": "text/markdown",
+      "size": 8,
+      "kind": "symlink",
+      "linkTarget": "../../secret.md"
+    }
+  ]
+}
