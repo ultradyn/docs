@@ -19,7 +19,8 @@ tasks:
       file: T001-t-01-01-implement-schema-regis.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-01-01 — Implement schema registry
     - complexity: medium
       depends_on:
