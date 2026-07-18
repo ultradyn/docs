@@ -21,7 +21,8 @@ tasks:
       file: T001-t-10-01-implement-package-pref.todo
       id: T001
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: T-10-01 — Implement package preflight
     - complexity: high
       depends_on:
