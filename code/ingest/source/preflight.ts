@@ -53,7 +53,9 @@ export async function preflightPackage(input: {
     };
   }
   const policy = parsedPolicy.data;
-  const entries = await input.archive.entries(input.archivePath);
+  const entries = [...(await input.archive.entries(input.archivePath))].sort(
+    compareArchiveEntries,
+  );
   const unsafe = entries.find((entry) => {
     const logicalPath = entry.logicalPath.replaceAll("\\", "/");
     const normalized = posix.normalize(logicalPath);
@@ -76,17 +78,53 @@ export async function preflightPackage(input: {
     };
   }
 
-  const normalizedPaths = new Set<string>();
+  const normalizedPaths = new Map<string, string>();
   for (const entry of entries) {
     const normalized = posix.normalize(entry.logicalPath.replaceAll("\\", "/"));
-    if (normalizedPaths.has(normalized)) {
+    const collidingPath = normalizedPaths.get(normalized);
+    if (collidingPath !== undefined) {
       return {
         ok: false,
         code: "PATH_TRAVERSAL",
-        message: `archive paths collide after normalization: ${normalized}`,
+        message: `archive paths collide after normalization: ${collidingPath} and ${entry.logicalPath}`,
       };
     }
-    normalizedPaths.add(normalized);
+    normalizedPaths.set(normalized, entry.logicalPath);
+  }
+
+  const nonPortable = entries.find((entry) =>
+    entry.logicalPath
+      .replaceAll("\\", "/")
+      .split("/")
+      .some(
+        (segment) =>
+          (segment !== "." && /[. ]$/.test(segment)) ||
+          /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|com(?:[1-9]|[¹²³])|lpt(?:[1-9]|[¹²³]))(?:\.|$)/i.test(
+            segment,
+          ),
+      ),
+  );
+  if (nonPortable !== undefined) {
+    return {
+      ok: false,
+      code: "PATH_TRAVERSAL",
+      message: `archive path is not portable: ${nonPortable.logicalPath}`,
+    };
+  }
+
+  const portablePaths = new Map<string, string>();
+  for (const entry of entries) {
+    const normalized = posix.normalize(entry.logicalPath.replaceAll("\\", "/"));
+    const key = portableCollisionKey(normalized);
+    const collidingPath = portablePaths.get(key);
+    if (collidingPath !== undefined) {
+      return {
+        ok: false,
+        code: "PATH_TRAVERSAL",
+        message: `archive paths collide portably: ${collidingPath} and ${entry.logicalPath}`,
+      };
+    }
+    portablePaths.set(key, entry.logicalPath);
   }
 
   const link = entries.find((entry) => entry.kind !== "file");
@@ -182,7 +220,7 @@ export async function preflightPackage(input: {
     );
     if (excludedBy !== undefined) {
       return {
-        logicalPath,
+        logicalPath: entry.logicalPath,
         mediaType: entry.mediaType,
         size: entry.size,
         included: false,
@@ -194,7 +232,7 @@ export async function preflightPackage(input: {
       matchesPath(pattern, logicalPath),
     );
     return {
-      logicalPath,
+      logicalPath: entry.logicalPath,
       mediaType: entry.mediaType,
       size: entry.size,
       included: includedBy !== undefined,
@@ -204,15 +242,40 @@ export async function preflightPackage(input: {
           : `included by ${includedBy}`,
     };
   });
-  manifestEntries.sort((left, right) =>
-    left.logicalPath < right.logicalPath
-      ? -1
-      : left.logicalPath > right.logicalPath
-        ? 1
-        : 0,
-  );
-
   return { ok: true, value: { entries: manifestEntries } };
+}
+
+// NFKC plus upper-then-lower provides a deterministic, locale-independent
+// caseless key for portable source custody (including sigma and long-s forms).
+function portableCollisionKey(logicalPath: string): string {
+  return logicalPath
+    .normalize("NFKC")
+    .toUpperCase()
+    .toLowerCase()
+    .normalize("NFC");
+}
+
+function compareArchiveEntries(
+  left: ArchiveEntry,
+  right: ArchiveEntry,
+): number {
+  const leftKey = archiveEntrySortKey(left);
+  const rightKey = archiveEntrySortKey(right);
+  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+}
+
+function archiveEntrySortKey(entry: ArchiveEntry): string {
+  const normalizedPath = posix.normalize(
+    entry.logicalPath.replaceAll("\\", "/"),
+  );
+  return [
+    portableCollisionKey(normalizedPath),
+    entry.logicalPath,
+    entry.kind,
+    entry.linkTarget ?? "",
+    entry.mediaType,
+    String(entry.size),
+  ].join("\0");
 }
 
 function matchesPath(pattern: string, logicalPath: string): boolean {

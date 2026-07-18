@@ -244,7 +244,8 @@ describe("source package preflight", () => {
     ).resolves.toEqual({
       ok: false,
       code: "PATH_TRAVERSAL",
-      message: "archive paths collide after normalization: docs/guide.md",
+      message:
+        "archive paths collide after normalization: docs/./guide.md and docs/guide.md",
     });
     expect(archive.extract).not.toHaveBeenCalled();
   });
@@ -324,6 +325,219 @@ describe("source package preflight", () => {
     },
   );
 
+  it("reports the same first offending path for reordered metadata", async () => {
+    const firstOrder = [
+      {
+        logicalPath: "docs/z-large.md",
+        mediaType: "text/markdown",
+        size: 22,
+        kind: "file",
+      },
+      {
+        logicalPath: "docs/a-large.md",
+        mediaType: "text/markdown",
+        size: 21,
+        kind: "file",
+      },
+    ] satisfies readonly ArchiveEntry[];
+    const secondOrder = [...firstOrder].reverse();
+
+    const results = await Promise.all(
+      [firstOrder, secondOrder].map((entries) =>
+        preflightPackage({
+          archivePath: "reordered.zip",
+          policy,
+          archive: archiveWith(entries),
+        }),
+      ),
+    );
+
+    const expected = {
+      ok: false,
+      code: "LIMIT_EXCEEDED",
+      message: "file bytes exceed policy limit: docs/a-large.md (21 > 20)",
+    };
+    expect(results).toEqual([expected, expected]);
+  });
+
+  it.each([
+    {
+      label: "unsafe path",
+      entries: [
+        {
+          logicalPath: "z/../escape.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+        {
+          logicalPath: "a/../escape.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+      ] satisfies readonly ArchiveEntry[],
+      expected: {
+        ok: false,
+        code: "PATH_TRAVERSAL",
+        message: "unsafe archive path: a/../escape.md",
+      },
+    },
+    {
+      label: "nonportable path",
+      entries: [
+        {
+          logicalPath: "docs/z.",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+        {
+          logicalPath: "docs/a.",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+      ] satisfies readonly ArchiveEntry[],
+      expected: {
+        ok: false,
+        code: "PATH_TRAVERSAL",
+        message: "archive path is not portable: docs/a.",
+      },
+    },
+    {
+      label: "link",
+      entries: [
+        {
+          logicalPath: "docs/z.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "symlink",
+        },
+        {
+          logicalPath: "docs/a.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "hardlink",
+        },
+      ] satisfies readonly ArchiveEntry[],
+      expected: {
+        ok: false,
+        code: "LINK_ESCAPE",
+        message: "archive links are not permitted: docs/a.md",
+      },
+    },
+    {
+      label: "invalid size",
+      entries: [
+        {
+          logicalPath: "docs/z.md",
+          mediaType: "text/markdown",
+          size: -2,
+          kind: "file",
+        },
+        {
+          logicalPath: "docs/a.md",
+          mediaType: "text/markdown",
+          size: -1,
+          kind: "file",
+        },
+      ] satisfies readonly ArchiveEntry[],
+      expected: {
+        ok: false,
+        code: "LIMIT_EXCEEDED",
+        message: "invalid file size: docs/a.md (-1)",
+      },
+    },
+    {
+      label: "unclassified path",
+      entries: [
+        {
+          logicalPath: "z/notes.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+        {
+          logicalPath: "a/notes.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+      ] satisfies readonly ArchiveEntry[],
+      expected: {
+        ok: false,
+        code: "POLICY_DENIED",
+        message: "path is not classified by policy: a/notes.md",
+      },
+    },
+    {
+      label: "denied media",
+      entries: [
+        {
+          logicalPath: "docs/z.bin",
+          mediaType: "application/octet-stream",
+          size: 1,
+          kind: "file",
+        },
+        {
+          logicalPath: "docs/a.png",
+          mediaType: "image/png",
+          size: 1,
+          kind: "file",
+        },
+      ] satisfies readonly ArchiveEntry[],
+      expected: {
+        ok: false,
+        code: "MEDIA_DENIED",
+        message: "media type is not permitted: docs/a.png (image/png)",
+      },
+    },
+    {
+      label: "multiway portable collision",
+      entries: [
+        {
+          logicalPath: "docs/Ａ.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+        {
+          logicalPath: "docs/a.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+        {
+          logicalPath: "docs/A.md",
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+      ] satisfies readonly ArchiveEntry[],
+      expected: {
+        ok: false,
+        code: "PATH_TRAVERSAL",
+        message: "archive paths collide portably: docs/A.md and docs/a.md",
+      },
+    },
+  ])(
+    "reports the same $label receipt for reversed metadata",
+    async ({ entries, expected }) => {
+      const results = await Promise.all(
+        [entries, [...entries].reverse()].map((orderedEntries) =>
+          preflightPackage({
+            archivePath: "reordered.zip",
+            policy,
+            archive: archiveWith(orderedEntries),
+          }),
+        ),
+      );
+
+      expect(results).toEqual([expected, expected]);
+    },
+  );
+
   it("accepts file-count, per-file, and expanded-byte limits exactly", async () => {
     const archive = archiveWith([
       {
@@ -398,7 +612,7 @@ describe("source package preflight", () => {
     expect(archive.extract).not.toHaveBeenCalled();
   });
 
-  it("lists every included and excluded normalized path without extraction", async () => {
+  it("lists every included and excluded original path without extraction", async () => {
     const archive = await archiveFixture("valid");
 
     await expect(
@@ -408,7 +622,7 @@ describe("source package preflight", () => {
       value: {
         entries: [
           {
-            logicalPath: "docs/guide.md",
+            logicalPath: "docs\\guide.md",
             mediaType: "text/markdown",
             size: 20,
             included: true,
@@ -427,6 +641,197 @@ describe("source package preflight", () => {
     expect(archive.extract).not.toHaveBeenCalled();
   });
 
+  it("rejects archive paths that collide after portable case folding", async () => {
+    const archive = archiveWith([
+      {
+        logicalPath: "docs/A.md",
+        mediaType: "text/markdown",
+        size: 1,
+        kind: "file",
+      },
+      {
+        logicalPath: "docs/a.md",
+        mediaType: "text/markdown",
+        size: 1,
+        kind: "file",
+      },
+    ]);
+
+    await expect(
+      preflightPackage({ archivePath: "case-collision.zip", policy, archive }),
+    ).resolves.toEqual({
+      ok: false,
+      code: "PATH_TRAVERSAL",
+      message: "archive paths collide portably: docs/A.md and docs/a.md",
+    });
+    expect(archive.extract).not.toHaveBeenCalled();
+  });
+
+  it("rejects archive paths that collide after Unicode normalization", async () => {
+    const archive = archiveWith([
+      {
+        logicalPath: "docs/caf\u00e9.md",
+        mediaType: "text/markdown",
+        size: 1,
+        kind: "file",
+      },
+      {
+        logicalPath: "docs/cafe\u0301.md",
+        mediaType: "text/markdown",
+        size: 1,
+        kind: "file",
+      },
+    ]);
+
+    await expect(
+      preflightPackage({
+        archivePath: "unicode-collision.zip",
+        policy,
+        archive,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      code: "PATH_TRAVERSAL",
+      message:
+        "archive paths collide portably: docs/cafe\u0301.md and docs/caf\u00e9.md",
+    });
+    expect(archive.extract).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["docs/\u03c2.md", "docs/\u03c3.md"],
+    ["docs/s.md", "docs/\u017f.md"],
+  ])(
+    "rejects archive paths that collide after Unicode case folding: %s and %s",
+    async (leftPath, rightPath) => {
+      const archive = archiveWith([
+        {
+          logicalPath: leftPath,
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+        {
+          logicalPath: rightPath,
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+      ]);
+
+      await expect(
+        preflightPackage({
+          archivePath: "unicode-case-collision.zip",
+          policy,
+          archive,
+        }),
+      ).resolves.toEqual({
+        ok: false,
+        code: "PATH_TRAVERSAL",
+        message: `archive paths collide portably: ${leftPath} and ${rightPath}`,
+      });
+      expect(archive.extract).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["docs/report. ", "docs/report./notes.md"])(
+    "rejects path segments with a trailing dot or space: %s",
+    async (logicalPath) => {
+      const archive = archiveWith([
+        {
+          logicalPath,
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+      ]);
+
+      await expect(
+        preflightPackage({ archivePath: "trailing-name.zip", policy, archive }),
+      ).resolves.toEqual({
+        ok: false,
+        code: "PATH_TRAVERSAL",
+        message: `archive path is not portable: ${logicalPath}`,
+      });
+      expect(archive.extract).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "CON",
+    "docs/con.txt",
+    "docs/Lpt1.md",
+    "AUX.config",
+    "docs/COM¹.txt",
+    "docs/lpt³.log",
+    "CONIN$",
+    "docs/CONOUT$.txt",
+    "CLOCK$",
+  ])(
+    "rejects Windows reserved device names including extensions: %s",
+    async (logicalPath) => {
+      const archive = archiveWith([
+        {
+          logicalPath,
+          mediaType: "text/markdown",
+          size: 1,
+          kind: "file",
+        },
+      ]);
+
+      await expect(
+        preflightPackage({ archivePath: "device-name.zip", policy, archive }),
+      ).resolves.toEqual({
+        ok: false,
+        code: "PATH_TRAVERSAL",
+        message: `archive path is not portable: ${logicalPath}`,
+      });
+      expect(archive.extract).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves original archive paths while classifying normalized paths", async () => {
+    const archive = archiveWith([
+      {
+        logicalPath: "./docs/guide.md",
+        mediaType: "text/markdown",
+        size: 1,
+        kind: "file",
+      },
+      {
+        logicalPath: "docs\\windows.md",
+        mediaType: "text/markdown",
+        size: 1,
+        kind: "file",
+      },
+    ]);
+
+    await expect(
+      preflightPackage({ archivePath: "spellings.zip", policy, archive }),
+    ).resolves.toEqual({
+      ok: true,
+      value: {
+        entries: [
+          {
+            logicalPath: "./docs/guide.md",
+            mediaType: "text/markdown",
+            size: 1,
+            included: true,
+            reason: "included by docs/**",
+          },
+          {
+            logicalPath: "docs\\windows.md",
+            mediaType: "text/markdown",
+            size: 1,
+            included: true,
+            reason: "included by docs/**",
+          },
+        ],
+      },
+    });
+    expect(archive.extract).not.toHaveBeenCalled();
+  });
+
   it("orders manifests by a portable code-unit total order", async () => {
     const archive = archiveWith([
       {
@@ -436,7 +841,7 @@ describe("source package preflight", () => {
         kind: "file",
       },
       {
-        logicalPath: "docs/A.md",
+        logicalPath: "docs/B.md",
         mediaType: "text/markdown",
         size: 1,
         kind: "file",
@@ -458,8 +863,8 @@ describe("source package preflight", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.entries.map((entry) => entry.logicalPath)).toEqual([
-        "docs/A.md",
         "docs/a.md",
+        "docs/B.md",
         "docs/z.md",
       ]);
     }
