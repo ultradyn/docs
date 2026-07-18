@@ -281,12 +281,7 @@ async function validateRecords(
         row.value,
       );
       const messages = validationMessages(result);
-      if (messages.length === 0)
-        schemaErrors.push(`${prefix}: validation failed`);
-      else
-        messages.forEach((message) =>
-          schemaErrors.push(`${prefix}: ${message}`),
-        );
+      messages.forEach((message) => schemaErrors.push(`${prefix}: ${message}`));
     } catch (error) {
       schemaErrors.push(`${prefix}: ${displayError(error)}`);
     }

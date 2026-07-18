@@ -172,6 +172,30 @@ describe("curated ingestion bundle validation", () => {
     expect(report.cycles).toEqual([["T-B", "T-C", "T-B"]]);
   });
 
+  it("accepts valid optional records through the curated record validator", async () => {
+    const root = await emptyFixture();
+    const report = await reportWith(
+      root,
+      "records.json",
+      JSON.stringify([
+        {
+          schemaName: "SourceFile",
+          version: 1,
+          value: {
+            schemaVersion: 1,
+            id: "sf-01",
+            snapshotId: "snap-01",
+            logicalPath: "docs/readme.md",
+            mediaType: "text/markdown",
+            size: 1,
+            sha256: "a".repeat(64),
+          },
+        },
+      ]),
+    );
+    expect(report).toMatchObject({ ok: true, schemaErrors: [] });
+  });
+
   it("validates optional records with the curated record validator", async () => {
     const root = await emptyFixture();
     const report = await reportWith(
