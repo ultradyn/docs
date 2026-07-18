@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ultradyn.dev/schemas/ingest-workflow.schema.json",
+  "title": "Ultradyn ingestion workflow manifest",
+  "type": "array",
+  "minItems": 5,
+  "maxItems": 5,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["role", "outputSchema", "tools", "freshContext", "next"],
+    "properties": {
+      "role": {
+        "enum": [
+          "researcher",
+          "evidence-critic",
+          "claim-extractor",
+          "claim-reviewer",
+          "answer-composer"
+        ]
+      },
+      "outputSchema": { "type": "string", "minLength": 1 },
+      "tools": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "uniqueItems": true
+      },
+      "freshContext": { "type": "boolean" },
+      "next": {
+        "type": "array",
+        "items": {
+          "enum": [
+            "researcher",
+            "evidence-critic",
+            "claim-extractor",
+            "claim-reviewer",
+            "answer-composer"
+          ]
+        },
+        "uniqueItems": true
+      }
+    }
+  }
+}
