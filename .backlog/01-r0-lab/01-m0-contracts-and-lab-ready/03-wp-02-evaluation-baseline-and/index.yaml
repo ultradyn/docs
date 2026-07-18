@@ -39,5 +39,6 @@ tasks:
       file: T003-t-02-03-build-fixture-runner-a.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-02-03 — Build fixture runner and result store
