@@ -43,7 +43,7 @@ The inert source bundle is preserved byte-for-byte, including known contracts th
 
 - the bundle Question `status` machine must map to canonical `question.md.state`, never compete with it;
 - contradiction convergence must create an active P1 blocker and prevent completion;
-- source custody uses tombstones/supersession and never makes immutable raw bytes deletable;
+- source custody uses tombstones/supersession, and the ordinary custody stores (`RawArtifactStore`, `ReplayCapsuleStore`) remain append-only and deletion-free — they expose no delete/erase/purge member. ADR 0007 defines the sole exception: a separate, human-authorised deletion capability. Physical execution of that capability stays fail-closed on Max's D9 retention ratification plus satisfied capability gates, so accepting the ADR alone permits no erasure;
 - publication reuses the existing deterministic change-request lane and runs fresh Reviewer, diff-only Diff Summarizer, and post-diff Simulated Asker over the actual diff before merge authorization;
 - Citation Reviewer and Navigation Tester fixtures must validate against their declared output schemas, correcting the mismatched bundle fixtures in curated adaptations.
 
