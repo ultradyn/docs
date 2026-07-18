@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CoverageObligationSchema } from "./schemas.js";
 import {
   ingestSchemaRegistry,
   validateIngestRecord,
@@ -20,6 +21,31 @@ describe("ingestion schema registry", () => {
       sourceFile,
     );
     expect(ingestSchemaRegistry.names()).toContain("AnswerComposition");
+  });
+
+  it("uses the strict canonical coverage-obligation schema", () => {
+    const complete = {
+      schemaVersion: 1,
+      id: "obl-01BX5ZZKBKACTAV9WEVGEMMVS2",
+      questionId: "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      trigger: "replay-guarantee",
+      ownerQuestionId: "q-01BX5ZZKBKACTAV9WEVGEMMVRZ",
+      status: "assigned",
+      version: 1,
+    } as const;
+
+    expect(
+      CoverageObligationSchema.safeParse({ schemaVersion: 1, id: "x" }).success,
+    ).toBe(false);
+    expect(
+      ingestSchemaRegistry
+        .get("CoverageObligation", 1)
+        .safeParse({ schemaVersion: 1, id: "x" }).success,
+    ).toBe(false);
+    expect(CoverageObligationSchema.parse(complete)).toEqual(complete);
+    expect(
+      ingestSchemaRegistry.get("CoverageObligation", 1).parse(complete),
+    ).toEqual(complete);
   });
 
   it("fails unknown versions explicitly", () => {

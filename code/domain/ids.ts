@@ -5,6 +5,7 @@ export type IdKind =
   | "answer"
   | "finding"
   | "artifact"
+  | "obligation"
   | "change-request"
   | "audio-session";
 
@@ -13,6 +14,7 @@ const prefixes: Record<IdKind, string> = {
   answer: "ans",
   finding: "f",
   artifact: "art",
+  obligation: "obl",
   "change-request": "cr",
   "audio-session": "aud",
 };

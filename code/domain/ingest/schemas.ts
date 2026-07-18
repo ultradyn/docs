@@ -1,4 +1,5 @@
 import { z } from "zod";
+export { CoverageObligationRecordSchema as CoverageObligationSchema } from "./coverage-obligation.js";
 export { PolicyProfileSchema } from "./policy-profile.js";
 export { IngestionQuestionLinkSchema } from "./question-link.js";
 
@@ -57,9 +58,6 @@ export const SourceUnitSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();
 export const SearchReceiptSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
-export const CoverageObligationSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();
 export const EvidencePacketSchema = z
