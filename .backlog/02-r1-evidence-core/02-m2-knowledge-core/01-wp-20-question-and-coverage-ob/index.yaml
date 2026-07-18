@@ -29,7 +29,8 @@ tasks:
       file: T002-t-20-02-implement-coverageobli.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-20-02 — Implement CoverageObligation ledger
     - complexity: medium
       depends_on:
