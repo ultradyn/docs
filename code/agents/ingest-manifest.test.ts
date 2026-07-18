@@ -22,6 +22,7 @@ const validManifests = [
       "source.lexical",
       "source.open_unit",
       "source.follow_links",
+      "source.vector_optional",
     ],
     freshContext: true,
     next: ["evidence-critic"],
@@ -106,18 +107,20 @@ describe("ingestion manifest validation public seam", () => {
     });
   });
 
-  it.each(["researcher", "claim-extractor", "answer-composer"] as const)(
-    "rejects false freshness for %s",
-    (role) => {
-      const current = validManifests.find((manifest) => manifest.role === role);
-      expect(current).toBeDefined();
-      expect(
-        validateIngestManifests(
-          replaceManifest(role, { ...current!, freshContext: false }),
-        ),
-      ).toMatchObject({ ok: false, code: "EVALUATOR_NOT_FRESH" });
-    },
-  );
+  it.each([
+    "researcher",
+    "claim-extractor",
+    "claim-reviewer",
+    "answer-composer",
+  ] as const)("rejects false freshness for %s", (role) => {
+    const current = validManifests.find((manifest) => manifest.role === role);
+    expect(current).toBeDefined();
+    expect(
+      validateIngestManifests(
+        replaceManifest(role, { ...current!, freshContext: false }),
+      ),
+    ).toMatchObject({ ok: false, code: "EVALUATOR_NOT_FRESH" });
+  });
 
   it("rejects answer.format for Answer Composer", () => {
     expect(
@@ -251,6 +254,30 @@ describe("ingestion manifest validation public seam", () => {
         replaceManifest("answer-composer", {
           ...validManifests[4],
           tools: ["web.search"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      validate(
+        replaceManifest("researcher", {
+          ...validManifests[0],
+          tools: validManifests[0].tools.slice(1),
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      validate(
+        replaceManifest("claim-reviewer", {
+          ...validManifests[3],
+          outputSchema: "Claim",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      validate(
+        replaceManifest("claim-reviewer", {
+          ...validManifests[3],
+          freshContext: false,
         }),
       ),
     ).toBe(false);

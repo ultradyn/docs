@@ -109,16 +109,23 @@
                   "source.maps",
                   "source.lexical",
                   "source.open_unit",
-                  "source.follow_links"
+                  "source.follow_links",
+                  "source.vector_optional"
                 ]
               },
-              "type": "array"
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 6,
+              "maxItems": 6
             },
             "next": {
               "items": {
                 "const": "evidence-critic"
               },
               "type": "array"
+            },
+            "outputSchema": {
+              "const": "EvidencePacket"
             }
           }
         }
@@ -145,13 +152,19 @@
                   "source.open_reference_context"
                 ]
               },
-              "type": "array"
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 2,
+              "maxItems": 2
             },
             "next": {
               "items": {
                 "enum": ["researcher", "claim-extractor"]
               },
               "type": "array"
+            },
+            "outputSchema": {
+              "const": "EvidenceVerdict"
             }
           }
         }
@@ -173,15 +186,21 @@
             },
             "tools": {
               "items": {
-                "const": "source.open_reference"
+                "enum": ["source.open_reference"]
               },
-              "type": "array"
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 1,
+              "maxItems": 1
             },
             "next": {
               "items": {
                 "const": "claim-reviewer"
               },
               "type": "array"
+            },
+            "outputSchema": {
+              "const": "Claim"
             }
           }
         }
@@ -205,13 +224,19 @@
               "items": {
                 "enum": ["source.open_reference", "claim.find_candidates"]
               },
-              "type": "array"
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 2,
+              "maxItems": 2
             },
             "next": {
               "items": {
                 "const": "answer-composer"
               },
               "type": "array"
+            },
+            "outputSchema": {
+              "const": "ClaimReview"
             }
           }
         }
@@ -233,11 +258,16 @@
             },
             "tools": {
               "maxItems": 0,
-              "type": "array"
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 0
             },
             "next": {
               "maxItems": 0,
               "type": "array"
+            },
+            "outputSchema": {
+              "const": "AnswerComposition"
             }
           }
         }

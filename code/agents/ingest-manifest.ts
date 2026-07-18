@@ -41,6 +41,7 @@ export const INGEST_ROLE_TOOL_ALLOWLIST = {
     "source.lexical",
     "source.open_unit",
     "source.follow_links",
+    "source.vector_optional",
   ],
   "evidence-critic": ["source.open_reference", "source.open_reference_context"],
   "claim-extractor": ["source.open_reference"],
