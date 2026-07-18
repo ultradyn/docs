@@ -488,66 +488,24 @@ export interface SourceFile {
 2. **D9 ratified by Max** — retention schedules, legal bases, retention classes, and legal-hold recording/release.
 3. **Every capability producer and adapter present** — graph/validity gateway, invalidation path, provider adapters, and a certificate signer whose adapter implements verification, rotation, and revocation. Any missing or unknown-status producer means no erasure (fail-closed).
 
-**Required protocol and test gates when it does run.** The implementation must follow ADR 0007's PREPARE / EXECUTE / FINALISE protocol with a single explicit irreversible commit point, and deterministic fakes must cover at minimum: crash between journal write and freeze; crash between request-recorded and outcome-recorded for a provider call; retry that must reconcile rather than assume success; partial completion leaving content frozen and invalid with a partial certificate and no completeness claim; unreachable replica producing a residual; unknown provider outcome forbidding completeness; and expected-inventory items never visited still appearing in the certificate. Erasure must remain a separate human-authorised capability — `RawArtifactStore` and `ReplayCapsuleStore` must not gain a delete member.
+**Required protocol and test gates when it does run.** The implementation must follow ADR 0007's PREPARE / EXECUTE / FINALISE protocol, in which the irreversible boundary is the **first confirmed destructive side effect** — not the `execution-authorised` marker, which authorises attempts and is still cancellable if recovery can prove nothing was destroyed. Deterministic fakes must cover at minimum: crash between journal write and freeze; crash after the marker but before any confirmed destruction (cancellable only once proven, provider reconciliation included); crash between request-recorded and outcome-recorded for a provider call; retry that must reconcile rather than assume success; unknown provider outcome treated as potentially irreversible, keeping the freeze and forbidding both a no-side-effect and a completeness claim; partial completion leaving content frozen and invalid with a partial certificate; unreachable replica producing a residual; and expected-inventory items never visited still appearing in the certificate. Erasure must remain a separate human-authorised capability — `RawArtifactStore` and `ReplayCapsuleStore` must not gain a delete member.
 
 If non-destructive framework work is wanted before those gates clear, create a separately scoped task; do not silently rescope this one.
 
-**Files (conditional after ADR acceptance):**
+**Files (only once ALL THREE gates above are satisfied):** to be fixed when the task is unblocked. Do not create files, tests, or a branch before then.
 
-- Create: `docs/adr/NNNN-source-custody-deletion.md`
-- Create: `code/ingest/source/replay-deletion.ts`
-- Create: `code/ingest/source/replay-deletion.test.ts`
-- Modify: `code/ingest/source/index.ts`
-- Test: `code/ingest/source/replay-deletion.test.ts`
+**Interfaces (contract nouns, not a frozen TypeScript shape).** Erasure is a **separate `AuthorisedCustodyDeletion` capability**, never a method on `RawArtifactStore` or `ReplayCapsuleStore`.
 
-**Interfaces:**
+- **Inputs:** a versioned deletion request; actor and authority reference; legal-hold decision; expected custody and policy revisions; immutable dependency-closure digest; the complete expected custody inventory (objects, replicas, providers, keys, Git locations); and operation plus idempotency identifiers.
+- **Outputs:** a versioned certificate projection that is explicitly *partial* or *complete*, plus a protected-evidence digest.
+- **Errors:** unsatisfied capability gate; legal hold; stale expected revision; incomplete inventory; provider outcome unknown; signer unavailable; reconciliation required.
 
-- Consumes: accepted C12 ADR, `ReplayCapsuleStore`, `InvalidationService.plan(event): InvalidationPlan`, authenticated `Actor`, and append-only portable history.
-- Produces only after ADR acceptance: `ReplayDeletionRequest { snapshotId:SnapshotId; actorId:string; reason:string; expectedCapsuleSha256:Sha256 }`; `ReplayDeletionReceipt { snapshotId:SnapshotId; capsuleSha256:Sha256; authorisedBy:string; deletedAt:string; invalidated:InvalidationPlan }`; `AuthorisedReplayDeletion.delete(request, actor): Promise<IngestResult<ReplayDeletionReceipt,"ADR_NOT_ACCEPTED"|"UNAUTHORISED"|"DIGEST_MISMATCH"|"DEPENDENCY_INVALIDATION_FAILED">>`.
+Do not freeze the exact final TypeScript shape ahead of the gates; these nouns are the contract.
 
-- [ ] **Red (run only after the ADR is accepted):** add this public-seam behaviour test; until then, do not create the test or production files.
-
-```ts
-it("authorises custody-byte deletion while retaining portable tombstones", async () => {
-  const result = await deletion.delete(request, authorisedActor);
-  expect(result).toMatchObject({
-    ok: true,
-    value: { snapshotId, capsuleSha256 },
-  });
-  expect(await rawStore.exists(snapshotId)).toBe(false);
-  expect(await history.readSourceTombstone(snapshotId)).toMatchObject({
-    snapshotId,
-    capsuleSha256,
-  });
-  expect(result.ok && result.value.invalidated.staleClaimIds).toEqual([
-    claimId,
-  ]);
-});
-```
-
-Run: `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2`. **Expected failure after the gate opens:** module resolution fails for `./replay-deletion.js`; before ADR acceptance, the expected state is backlog `blocked` and no command is run.
-
-- [ ] **Green (run only after the ADR is accepted):** implement the accepted custody boundary exactly; require actor authorisation and matching digest, calculate/apply dependency closure before deleting local capsule bytes, then append a portable tombstone without deleting or rewriting raw-history records.
-
-```ts
-export interface AuthorisedReplayDeletion {
-  delete(
-    request: ReplayDeletionRequest,
-    actor: Actor,
-  ): Promise<
-    IngestResult<
-      ReplayDeletionReceipt,
-      | "ADR_NOT_ACCEPTED"
-      | "UNAUTHORISED"
-      | "DIGEST_MISMATCH"
-      | "DEPENDENCY_INVALIDATION_FAILED"
-    >
-  >;
-}
-```
-
-- [ ] **Pass (run only after the ADR is accepted):** run `pnpm exec vitest run code/ingest/source/replay-deletion.test.ts --maxWorkers=2`; expect the authorised deletion drill, unauthorised rejection, digest mismatch, dependency invalidation, and portable-tombstone cases to pass. Then run `VITEST_MAX_THREADS=2 pnpm check`; expect exit 0.
-- [ ] **Commit (run only after the ADR is accepted):** `git add docs/adr/NNNN-source-custody-deletion.md code/ingest/source/replay-deletion.ts code/ingest/source/replay-deletion.test.ts code/ingest/source/index.ts && git commit -m "feat(ingest): authorise replay custody deletion"`. Until then, make no implementation commit.
+- [ ] **Red (only once all three gates are satisfied):** fail-closed coverage for each missing gate independently; PREPARE creates a durable journal and freeze while performing **zero** erasure; stale revision, active hold, and incomplete inventory each reject; crash and retry matrices across the journal transitions; `RawArtifactStore` and `ReplayCapsuleStore` still expose no delete member; a partial outcome cannot claim completeness; and an unreachable distributed copy produces a residual that forbids a completeness claim.
+- [ ] **Green (only once all three gates are satisfied):** implement ADR 0007's PREPARE / EXECUTE / FINALISE journal protocol. There is no direct closure-then-delete thin flow.
+- [ ] **Pass (only once all three gates are satisfied):** targeted suite plus full `pnpm check`.
+- [ ] **Commit (only once all three gates are satisfied):** wording to be settled when the task is unblocked. Until then, make no implementation commit.
 
 ### Task T-11-01: Implement A-tier text extractors
 
@@ -1370,15 +1328,15 @@ export interface AuthorisedReplayDeletion {
 ## Milestone and release gates
 
 - **M0:** T-00-01 through T-02-03 and synthetic T-01-04 pass; architecture/contracts/lab are reviewed; `VITEST_MAX_THREADS=2 pnpm check` exits 0.
-- **M1:** executable core tasks T-10-01 through T-13-03 pass, excluding blocked T-10-04. T-12-04 is reported if run but cannot gate. Replay recovery and immutable-write rejection pass; T-10-04 deletion remains unimplemented pending the C12 ADR and cannot gate M1.
+- **M1:** executable core tasks T-10-01 through T-13-03 pass, excluding blocked T-10-04. T-12-04 is reported if run but cannot gate. Replay recovery and immutable-write rejection pass; T-10-04 deletion remains unimplemented and cannot gate M1: it is blocked until an accepted ADR AND ratified D9 AND every capability gate; acceptance alone unlocks no work.
 - **M2:** T-20-01 through T-23-03 pass; canonical Question lifecycle tests, deferred-obligation semantics, contradiction P1 routing, claim review isolation, and targeted invalidation are green.
 - **M3 / R1 internal release:** core T-30-01, T-30-02, T-31-01, T-31-02, T-32-01..03, T-60-01..03 pass. T-30-03 and T-31-03 cannot gate. AS-01..AS-04 pass on tiny and small corpora with provider cache disabled, all evaluator call IDs prove fresh isolation, `pnpm check` exits 0 with two-thread test limits, and the preserved bundle validator still exits 0.
 
 --- SUMMARY ---
 
-- **48 planned tasks, 47 currently executable slices:** all 46 R0/R1 bundle leaves, synthetic T-01-04, and synthetic C12 split T-10-04 are task-granular. T-10-04 remains blocked and non-executable until its ADR is accepted; each other task has exact paths, public TypeScript contracts, a named failing test and expected failure, minimal green implementation, pass command, and commit message.
+- **48 planned tasks, 47 currently executable slices:** all 46 R0/R1 bundle leaves, synthetic T-01-04, and synthetic C12 split T-10-04 are task-granular. T-10-04 remains blocked and non-executable until an accepted ADR AND ratified D9 AND every capability gate (acceptance alone unlocks no work); each other task has exact paths, public TypeScript contracts, a named failing test and expected failure, minimal green implementation, pass command, and commit message.
 - **R0:** locks architecture/seams/change control, adds curated Zod contracts and manifest/link validation, defines the minimum policy prerequisite, and creates measurable tiny/small zero-cache fixtures.
-- **R1 source plane:** preflights without extraction, stores immutable snapshots/replay capsules, supports deterministic A-tier representations and repairs-as-new-versions, structural units, MiniSearch receipts, and policy filtering/scanning. The source bundle remains inert; vectors remain offline-only; custody deletion is not implemented before a new ADR.
+- **R1 source plane:** preflights without extraction, stores immutable snapshots/replay capsules, supports deterministic A-tier representations and repairs-as-new-versions, structural units, MiniSearch receipts, and policy filtering/scanning. The source bundle remains inert; vectors remain offline-only; custody deletion is not implemented, and is blocked until an accepted ADR AND ratified D9 AND every capability gate; acceptance alone unlocks no work.
 - **R1 knowledge plane:** links provenance to the existing canonical QuestionRecord without a second lifecycle, owns finite obligations (including explicit deferred semantics), persists append-only evidence/verdict/claim records, requires independent claim review, and serialises graph mutation/invalidation through deterministic services.
 - **R1 agent/answer plane:** Researcher proposes evidence only; fresh Evidence Critic cannot propose children; fresh Claim Reviewer cannot inherit extractor context; Answer Composer has no retrieval tools and writes a distinct AnswerComposition from a reproducible sealed accepted-claim pack.
 - **Gate discipline:** T-12-04, T-30-03, and T-31-03 are optional and non-gating; two-worker Vitest and `pnpm check` are mandatory; AS-01..AS-04 and zero-cache tiny/small replay form the M3 internal-release gate; later publication must reuse the existing actual-diff change-request lane.

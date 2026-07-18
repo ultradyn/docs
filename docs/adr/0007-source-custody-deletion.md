@@ -52,13 +52,17 @@ Backlog task **T-10-04 includes destructive implementation and a deletion drill,
 
 ### Execution protocol: crash and idempotency semantics
 
-Deletion is irreversible, so the protocol is built around a single explicit commit point. Everything before it is reversible; nothing after it pretends to be.
+Deletion is irreversible, so the protocol names exactly where reversibility ends — and that point is **not** an authorisation record but the first real destruction.
 
-**PREPARE (reversible).** Establish an authorised actor and a recorded legal-hold decision. Compute both the exact dependency closure **and** a complete *expected* custody inventory — every object, replica, provider, key, and Git location. Validate expected custody and policy revisions and every capability adapter. Acquire a deterministic lock. Persist a durable operation intent/journal with a stable operation ID and per-target sub-operation IDs. Freeze affected use. **No erasure begins until the journal and freeze are durable and revalidated.**
+**PREPARE (reversible).** Establish an authorised actor and a recorded legal-hold decision. Compute both the exact dependency closure **and** a complete *expected* custody inventory — every object, replica, provider, key, and Git location. Validate and revalidate expected custody and policy revisions, the legal hold, and every capability gate. Acquire a deterministic lock. Persist a durable operation intent/journal with a stable operation ID and per-target sub-operation IDs. Freeze affected use. **No erasure begins until the journal and freeze are durable and revalidated.**
 
-**EXECUTE (the irreversible commit point).** Persist an execution-authorised marker, then revalidate revisions, holds, and gates. Perform each target operation under its stable sub-operation ID, durably recording the request *before* the call and the outcome or receipt *after* it, so a crash between the two is detectable rather than invisible. Retries **query and reconcile** provider state; they never assume a prior call succeeded.
+**EXECUTE (attempts destruction).** Persist the `execution-authorised` marker **only after** that final revalidation. The marker authorises attempts; **it is not itself irreversible.** If a crash occurs after the marker but before any confirmed destructive side effect, recovery may safely close or cancel the operation — but only after *proving* none occurred, provider reconciliation included.
 
-Once the first erasure or key destruction occurs, **recovery may never roll back or present the operation as untouched.** It continues, reconciles, and records residuals and unknowns.
+Perform each target operation under its stable sub-operation ID, durably recording the request *before* the call and the outcome or receipt *after* it, so a crash between the two is detectable rather than invisible. Retries **query and reconcile** provider state; they never assume a prior call succeeded.
+
+**The irreversible boundary is the first CONFIRMED destructive side effect** — a confirmed object erasure or key destruction. From that moment recovery must continue, reconcile, and finalise, and may **never** present the operation as untouched.
+
+A provider call whose outcome is **unknown** is treated as potentially irreversible: the freeze stays in place, the outcome must be reconciled before any retry or cancellation, and the operation may claim neither "no side effect" nor completeness.
 
 **FINALISE.** Always apply fail-closed invalidation and quarantine. Append portable tombstones where applicable. Reconcile every item in the expected inventory. Produce the signed certificate and evidence. Only then unfreeze unaffected scope and close the journal.
 
