@@ -19,7 +19,8 @@ tasks:
       file: T001-t-02-01-build-tiny-synthetic-c.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-02-01 — Build tiny synthetic corpus and expected graph
     - complexity: medium
       depends_on:
