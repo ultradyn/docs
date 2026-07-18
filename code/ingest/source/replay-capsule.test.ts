@@ -48,8 +48,15 @@ class MemoryRawArtifactStore implements RawArtifactStore {
    * ReplayCapsuleStore: an append-only store refuses removal, so this reports
    * IMMUTABLE_RAW_ARTIFACT and leaves the bytes bit-identical.
    */
-  attemptUnlink(): { ok: false; code: "IMMUTABLE_RAW_ARTIFACT" } {
-    return { ok: false, code: "IMMUTABLE_RAW_ARTIFACT" };
+  attemptUnlink(path: string): {
+    ok: false;
+    code: "IMMUTABLE_RAW_ARTIFACT" | "NOT_FOUND";
+  } {
+    // Append-only: a retained path refuses removal; an absent path is
+    // distinguishable, so a passing test cannot be a constant.
+    return this.artifacts.has(path)
+      ? { ok: false, code: "IMMUTABLE_RAW_ARTIFACT" }
+      : { ok: false, code: "NOT_FOUND" };
   }
 
   async read(path: string): Promise<Uint8Array | undefined> {
@@ -129,6 +136,8 @@ class MemorySourceByteReader implements SourceByteReader {
   readonly files = new Map<string, Uint8Array>();
   failEveryRead = false;
   failAt?: "package" | "file";
+  failAtFileId?: string | undefined;
+  mutateAfterRead = false;
   #package: Uint8Array | undefined;
 
   setPackage(bytes: Uint8Array): void {
@@ -153,10 +162,19 @@ class MemorySourceByteReader implements SourceByteReader {
   }
 
   readFile(file: SourceFile): Promise<Uint8Array | undefined> {
-    if (this.failEveryRead || this.failAt === "file") {
+    if (
+      this.failEveryRead ||
+      this.failAt === "file" ||
+      this.failAtFileId === file.id
+    ) {
       throw new Error("upload reader is unavailable");
     }
-    return Promise.resolve(this.files.get(file.id)?.slice());
+    const bytes = this.files.get(file.id)?.slice();
+    if (bytes && this.mutateAfterRead) {
+      // Hand back a buffer we keep scribbling on.
+      queueMicrotask(() => bytes.fill(0));
+    }
+    return Promise.resolve(bytes);
   }
 }
 
@@ -707,6 +725,114 @@ describe("ReplayCapsuleStore custody", () => {
     },
   );
 
+  it("ignores caller mutation of the snapshot after validation", async () => {
+    const { capsules, store } = harness();
+    const mutable: SourceSnapshot = {
+      ...SNAPSHOT,
+      files: SNAPSHOT.files.map((file) => ({ ...file })),
+      exclusions: [...SNAPSHOT.exclusions],
+    };
+
+    const sealing = capsules.seal(mutable);
+    // Mutate the caller's object while seal is mid-flight.
+    (mutable.files as SourceFile[]).pop();
+    (mutable as { policyId: string }).policyId = "policy-swapped";
+
+    const sealed = await sealing;
+    expect(sealed.ok).toBe(true);
+    // Custody reflects the validated clone, not the mutated caller object.
+    if (sealed.ok) expect(sealed.value.filesVerified).toBe(2);
+    expect(
+      store.artifacts.get(`replay-capsules/blobs/${SECOND_FILE.sha256}.raw`),
+    ).toBeDefined();
+    const verified = await capsules.verify(SNAPSHOT_ID);
+    expect(verified.ok).toBe(true);
+  });
+
+  it("fails closed when a reader mutates a buffer it handed back", async () => {
+    const { capsules, store, source } = harness();
+    // The reader keeps ownership and zeroes the buffer in the same microtask
+    // turn as its return. A caller-side copy cannot win that race, so the
+    // guarantee is not "absorb it" but "never let it poison custody": the
+    // digest check must reject the bytes and write no marker.
+    source.mutateAfterRead = true;
+
+    const sealed = await capsules.seal(SNAPSHOT);
+    expect(sealed.ok).toBe(false);
+    if (!sealed.ok) expect(sealed.code).toBe("DIGEST_MISMATCH");
+    expect(
+      [...store.artifacts.keys()].some((p) => p.endsWith("capsule.json")),
+    ).toBe(false);
+
+    // Once the reader behaves, the same snapshot seals cleanly.
+    source.mutateAfterRead = false;
+    expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+    const retained = store.artifacts.get(
+      `replay-capsules/blobs/${FIRST_FILE.sha256}.raw`,
+    );
+    expect(retained && digest(retained)).toBe(FIRST_FILE.sha256);
+  });
+
+  it.each(["missing", "truncated", "corrupt"] as const)(
+    "refuses retention when a later retained file is %s",
+    async (mode) => {
+      const { capsules, store } = harness();
+      expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+      // Target the LATER file specifically, so an implementation that only
+      // checks the first blob cannot pass.
+      const key = `replay-capsules/blobs/${SECOND_FILE.sha256}.raw`;
+      if (mode === "missing") store.artifacts.delete(key);
+      if (mode === "truncated") store.artifacts.set(key, text("bo"));
+      if (mode === "corrupt") store.artifacts.set(key, text("corrupted!!"));
+
+      const retention = await capsules.retention(SNAPSHOT_ID);
+      expect(retention.ok).toBe(false);
+      if (!retention.ok) {
+        expect(["CAPSULE_NOT_FOUND", "DIGEST_MISMATCH"]).toContain(
+          retention.code,
+        );
+      }
+    },
+  );
+
+  it("returns a typed failure when a LATER file read throws after earlier writes", async () => {
+    const { capsules, source, store } = harness();
+    source.failAtFileId = SECOND_FILE.id;
+
+    const sealed = await capsules.seal(SNAPSHOT);
+    expect(sealed.ok).toBe(false);
+    if (!sealed.ok) expect(sealed.code).toBe("SOURCE_UNAVAILABLE");
+    // No marker, so the partial custody is inert; the earlier blob is a
+    // harmless stale stage that a retry adopts idempotently.
+    expect(
+      [...store.artifacts.keys()].some((p) => p.endsWith("capsule.json")),
+    ).toBe(false);
+    source.failAtFileId = undefined;
+    expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+  });
+
+  it.each(["package", "first", "later"] as const)(
+    "refuses an export when the %s destination blob is corrupt",
+    async (position) => {
+      const { capsules } = harness();
+      expect((await capsules.seal(SNAPSHOT)).ok).toBe(true);
+
+      const sha =
+        position === "package"
+          ? SNAPSHOT.packageSha256
+          : position === "first"
+            ? FIRST_FILE.sha256
+            : SECOND_FILE.sha256;
+      const destination = new MemoryRawArtifactStore();
+      destination.corruptWriteAt = `replay-capsules/blobs/${sha}.raw`;
+
+      const exported = await capsules.export(SNAPSHOT_ID, destination);
+      expect(exported.ok).toBe(false);
+      if (!exported.ok) expect(exported.code).toBe("DIGEST_MISMATCH");
+    },
+  );
+
   it("reports a missing capsule instead of inventing custody", async () => {
     const { capsules } = harness();
     const missing = await capsules.verify(SNAPSHOT_ID);
@@ -763,23 +889,38 @@ describe("ReplayCapsuleStore has no deletion authority", () => {
     const survivor = store.artifacts.get(blobKey);
     expect(survivor).toBeDefined();
 
-    // The append-only store refuses removal outright and leaves bytes intact.
-    expect(store.attemptUnlink()).toEqual({
+    // A REAL retained path refuses removal and keeps its exact bytes...
+    expect(store.artifacts.has(blobKey)).toBe(true);
+    expect(store.attemptUnlink(blobKey)).toEqual({
       ok: false,
       code: "IMMUTABLE_RAW_ARTIFACT",
+    });
+    // ...and an absent path is reported differently, so this assertion is
+    // path-specific rather than a constant.
+    expect(store.attemptUnlink("replay-capsules/blobs/absent.raw")).toEqual({
+      ok: false,
+      code: "NOT_FOUND",
     });
     expect(Buffer.from(store.artifacts.get(blobKey)!).equals(survivor!)).toBe(
       true,
     );
     expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
 
-    // An overwrite attempt is refused explicitly, and custody is unchanged.
-    store.rejectOverwriteAt = blobKey;
-    const resealed = await capsules.seal(SNAPSHOT);
-    expect(resealed.ok).toBe(true);
+    // Overwrite refusal exercised through the real RawArtifactStore seam with
+    // genuinely different bytes, not via the reseal fast path.
+    await expect(store.write(blobKey, text("different bytes"))).resolves.toBe(
+      "conflict",
+    );
+    const staged = `${blobKey}.attempt`;
+    await expect(store.write(staged, text("different bytes"))).resolves.toBe(
+      "written",
+    );
+    await expect(store.publish(staged, blobKey)).resolves.toBe("conflict");
     expect(Buffer.from(store.artifacts.get(blobKey)!).equals(survivor!)).toBe(
       true,
     );
+    // Custody still verifies after both refused attempts.
+    expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
   });
 
   it("keeps custody replayable across its whole surface", async () => {

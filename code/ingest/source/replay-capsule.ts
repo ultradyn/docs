@@ -193,11 +193,15 @@ export class ReplayCapsuleStore {
       );
     }
 
-    const identity = await this.#deriveIdentity(input);
+    // From here on the caller's object is never read again: `owned` is Zod's
+    // own clone, so a caller mutating their snapshot mid-flight cannot change
+    // what we hash, compare, or retain.
+    const owned = parsedInput.data as unknown as SourceSnapshot;
+    const identity = await this.#deriveIdentity(owned);
     if (!identity.ok) {
       return failure(
         "DIGEST_MISMATCH",
-        `refusing to seal a snapshot whose identity is not content-bound: ${input.id}`,
+        `refusing to seal a snapshot whose identity is not content-bound: ${owned.id}`,
       );
     }
     const snapshot = identity.value;
@@ -231,7 +235,11 @@ export class ReplayCapsuleStore {
     // bytes that drifted from the qualified snapshot can never enter custody.
     let packageBytes: Uint8Array | undefined;
     try {
-      packageBytes = await this.#source.readPackage(snapshot);
+      const supplied = await this.#source.readPackage(snapshot);
+      // Copy immediately: a reader may hand back a buffer it still owns and
+      // could mutate while we await hashing or storage.
+      packageBytes =
+        supplied === undefined ? undefined : Uint8Array.from(supplied);
     } catch (error) {
       return failure(
         "SOURCE_UNAVAILABLE",
@@ -256,7 +264,8 @@ export class ReplayCapsuleStore {
     for (const file of snapshot.files) {
       let bytes: Uint8Array | undefined;
       try {
-        bytes = await this.#source.readFile(file);
+        const supplied = await this.#source.readFile(file);
+        bytes = supplied === undefined ? undefined : Uint8Array.from(supplied);
       } catch (error) {
         return failure(
           "SOURCE_UNAVAILABLE",
@@ -410,10 +419,13 @@ export class ReplayCapsuleStore {
     if (!read.ok) return read;
     const snapshot = read.value.snapshot;
 
-    // Retained bytes are the custody blobs: the package plus every file. The
-    // package size is measured from the retained blob itself rather than
-    // trusted from metadata. The capsule marker is excluded deliberately — it
-    // describes custody rather than being retained source content.
+    // Custody is verified before it is measured, so retention can never report
+    // a stale size for bytes that are missing, truncated, or corrupt.
+    const verified = await this.#verifyRetainedBytes(read.value);
+    if (!verified.ok) return verified;
+
+    // Sizes are measured from the retained blobs themselves, not trusted from
+    // the manifest, and each file's actual length must match what it declares.
     const packageBytes = await this.#store.read(
       blobPath(snapshot.packageSha256),
     );
@@ -423,15 +435,32 @@ export class ReplayCapsuleStore {
         `retained package bytes are missing for ${snapshotId}`,
       );
     }
+    let retainedBytes = packageBytes.byteLength;
+    for (const file of snapshot.files) {
+      const bytes = await this.#store.read(blobPath(file.sha256));
+      if (bytes === undefined) {
+        return failure(
+          "CAPSULE_NOT_FOUND",
+          `retained bytes are missing for ${file.logicalPath}`,
+        );
+      }
+      if (bytes.byteLength !== file.size) {
+        return failure(
+          "DIGEST_MISMATCH",
+          `retained bytes for ${file.logicalPath} are ${bytes.byteLength}, manifest declares ${file.size}`,
+        );
+      }
+      retainedBytes += bytes.byteLength;
+    }
 
     return {
       ok: true,
       value: {
         snapshotId,
         fileCount: snapshot.files.length,
-        retainedBytes:
-          packageBytes.byteLength +
-          snapshot.files.reduce((total, file) => total + file.size, 0),
+        // Package plus every file. The capsule marker describes custody rather
+        // than being retained source content, so it is deliberately excluded.
+        retainedBytes,
         policy: "retain-indefinitely",
         deletionAuthorised: false,
       },

@@ -373,6 +373,29 @@ export class SourceSnapshotService {
           if (intent === undefined) throw error;
         }
       }
+      const proposedIdentity = await deriveSourceSnapshotIdentity(
+        this.#hashes,
+        {
+          packageSha256: packageDigest,
+          policyId: input.policyId,
+          files: verifiedFiles,
+          exclusions: input.preflight.entries
+            .filter((entry) => !entry.included)
+            .map(({ logicalPath, mediaType, size, reason }) => ({
+              logicalPath,
+              mediaType,
+              size,
+              reason,
+            })),
+        },
+      );
+      // File identity, ids included, must match the proposal exactly before any
+      // manifest is published: a coherently forged file id must not be adopted.
+      if (!sameJson(proposedIdentity.files, intent.files)) {
+        throw new SnapshotConflictError(
+          "snapshot transaction intent has a mismatched file identity binding",
+        );
+      }
       if (
         !this.#intentMatchesInput(
           intent,
@@ -592,6 +615,14 @@ export class SourceSnapshotService {
     ) {
       throw new SnapshotConflictError(
         "snapshot transaction intent has an invalid content binding",
+      );
+    }
+    // Every stored file record must equal the canonical derivation exactly -
+    // id included. Comparing only content fields would let a coherently forged
+    // file id survive into the published manifest.
+    if (!sameJson(identity.files, value.files)) {
+      throw new SnapshotConflictError(
+        "snapshot transaction intent has an invalid file identity binding",
       );
     }
     return value;
