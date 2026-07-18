@@ -38,5 +38,6 @@ tasks:
       file: T003-t-00-03-create-decision-change.todo
       id: T003
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: T-00-03 — Create decision-change workflow
