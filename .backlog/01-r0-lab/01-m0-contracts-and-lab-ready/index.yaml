@@ -9,7 +9,7 @@ epics:
       locked: false
       name: WP-00 — Architecture baseline and decision control
       path: 01-wp-00-architecture-baseline-an
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-01. Implement the machine-readable contracts and validators used by every later work package. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-01 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
