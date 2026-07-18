@@ -25,7 +25,7 @@ replace the transcript-derived Structured answer.
 ## Completion predicate
 
 A question is never complete because ingestion exhausted a search. Completion
-remains a canonical `QuestionRecord` transition and is blocked by any active P1
+remains a canonical QuestionRecord transition and is blocked by any active P1
 contradiction. Accepted claims and answer compositions are evidence products,
 not lifecycle authorities.
 

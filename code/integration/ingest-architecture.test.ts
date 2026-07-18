@@ -29,6 +29,9 @@ describe("automatic ingestion architecture", () => {
     expect(architecture).toContain("existing change-request manager");
     expect(architecture).toContain("## Agent isolation");
     expect(architecture).toContain("## Completion predicate");
+    expect(architecture.replace(/\s+/g, " ")).toContain(
+      "A question is never complete because ingestion exhausted a search. Completion remains a canonical QuestionRecord transition and is blocked by any active P1 contradiction. Accepted claims and answer compositions are evidence products, not lifecycle authorities.",
+    );
     expect(architecture).toContain("## Deferred activation");
   });
 });
