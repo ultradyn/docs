@@ -19,7 +19,8 @@ tasks:
       file: T001-t-11-01-implement-a-tier-text.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-11-01 — Implement A-tier text extractors
     - complexity: medium
       depends_on:

@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-18T20:21:11Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
@@ -6,13 +9,11 @@ depends_on:
 estimate_hours: 8
 id: P2.M1.E2.T001
 priority: high
-status: pending
-tags:
-    - wp-11
-    - t-11-01
-    - ingest-v3
+started_at: "2026-07-18T20:21:11Z"
+status: in_progress
+tags: []
 title: T-11-01 — Implement A-tier text extractors
-updated_at: "2026-07-18T08:10:10Z"
+updated_at: "2026-07-18T20:21:11Z"
 ---
 Bundle provenance: WP-11 / T-11-01
 
