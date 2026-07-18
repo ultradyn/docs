@@ -9,7 +9,7 @@ epics:
       locked: false
       name: WP-20 — Question and coverage-obligation model
       path: 01-wp-20-question-and-coverage-ob
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-21. Implement immutable evidence/search artifacts and bounded evidence-refinement state. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-21 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'

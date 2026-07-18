@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -39,6 +39,6 @@ tasks:
       file: T003-t-20-03-implement-question-adm.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: T-20-03 — Implement question admissibility and novelty gate
