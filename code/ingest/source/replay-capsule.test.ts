@@ -225,11 +225,16 @@ describe("ReplayCapsuleStore custody", () => {
       const retained = store.artifacts.get(
         `replay-capsules/blobs/${file.sha256}.raw`,
       );
-      expect(retained, `no blob retained for ${file.logicalPath}`).toBeDefined();
+      expect(
+        retained,
+        `no blob retained for ${file.logicalPath}`,
+      ).toBeDefined();
       if (retained) expect(digest(retained)).toBe(digest(bytes));
     }
     expect(
-      store.artifacts.get(`replay-capsules/blobs/${SNAPSHOT.packageSha256}.raw`),
+      store.artifacts.get(
+        `replay-capsules/blobs/${SNAPSHOT.packageSha256}.raw`,
+      ),
     ).toBeDefined();
 
     const verified = await capsules.verify(SNAPSHOT_ID);
@@ -512,9 +517,9 @@ describe("ReplayCapsuleStore has no deletion authority", () => {
 
     source.discardUpload();
     expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);
-    expect((await capsules.export(SNAPSHOT_ID, new MemoryRawArtifactStore())).ok).toBe(
-      true,
-    );
+    expect(
+      (await capsules.export(SNAPSHOT_ID, new MemoryRawArtifactStore())).ok,
+    ).toBe(true);
     expect((await capsules.retention(SNAPSHOT_ID)).ok).toBe(true);
     expect((await capsules.authorisePromotion(SNAPSHOT_ID)).ok).toBe(true);
     expect((await capsules.verify(SNAPSHOT_ID)).ok).toBe(true);

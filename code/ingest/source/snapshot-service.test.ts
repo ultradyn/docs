@@ -185,7 +185,11 @@ describe("SourceSnapshotService", () => {
     expect(`snap-${contentSha256}`).toBe(snapshot.id);
 
     for (const file of snapshot.files) {
-      const identity = await sourceFileIdentityDigest(hashes, snapshot.id, file);
+      const identity = await sourceFileIdentityDigest(
+        hashes,
+        snapshot.id,
+        file,
+      );
       expect(`file-${identity}`).toBe(file.id);
       expect(file.snapshotId).toBe(snapshot.id);
     }

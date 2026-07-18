@@ -276,7 +276,10 @@ export class ReplayCapsuleStore {
       await destination.fsync(blobPath(sha256));
 
       const copied = await destination.read(blobPath(sha256));
-      if (copied === undefined || (await this.#hashes.sha256(copied)) !== sha256) {
+      if (
+        copied === undefined ||
+        (await this.#hashes.sha256(copied)) !== sha256
+      ) {
         return failure(
           "DIGEST_MISMATCH",
           `exported copy of ${sha256} does not rehash to its content address`,
@@ -512,7 +515,9 @@ export class ReplayCapsuleStore {
       return failure(
         "CAPSULE_CORRUPT",
         `replay capsule for ${snapshotId} failed strict validation: ${parsed.error.issues
-          .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+          .map(
+            (issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`,
+          )
           .join("; ")}`,
       );
     }
