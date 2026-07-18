@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -246,6 +246,157 @@ describe("filesystem QuestionLinkStore", () => {
       expect(persisted).toEqual(winner);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "linux")(
+    "keeps reading from the verified directory when an ancestor is swapped mid-operation",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+      const lockRoot = await mkdtemp(join(tmpdir(), "ultradyn-lock-root-"));
+      const attacker = join(root, "attacker-target");
+      let swap: (() => Promise<void>) | undefined;
+      try {
+        const store = createFileQuestionLinkStore(root, {
+          lockRoot,
+          hooks: {
+            afterDirectoryResolved: async () => {
+              await swap?.();
+              swap = undefined;
+            },
+          },
+        });
+        await store.create(storedHumanLink);
+
+        const attackerLink = { ...storedHumanLink, snapshotId: "snap-attacker" };
+        swap = async () => {
+          await mkdir(join(attacker, "question-links"), { recursive: true });
+          await writeFile(
+            join(attacker, "question-links", `${HUMAN_QUESTION_ID}.json`),
+            `${JSON.stringify(attackerLink, null, 2)}\n`,
+          );
+          await rename(join(root, "ingest"), join(root, "ingest-moved"));
+          await symlink(attacker, join(root, "ingest"));
+        };
+        await expect(store.get(HUMAN_QUESTION_ID)).resolves.toEqual(
+          storedHumanLink,
+        );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(lockRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform === "linux")(
+    "never publishes into an attacker-selected directory after an ancestor swap",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+      const lockRoot = await mkdtemp(join(tmpdir(), "ultradyn-lock-root-"));
+      const attacker = join(root, "attacker-target");
+      let swap: (() => Promise<void>) | undefined;
+      try {
+        const store = createFileQuestionLinkStore(root, {
+          lockRoot,
+          hooks: {
+            afterDirectoryResolved: async () => {
+              await swap?.();
+              swap = undefined;
+            },
+          },
+        });
+        await store.create(storedHumanLink);
+
+        swap = async () => {
+          await mkdir(join(attacker, "question-links"), { recursive: true });
+          await rename(join(root, "ingest"), join(root, "ingest-moved"));
+          await symlink(attacker, join(root, "ingest"));
+        };
+        const generatedStoredLink = {
+          schemaVersion: 1,
+          ...generatedLinkInput,
+          createdRevision: 0,
+        } as const;
+        await expect(store.create(generatedStoredLink)).resolves.toBe(true);
+
+        await expect(
+          readdir(join(attacker, "question-links")),
+        ).resolves.toEqual([]);
+        await expect(
+          readFile(
+            join(
+              root,
+              "ingest-moved",
+              "question-links",
+              `${GENERATED_QUESTION_ID}.json`,
+            ),
+            "utf8",
+          ).then(JSON.parse),
+        ).resolves.toEqual(generatedStoredLink);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(lockRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("enforces OS no-replace publication independently of the advisory lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    const lockRoot = await mkdtemp(join(tmpdir(), "ultradyn-lock-root-"));
+    const rival = { ...storedHumanLink, snapshotId: "snap-rival" } as const;
+    try {
+      // The rival writer publishes directly, without ever touching our
+      // advisory lock, in the window between directory resolution and this
+      // store's publication attempt — only link(2)'s no-replace semantics
+      // stand between the two writers.
+      let plantRival = false;
+      const store = createFileQuestionLinkStore(root, {
+        lockRoot,
+        hooks: {
+          afterDirectoryResolved: async () => {
+            if (!plantRival) return;
+            plantRival = false;
+            await writeFile(
+              join(
+                root,
+                "ingest",
+                "question-links",
+                `${HUMAN_QUESTION_ID}.json`,
+              ),
+              `${JSON.stringify(rival, null, 2)}\n`,
+            );
+          },
+        },
+      });
+      plantRival = true;
+      await expect(store.create(storedHumanLink)).resolves.toBe(false);
+      await expect(store.get(HUMAN_QUESTION_ID)).resolves.toEqual(rival);
+      const entries = await readdir(join(root, "ingest", "question-links"));
+      expect(entries.filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(lockRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fsyncs the destination directory before reporting success", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-question-links-"));
+    const lockRoot = await mkdtemp(join(tmpdir(), "ultradyn-lock-root-"));
+    try {
+      let synced = 0;
+      const store = createFileQuestionLinkStore(root, {
+        lockRoot,
+        hooks: { onDirectorySynced: () => (synced += 1) },
+      });
+      await expect(store.create(storedHumanLink)).resolves.toBe(true);
+      expect(synced).toBe(1);
+      await expect(
+        store.create({ ...storedHumanLink, snapshotId: "snap-dup" }),
+      ).resolves.toBe(false);
+      expect(synced).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(lockRoot, { recursive: true, force: true });
     }
   });
 
