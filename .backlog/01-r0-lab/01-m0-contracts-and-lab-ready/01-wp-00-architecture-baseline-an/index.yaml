@@ -28,7 +28,8 @@ tasks:
       file: T002-t-00-02-define-repository-and.todo
       id: T002
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: T-00-02 — Define repository and package conventions
     - complexity: low
       depends_on:
