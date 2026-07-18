@@ -1,17 +1,18 @@
 ---
+claimed_at: "2026-07-18T08:42:20Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-18T08:10:10Z"
 depends_on: []
 estimate_hours: 5
 id: P1.M1.E1.T001
 priority: high
-status: pending
-tags:
-    - wp-00
-    - t-00-01
-    - ingest-v3
+started_at: "2026-07-18T08:42:20Z"
+status: in_progress
+tags: []
 title: T-00-01 — Approve v3 architecture decisions
-updated_at: "2026-07-18T08:10:10Z"
+updated_at: "2026-07-18T08:42:20Z"
 ---
 Bundle provenance: WP-00 / T-00-01
 

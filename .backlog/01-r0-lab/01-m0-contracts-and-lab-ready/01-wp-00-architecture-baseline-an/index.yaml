@@ -18,7 +18,8 @@ tasks:
       file: T001-t-00-01-approve-v3-architectur.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-00-01 — Approve v3 architecture decisions
     - complexity: low
       depends_on:
