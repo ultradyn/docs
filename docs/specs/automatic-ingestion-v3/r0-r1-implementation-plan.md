@@ -15,7 +15,7 @@
 - Limit Vitest to two workers: `pnpm exec vitest run <path> --maxWorkers=2`. Run `VITEST_MAX_THREADS=2 pnpm check` after each milestone and before handoff.
 - The preserved `docs/specs/automatic-ingestion-v3/source-bundle/` is inert, byte-preserved provenance. Production code and curated fixtures must not import, read, glob, copy, or dynamically load it.
 - `QuestionRecord.state` in `question.md` is the only question lifecycle. `IngestionQuestionLink`, `CoverageObligation`, evidence, claims, graph events, and compositions are orthogonal records.
-- Raw artifacts and replay capsules are append-only. T-10-03 deliberately implements seal/verify/export/retention and mutation/deletion rejection; no erase/purge implementation may begin until a new ADR reconciles authorised custody deletion with ADR-0001.
+- Raw artifacts and replay capsules are append-only. T-10-03 deliberately implements seal/verify/export/retention and mutation/deletion rejection; ordinary stores remain deletion-free, and T-10-04's destructive work is blocked until an accepted ADR AND ratified D9 AND every capability gate; acceptance alone unlocks no work.
 - IDs, hashes, writes, priority precedence, lifecycle transitions, and idempotency belong to deterministic services. Agents return schema-validated proposals only.
 - Every evaluator invocation uses a fresh provider call. Evidence Critic cannot propose child questions. Claim Reviewer cannot reuse Claim Extractor context. Answer Composer receives a sealed claim pack and has no retrieval tools.
 - `AnswerComposition` is distinct from transcript-derived `answers/structured.md`; compatibility is read-only and explicit.
@@ -472,8 +472,8 @@ export interface SourceFile {
 - Produces: `ReplayCapsuleStore.seal(snapshot): Promise<ReplayReceipt>`, `.verify(snapshotId): Promise<ReplayReceipt>`, `.export(snapshotId, destination): Promise<ReplayReceipt>`, `.retention(snapshotId): Promise<RetentionState>`; no deletion method.
 
 - [ ] **Red:** assert promotion rejects an unverified capsule, retained bytes replay after the upload fixture is removed, attempted overwrite/unlink returns `IMMUTABLE_RAW_ARTIFACT`, and the public type has no `delete`, `erase`, or `purge` member. Run targeted Vitest. **Expected failure:** replay-capsule module missing.
-- [ ] **Green:** seal a content-addressed capsule, verify all file hashes, export by copy+rehash, and expose retention metadata. Add a code comment naming the required future deletion ADR; do not add deletion-capable code or receipt types.
-- [ ] **Pass:** targeted Vitest passes. The bundle’s deletion-drill criterion remains explicitly deferred to the post-ADR release ledger and does not weaken R1 source recovery.
+- [ ] **Green:** seal a content-addressed capsule, verify all file hashes, export by copy+rehash, and expose retention metadata. Add a code comment naming ADR 0007 and the T-10-04 gates; do not add deletion-capable code or receipt types.
+- [ ] **Pass:** targeted Vitest passes. The bundle’s deletion-drill criterion remains deferred behind all T-10-04 gates — accepted ADR, ratified D9, and every capability gate; acceptance alone unlocks no work — and does not weaken R1 source recovery.
 - [ ] **Commit:** `git commit -m "feat(ingest): seal immutable replay capsules"`.
 
 ### Task T-10-04: Define and implement authorised replay-capsule deletion (blocked; do not execute)
@@ -486,7 +486,9 @@ export interface SourceFile {
 
 1. **ADR 0007 accepted** — records the architecture; confers no authority to erase.
 2. **D9 ratified by Max** — retention schedules, legal bases, retention classes, and legal-hold recording/release.
-3. **Every capability producer and adapter present** — graph/validity gateway, invalidation path, provider adapters, and a certificate signer whose adapter implements verification, rotation, and revocation. Any missing or unknown-status producer means no erasure (fail-closed).
+3. **Every capability producer and adapter present** — graph/validity gateway, invalidation path, provider adapters, a certificate signer whose adapter implements verification, rotation, and revocation, a `DeletionAuthorityVerifier`, and a revisioned `CustodyInventoryAuthority` enumerator. Any missing or unknown-status producer means no erasure (fail-closed).
+
+   Until Max ratifies D9 and explicitly delegates eligible roles, **Max is the sole eligible approver** for class-1 destructive execution.
 
 **Required protocol and test gates when it does run.** The implementation must follow ADR 0007's PREPARE / EXECUTE / FINALISE protocol, in which the irreversible boundary is the **first confirmed destructive side effect** — not the `execution-authorised` marker, which authorises attempts and is still cancellable if recovery can prove nothing was destroyed. Deterministic fakes must cover at minimum: crash between journal write and freeze; crash after the marker but before any confirmed destruction (cancellable only once proven, provider reconciliation included); crash between request-recorded and outcome-recorded for a provider call; retry that must reconcile rather than assume success; unknown provider outcome treated as potentially irreversible, keeping the freeze and forbidding both a no-side-effect and a completeness claim; partial completion leaving content frozen and invalid with a partial certificate; unreachable replica producing a residual; and expected-inventory items never visited still appearing in the certificate. Erasure must remain a separate human-authorised capability — `RawArtifactStore` and `ReplayCapsuleStore` must not gain a delete member.
 
@@ -502,7 +504,7 @@ If non-destructive framework work is wanted before those gates clear, create a s
 
 Do not freeze the exact final TypeScript shape ahead of the gates; these nouns are the contract.
 
-- [ ] **Red (only once all three gates are satisfied):** fail-closed coverage for each missing gate independently; PREPARE creates a durable journal and freeze while performing **zero** erasure; stale revision, active hold, and incomplete inventory each reject; crash and retry matrices across the journal transitions; `RawArtifactStore` and `ReplayCapsuleStore` still expose no delete member; a partial outcome cannot claim completeness; and an unreachable distributed copy produces a residual that forbids a completeness claim.
+- [ ] **Red (only once all three gates are satisfied):** fail-closed coverage for each missing gate independently; authority that is stale, expired, revoked, unverifiable, self-asserted, out of scope, or unknown; inventory that is missing a source, omitting a location class, stale, mid-outage, partially enumerated, or of unknown completeness; PREPARE creates a durable journal and freeze while performing **zero** erasure; stale revision, active hold, and incomplete inventory each reject; crash and retry matrices across the journal transitions; `RawArtifactStore` and `ReplayCapsuleStore` still expose no delete member; a partial outcome cannot claim completeness; and an unreachable distributed copy produces a residual that forbids a completeness claim.
 - [ ] **Green (only once all three gates are satisfied):** implement ADR 0007's PREPARE / EXECUTE / FINALISE journal protocol. There is no direct closure-then-delete thin flow.
 - [ ] **Pass (only once all three gates are satisfied):** targeted suite plus full `pnpm check`.
 - [ ] **Commit (only once all three gates are satisfied):** wording to be settled when the task is unblocked. Until then, make no implementation commit.
