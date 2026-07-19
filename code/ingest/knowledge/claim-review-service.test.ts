@@ -737,3 +737,103 @@ describe("type surface", () => {
     void _rev;
   });
 });
+
+// ---------------------------------------------------------------------------
+// T-22-05 — Rejected-claim exclusion at the durable application store boundary
+// ---------------------------------------------------------------------------
+describe("T-22-05 store-level rejected-claim exclusion", () => {
+  it("SIMULATED restart: fresh service over shared application store still excludes rejected ids", async () => {
+    // Process-local applicationIndex alone loses durable applications after a
+    // "restart". Shared application store + fresh service is the structural path.
+    // Order: reject first (claim stays proposed), then accept — both durable.
+    // Complete set: id is in acceptedClaimIds AND rejectedClaimIds → excluded.
+    const applicationStore = createInMemoryClaimReviewApplicationStore();
+    const claimStore = createInMemoryClaimStore();
+    const s1 = createClaimReviewService({
+      store: claimStore,
+      evidence: verifierOk(),
+      packetIdentity: packetIdentity(),
+      applicationStore,
+    });
+    const claim = await seedProposed(s1);
+    const rejected = await s1.apply(
+      reviewDraft(claim.id, { decision: "reject", reason: "Not entailed." }),
+      "t2205-reject",
+    );
+    expect(rejected.ok).toBe(true);
+    if (!rejected.ok) return;
+    const accepted = await s1.apply(reviewDraft(claim.id), "t2205-accept");
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+
+    // Fresh service instance over the SAME durable application store.
+    const s2 = createClaimReviewService({
+      store: claimStore,
+      evidence: verifierOk(),
+      packetIdentity: packetIdentity(),
+      applicationStore,
+    });
+    // Complete exclusion must not require process-local memory.
+    const packIds = await s2.listAcceptedClaimIds();
+    expect(packIds).not.toContain(claim.id);
+    // Store path is the supported selection path.
+    expect(typeof applicationStore.listAcceptedClaimIds).toBe("function");
+    expect(await applicationStore.listAcceptedClaimIds()).not.toContain(
+      claim.id,
+    );
+  });
+
+  it("POSITIVE CONTROL: accepted id is selected when never rejected (store path)", async () => {
+    const applicationStore = createInMemoryClaimReviewApplicationStore();
+    const { service } = makeService({ applicationStore });
+    const claim = await seedProposed(service, {
+      statement: "Positive-control claim for pack selection after T-22-05.",
+    });
+    const accepted = await service.apply(
+      reviewDraft(claim.id),
+      "t2205-pos-accept",
+    );
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+    // Anti-vacuity for the exclusion tests: same store path WOULD include this id.
+    expect(await service.listAcceptedClaimIds()).toContain(claim.id);
+    expect(await applicationStore.listAcceptedClaimIds()).toContain(claim.id);
+    expect(await applicationStore.isEligibleForAcceptedPack(claim.id)).toBe(
+      true,
+    );
+  });
+
+  it("adversarial: rejected id cannot enter pack via store query even if pure helper is given a partial set", async () => {
+    const applicationStore = createInMemoryClaimReviewApplicationStore();
+    const { service } = makeService({ applicationStore });
+    const claim = await seedProposed(service, {
+      statement: "Adversarial partial-set claim for T-22-05 exclusion.",
+    });
+    // reject then accept so both application rows exist durably
+    const rejected = await service.apply(
+      reviewDraft(claim.id, { decision: "reject", reason: "Rejected." }),
+      "t2205-adv-reject",
+    );
+    expect(rejected.ok).toBe(true);
+    if (!rejected.ok) return;
+    const accepted = await service.apply(
+      reviewDraft(claim.id),
+      "t2205-adv-accept",
+    );
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+
+    // Pure helper with PARTIAL set (accept only) still weakens — documents helper residual.
+    expect(
+      listAcceptedClaimIds([accepted.value]).includes(claim.id as ClaimId),
+    ).toBe(true);
+    // Store / service path MUST NOT weaken — complete durable set.
+    expect(await applicationStore.listAcceptedClaimIds()).not.toContain(
+      claim.id,
+    );
+    expect(await service.listAcceptedClaimIds()).not.toContain(claim.id);
+    expect(await applicationStore.isEligibleForAcceptedPack(claim.id)).toBe(
+      false,
+    );
+  });
+});
