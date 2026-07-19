@@ -133,9 +133,13 @@ export {
   ClaimReviewDecisionSchema,
   ClaimReviewIdSchema,
 } from "./claim-review.js";
-export const GraphEventSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
+// T-23-01: full graph event/commit schemas live in graph-event.ts.
+export {
+  GraphEventSchema,
+  GraphCommitSchema,
+  GraphOperationSchema,
+  GraphRevisionSchema,
+} from "./graph-event.js";
 export const SealedClaimPackSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();
