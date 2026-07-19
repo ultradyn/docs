@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-19T08:02:19Z"
+claimed_by: cli-user
+completed_at: null
 complexity: low
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
@@ -6,13 +9,11 @@ depends_on:
 estimate_hours: 2
 id: P2.M2.E2.T003
 priority: medium
-status: pending
-tags:
-    - wp-21
-    - t-21-03
-    - ingest-v3
+started_at: "2026-07-19T08:02:19Z"
+status: in_progress
+tags: []
 title: T-21-03 — Implement evidence loop limiter
-updated_at: "2026-07-18T08:10:10Z"
+updated_at: "2026-07-19T08:02:19Z"
 ---
 Bundle provenance: WP-21 / T-21-03
 

@@ -40,5 +40,6 @@ tasks:
       file: T003-t-21-03-implement-evidence-loo.todo
       id: T003
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: T-21-03 — Implement evidence loop limiter
