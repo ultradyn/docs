@@ -25,6 +25,7 @@ export const AgentInputPolicySchema = z.enum([
   "evidence-critic",
   "claim-extractor",
   "claim-reviewer",
+  "answer-composer",
 ]);
 export type AgentInputPolicy = z.infer<typeof AgentInputPolicySchema>;
 
@@ -153,6 +154,18 @@ const policyFields: Record<
       "documentation",
     ],
     required: ["packet", "claims", "reviewerRunId", "extractorRunId"],
+  },
+  // Answer Composer: sealed pack + goals only; no retrieval / docs / chat.
+  "answer-composer": {
+    allowed: [
+      "questionId",
+      "goals",
+      "pack",
+      "claimPackHash",
+      "graphRevision",
+      "questionContext",
+    ],
+    required: ["questionId", "goals", "pack"],
   },
 };
 

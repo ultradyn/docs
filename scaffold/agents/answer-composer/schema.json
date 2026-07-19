@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "questionId", "claimPackHash", "graphRevision", "answer", "claimOrder", "sentenceClaims", "citations", "goalCoverage", "limitations", "state"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "questionId": { "type": "string", "minLength": 1 },
+    "claimPackHash": { "type": "string", "minLength": 64, "maxLength": 64 },
+    "graphRevision": { "type": "integer", "minimum": 0 },
+    "answer": { "type": "string" },
+    "claimOrder": { "type": "array", "items": { "type": "string" } },
+    "sentenceClaims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sentenceIndex", "claimIds"],
+        "properties": {
+          "sentenceIndex": { "type": "integer", "minimum": 0 },
+          "claimIds": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+        }
+      }
+    },
+    "citations": { "type": "array" },
+    "goalCoverage": { "type": "array" },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "state": { "enum": ["proposed", "insufficient_pack"] }
+  }
+}

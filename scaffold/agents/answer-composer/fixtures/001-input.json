@@ -1,0 +1,101 @@
+{
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "pack": {
+    "schemaVersion": 1,
+    "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "graphRevision": 1,
+    "claimIds": [
+      "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+      "clm-01ARZ3NDEKTSV4RRFFQ69G5FAB"
+    ],
+    "claims": [
+      {
+        "schemaVersion": 1,
+        "id": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "version": 1,
+        "statement": "Atlas stores portable project knowledge in Git.",
+        "claimType": "behavior",
+        "scope": {
+          "product": "atlas"
+        },
+        "authority": "source-doc",
+        "lifecycle": "current",
+        "state": "accepted",
+        "evidenceRefs": [
+          {
+            "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "fileId": "file-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+            "fileSha256": "252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111",
+            "unitSha256": "0bfe935e70c321c7ca3afc75ce0d0ca2f98b5422e008bb31c00c6d7f1f1c0ad6"
+          }
+        ],
+        "relationships": {
+          "qualifierClaimIds": [],
+          "contradictsClaimIds": [],
+          "supersedesClaimIds": []
+        },
+        "createdFrom": {
+          "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        }
+      },
+      {
+        "schemaVersion": 1,
+        "id": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAB",
+        "version": 1,
+        "statement": "Settings apply through the documented procedure.",
+        "claimType": "behavior",
+        "scope": {
+          "product": "atlas"
+        },
+        "authority": "source-doc",
+        "lifecycle": "current",
+        "state": "accepted",
+        "evidenceRefs": [
+          {
+            "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "fileId": "file-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+            "fileSha256": "252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111",
+            "unitSha256": "0bfe935e70c321c7ca3afc75ce0d0ca2f98b5422e008bb31c00c6d7f1f1c0ad6"
+          }
+        ],
+        "relationships": {
+          "qualifierClaimIds": [],
+          "contradictsClaimIds": [],
+          "supersedesClaimIds": []
+        },
+        "createdFrom": {
+          "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        }
+      }
+    ],
+    "qualifierEdges": [],
+    "citations": [
+      {
+        "claimId": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "unitSha256": "0bfe935e70c321c7ca3afc75ce0d0ca2f98b5422e008bb31c00c6d7f1f1c0ad6",
+        "fileSha256": "252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111",
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "claimId": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAB",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "unitSha256": "0bfe935e70c321c7ca3afc75ce0d0ca2f98b5422e008bb31c00c6d7f1f1c0ad6",
+        "fileSha256": "252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111",
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "gaps": []
+  },
+  "goals": [
+    {
+      "goalId": "g-storage",
+      "text": "Where is portable project knowledge stored in Git?"
+    }
+  ]
+}

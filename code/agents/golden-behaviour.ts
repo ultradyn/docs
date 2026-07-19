@@ -7,12 +7,14 @@
  * - This module is the second axis: domain validators on NNN-expected goldens.
  * - LEGACY_SHAPE_ONLY is a frozen explicit allowlist, not a default. New agents
  *   must register an executor or the ships-all behavioural pass fails by name.
- * - evidence-critic, claim-extractor, claim-reviewer are NEVER on LEGACY.
+ * - evidence-critic, claim-extractor, claim-reviewer, answer-composer are NEVER
+ *   on LEGACY.
  * - researcher remains LEGACY until a dedicated executed suite lands (residual).
  */
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
+import { validateAnswerComposition } from "../ingest/agents/answer-composer-agent.js";
 import { validateClaimExtractorProposal } from "../ingest/agents/claim-extractor-agent.js";
 import { validateClaimReviewerProposal } from "../ingest/agents/claim-reviewer-agent.js";
 import { validateEvidenceCriticProposal } from "../ingest/agents/evidence-critic-agent.js";
@@ -24,6 +26,7 @@ export const BEHAVIOURAL_REQUIRED_AGENTS = Object.freeze([
   "evidence-critic",
   "claim-extractor",
   "claim-reviewer",
+  "answer-composer",
 ] as const);
 
 /**
@@ -107,6 +110,24 @@ const claimReviewerExecutor: GoldenBehaviourExecutor = {
   },
 };
 
+const answerComposerExecutor: GoldenBehaviourExecutor = {
+  execute(caseId, input, expected) {
+    if (!isRecord(input)) return fail("answer-composer input not object");
+    if (input.pack == null || !Array.isArray(input.goals)) {
+      return fail("answer-composer input missing pack or goals");
+    }
+    const goals = input.goals as { goalId: string; text: string }[];
+    const result = validateAnswerComposition(expected, {
+      pack: input.pack as never,
+      goals,
+    });
+    if (!result.ok) {
+      return fail(`answer-composer ${caseId}: ${result.code}`);
+    }
+    return ok();
+  },
+};
+
 /**
  * Evidence-critic NNN-input packets are shape stubs; behavioural goldens use the
  * complete-minimal contract packet (same as integration harness T-31-02).
@@ -158,6 +179,7 @@ export const BEHAVIOURAL_GOLDEN_EXECUTORS: ReadonlyMap<
   string,
   GoldenBehaviourExecutor
 > = new Map([
+  ["answer-composer", answerComposerExecutor],
   ["claim-extractor", claimExtractorExecutor],
   ["claim-reviewer", claimReviewerExecutor],
   [
@@ -171,6 +193,7 @@ export const BEHAVIOURAL_GOLDEN_EXECUTORS: ReadonlyMap<
   ],
 ]);
 
+/** Fail-closed: every BEHAVIOURAL_REQUIRED agent must stay off LEGACY. */
 export function assertIngestThreeNeverLegacy(
   legacy: ReadonlySet<string> = LEGACY_SHAPE_ONLY_AGENTS,
 ): string | undefined {

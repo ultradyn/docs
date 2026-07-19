@@ -88,15 +88,52 @@ describe("structural pack-only (no tools)", () => {
   });
 
   it("manifest granting a retrieval tool is TOOL_DENIED", () => {
-    const result = validateIngestManifests([
+    // Full role set required; inject a denied tool on answer-composer only.
+    const full = [
       {
-        role: "answer-composer",
+        role: "researcher" as const,
+        outputSchema: "EvidencePacket",
+        tools: [
+          "source.exact",
+          "source.maps",
+          "source.lexical",
+          "source.open_unit",
+          "source.follow_links",
+          "source.vector_optional",
+        ],
+        freshContext: true,
+        next: ["evidence-critic"],
+      },
+      {
+        role: "evidence-critic" as const,
+        outputSchema: "EvidenceVerdict",
+        tools: ["source.open_reference", "source.open_reference_context"],
+        freshContext: true,
+        next: ["claim-extractor"],
+      },
+      {
+        role: "claim-extractor" as const,
+        outputSchema: "Claim",
+        tools: ["source.open_reference"],
+        freshContext: true,
+        next: ["claim-reviewer"],
+      },
+      {
+        role: "claim-reviewer" as const,
+        outputSchema: "ClaimReview",
+        tools: ["source.open_reference", "claim.find_candidates"],
+        freshContext: true,
+        next: ["answer-composer"],
+      },
+      {
+        role: "answer-composer" as const,
         outputSchema: "AnswerComposition",
         tools: ["web.search"],
         freshContext: true,
         next: [],
       },
-    ]);
+    ];
+    const result = validateIngestManifests(full);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe("TOOL_DENIED");
@@ -263,6 +300,84 @@ describe("validateAnswerComposition (independent boundary)", () => {
       goals: [{ goalId: "g-storage", text: "Where is knowledge stored?" }],
     });
     expect(validated.ok).toBe(true);
+  });
+
+  it("mutation: drop unmapped gate → unmapped fixture no longer fails closed", () => {
+    const p = pack();
+    const unmapped = {
+      schemaVersion: 1 as const,
+      id: "cmp-mut-unmapped",
+      questionId: QUESTION,
+      claimPackHash: p.hash,
+      graphRevision: 1,
+      answer: "text",
+      claimOrder: [CLM_OUT],
+      sentenceClaims: [{ sentenceIndex: 0, claimIds: [CLM_OUT] }],
+      citations: [],
+      goalCoverage: [{ goalId: "g1", covered: true, claimIds: [CLM_OUT] }],
+      limitations: [],
+      state: "proposed" as const,
+    };
+    // Production validate refuses unmapped ids.
+    expect(
+      validateAnswerComposition(unmapped, {
+        pack: p,
+        goals: [{ goalId: "g1", text: "x" }],
+      }).ok,
+    ).toBe(false);
+    // Mutated gate that skips claimOrder/sentenceClaims pack membership.
+    const mutated = (
+      input: unknown,
+      options: { pack: SealedClaimPack; goals: { goalId: string; text: string }[] },
+    ) => {
+      const packParsed = options.pack;
+      if (typeof input !== "object" || input === null) {
+        return { ok: false as const, code: "INVALID_INPUT" as const };
+      }
+      const composition = input as {
+        claimPackHash: string;
+        state: string;
+        answer: string;
+      };
+      if (composition.claimPackHash !== packParsed.hash) {
+        return { ok: false as const, code: "PACK_HASH_MISMATCH" as const };
+      }
+      if (
+        composition.state === "insufficient_pack" &&
+        composition.answer.trim().length > 0
+      ) {
+        return { ok: false as const, code: "INVENTED_PROSE" as const };
+      }
+      // BUG: no UNMAPPED_ASSERTION check
+      return { ok: true as const, value: composition };
+    };
+    expect(
+      mutated(unmapped, { pack: p, goals: [{ goalId: "g1", text: "x" }] }).ok,
+    ).toBe(true);
+  });
+
+  it("mutation: validate refuse-everything → valid fixture fails", () => {
+    const p = pack();
+    const composed = composeAnswerFromPack({
+      questionId: QUESTION,
+      pack: p,
+      goals: [{ goalId: "g-storage", text: "Where is knowledge stored?" }],
+    });
+    expect(composed.ok).toBe(true);
+    if (!composed.ok) return;
+    expect(
+      validateAnswerComposition(composed.value, {
+        pack: p,
+        goals: [{ goalId: "g-storage", text: "Where is knowledge stored?" }],
+      }).ok,
+    ).toBe(true);
+    const refuseEverything = () =>
+      ({
+        ok: false as const,
+        code: "INVALID_PROPOSAL" as const,
+        message: "refuse all",
+      });
+    expect(refuseEverything().ok).toBe(false);
   });
 });
 

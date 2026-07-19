@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "ans-6b3473d34ee5914542edc2528b5224f5",
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "claimPackHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "graphRevision": 1,
+  "answer": "",
+  "claimOrder": [],
+  "sentenceClaims": [],
+  "citations": [],
+  "goalCoverage": [
+    {
+      "goalId": "g-quantum",
+      "covered": false,
+      "claimIds": []
+    }
+  ],
+  "limitations": [
+    "Goal g-quantum has no supporting claim in the sealed pack."
+  ],
+  "state": "insufficient_pack"
+}

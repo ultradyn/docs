@@ -70,3 +70,16 @@ export {
   type CreateClaimReviewerAgentOptions,
   type ValidateClaimReviewerOptions,
 } from "./claim-reviewer-agent.js";
+
+// T-60-02 — Answer Composer (deterministic pack→answer; no LLM)
+export {
+  StructuredAnswerCompatibility,
+  composeAnswerFromPack,
+  deriveAnswerCompositionId,
+  validateAnswerComposition,
+  type AnswerComposerError,
+  type AnswerComposerGoal,
+  type ComposeAnswerFromPackInput,
+  type StructuredAnswerContext,
+  type ValidateAnswerCompositionOptions,
+} from "./answer-composer-agent.js";

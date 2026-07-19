@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "id": "ans-3f947fd50ef7805a97e658f8c0545ca0",
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "claimPackHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "graphRevision": 1,
+  "answer": "Settings apply through the documented procedure. Atlas stores portable project knowledge in Git.",
+  "claimOrder": [
+    "clm-01ARZ3NDEKTSV4RRFFQ69G5FAB",
+    "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+  ],
+  "sentenceClaims": [
+    {
+      "sentenceIndex": 0,
+      "claimIds": [
+        "clm-01ARZ3NDEKTSV4RRFFQ69G5FAB"
+      ]
+    },
+    {
+      "sentenceIndex": 1,
+      "claimIds": [
+        "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "claimId": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAB",
+      "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+    },
+    {
+      "claimId": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+      "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+    }
+  ],
+  "goalCoverage": [
+    {
+      "goalId": "g-settings",
+      "covered": true,
+      "claimIds": [
+        "clm-01ARZ3NDEKTSV4RRFFQ69G5FAB"
+      ]
+    },
+    {
+      "goalId": "g-storage",
+      "covered": true,
+      "claimIds": [
+        "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+      ]
+    }
+  ],
+  "limitations": [],
+  "state": "proposed"
+}

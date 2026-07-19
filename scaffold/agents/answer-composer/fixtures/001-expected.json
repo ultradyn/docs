@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "ans-77a5448c4bce1a7e354a0dee31315a53",
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "claimPackHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "graphRevision": 1,
+  "answer": "Atlas stores portable project knowledge in Git.",
+  "claimOrder": [
+    "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+  ],
+  "sentenceClaims": [
+    {
+      "sentenceIndex": 0,
+      "claimIds": [
+        "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "claimId": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+      "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+    }
+  ],
+  "goalCoverage": [
+    {
+      "goalId": "g-storage",
+      "covered": true,
+      "claimIds": [
+        "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+      ]
+    }
+  ],
+  "limitations": [],
+  "state": "proposed"
+}

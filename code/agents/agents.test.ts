@@ -177,11 +177,12 @@ describe("agent runtime public seam", () => {
     );
   });
 
-  it("ships all sixteen definitions with at least three schema-valid golden fixtures", async () => {
+  it("ships all seventeen definitions with at least three schema-valid golden fixtures", async () => {
     const results = await validateAgentFixtures(shippedAgentsRoot);
-    expect(results).toHaveLength(16);
+    expect(results).toHaveLength(17);
     expect(results.map((result) => result.name).sort()).toEqual([
       "agent-smith",
+      "answer-composer",
       "claim-extractor",
       "claim-reviewer",
       "critic",
