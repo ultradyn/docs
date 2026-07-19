@@ -661,11 +661,11 @@ Do not freeze the exact final TypeScript shape ahead of the gates; these nouns a
 
 **Interfaces:**
 
-- Consumes: `SourceUnit`, `ExactMapProjection`, MiniSearch.
-- Produces: `LexicalRetrieval.build(snapshotId, units): Promise<void>` and `.search(request:SearchRequest): Promise<IngestResult<SearchResponse,"INDEX_UNAVAILABLE">>`; response always contains `SearchReceipt { snapshotId,indexVersion,query,filters,candidateIds,selectedIds,failures }`.
+- Consumes: canonical `ExactMapInput { units, files, representations }`, `ExactMapProjection`, and MiniSearch. Build reuses T-12-02's strict context/reference/locator/text-hash rebinding and one-representation-version-per-source-file rule; it never attempts to index text absent from `SourceUnit`.
+- Produces: `LexicalRetrieval.build(snapshotId, input): Promise<IngestResult<void,"INVALID_INPUT"|"DUPLICATE_UNIT"|"DUPLICATE_CONTEXT"|"UNRESOLVED_REFERENCE"|"TEXT_MISMATCH">>` and `.search(request:SearchRequest): Promise<IngestResult<SearchResponse,"INDEX_UNAVAILABLE">>`; response always contains `SearchReceipt { snapshotId,indexVersion,indexedRepresentationsSha256,query,filters,candidateIds,selectedIds,failures }`. `indexedRepresentationsSha256` is SHA-256 of the canonical encoding of sorted unique indexed representation IDs, making repair-induced staleness detectable even when `snapshotId` is unchanged.
 
-- [ ] **Red:** tiny/small expected queries return labelled units; missing index returns `INDEX_UNAVAILABLE`; an empty healthy result returns `ok:true` with an empty selected list and receipt; deleted index rebuilds identically. Run targeted Vitest. **Expected failure:** lexical-index module missing.
-- [ ] **Green:** index structural fields in MiniSearch, apply snapshot/scope/status filters before selection, stable-sort tied scores, persist no knowledge in the index, and emit engine-neutral receipts.
+- [ ] **Red:** tiny/small expected content queries return labelled units through rebound representation text; duplicate/mixed versions, unresolved references, and text mismatch fail typed/non-throwing at build; missing index returns `INDEX_UNAVAILABLE`; an empty healthy result returns `ok:true` with an empty selected list and receipt; changing a representation version changes the receipt corpus digest without changing snapshot ID; deleted index rebuilds identically. Run targeted Vitest. **Expected failure:** lexical-index module missing.
+- [ ] **Green:** reuse/deepen the exact-map context qualifier, index structural fields plus rebound selected text in MiniSearch, apply snapshot/scope/status filters before selection, stable-sort tied scores, persist no knowledge in the index, and emit engine-neutral corpus-bound receipts.
 - [ ] **Pass:** targeted Vitest passes.
 - [ ] **Commit:** `git commit -m "feat(ingest): add lexical retrieval receipts"`.
 
