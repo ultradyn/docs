@@ -7,7 +7,6 @@ depends_on:
 estimate_hours: 8
 id: P2.M1.E4.T004
 priority: critical
-reason: Blocked pending Max-approved ADR/trust-root decision; deterministic fake is local-only and cannot activate production ingestion.
 started_at: null
 status: blocked
 tags: []
@@ -28,3 +27,28 @@ Acceptance:
 - approve and assertRunAllowed verify exact payload-bound attestations under current authority revision.
 - forged labels/proofs, transplant, stale/revoked authority, unavailable verifier, and unknown trust root fail closed.
 - local fake remains explicit and cannot satisfy production activation checks.
+
+
+
+## Scope clarification (Max, 2026-07-19)
+
+This gate covers the TRUE-PRODUCTION trust root only. It is explicitly NOT
+required for trusted-operator alpha runs or for R0/R1 work, and it is not on
+the R0/R1 critical path.
+
+Operator position: real authentication schemes are deliberately deferred;
+priority is exercising the system end to end with trusted participants. A real
+trust root (local key / GPG / git-based signing were floated) plugs into the
+existing PolicyAttestationAuthority interface later without a rewrite.
+
+Binding constraints that survive the deferral:
+- KEEP the PolicyAttestationAuthority seam. Never regress to trusting a bare
+  approved: true label — that would make later auth a rewrite, not an addition.
+- Any alpha authority must be MODE-GATED, explicitly named as alpha, and must
+  never be labeled or reachable as 'production'.
+- Approvals still traverse attest/verify so the control path is exercised.
+- Document honestly: alpha is trusted-operator, NOT adversary-resistant.
+
+Deferred until a real run needs it: no alpha authority is wired today, because
+nothing currently requires one. An unused mode-gated bypass sitting in the tree
+is a liability waiting to be mislabeled. Wire it at the point of first need.
