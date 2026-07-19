@@ -41,6 +41,14 @@ not tuned to fit an observed result:
 | Refinement-quality gain (split vs combined) | ≥ 0.10 absolute |
 | Cost multiple (split ÷ combined) | ≤ 3× |
 
+**Provenance of these numbers, stated because a reader cannot otherwise audit
+it:** they were CHOSEN A PRIORI, not derived from a pilot table in this repo.
+That is an honest pre-commit freeze rather than post-hoc tuning — the rule can
+and does return `revisit` — but nobody can check *why 0.05* from evidence here.
+If they are ever re-frozen, record the measurement and the reasoning in this
+document at the same time. A threshold whose origin is undocumented drifts into
+looking authoritative.
+
 The split role must clear **all three**. The reasoning: a separate role costs
 extra model calls and extra prompt surface, so it has to earn that cost in
 measurable quality, not merely be architecturally tidier.
@@ -56,6 +64,14 @@ So the test suite deliberately includes a case where the split role fails to
 earn its cost and the decision **must** come out `revisit`. Mutation-verified:
 forcing the decision to always return `retain-split` fails that test.
 
+## What is measured but NOT gated
+
+`branchFactor` is computed and reported, and is deliberately **not** part of the
+decision rule. A lower branch factor is not self-evidently better — fewer child
+questions can mean less curiosity rather than more precision. It is left ungated
+rather than inventing a criterion, and said out loud here so a reader does not
+invent one either.
+
 ## Refusals, not warnings
 
 Two inputs are refused rather than reported with a caveat:
@@ -65,14 +81,20 @@ Two inputs are refused rather than reported with a caveat:
   measurements printed side by side, which is worse than no measurement because
   it looks like a finding. Mutation-verified: removing the version check fails
   four tests.
-- **`INSUFFICIENT_DATA`** — a zero denominator, or fewer than two repeats when
-  measuring output stability. A rate of 0/0 must not silently become 0 or 1, and
-  a single run cannot demonstrate stability.
+- **`INSUFFICIENT_DATA`** — a zero denominator; fewer than two repeats when
+  measuring output stability; or counts that would produce a rate outside
+  [0,1] (negative values, or a numerator exceeding its denominator). A rate of
+  0/0 must not silently become 0 or 1, a single run cannot demonstrate
+  stability, and a garbage rate that still yields a confident decision is the
+  same failure as a vacuous one — the output looks like a measurement.
 
 ## If this ever runs on real data
 
-1. Record both configurations on the **same** corpus SHA, model version and
-   prompt version, or the comparison is refused (by design).
+1. Record both configurations on the **same** corpus SHA, model version, prompt
+   version **and metric-definition version**, or the comparison is refused (by
+   design). The rubric axis matters: two runs can share a prompt string and
+   still be incomparable if what counts as a false acceptance changed between
+   them.
 2. Use at least two repeats per configuration so stability is measurable.
 3. If the result is `revisit`, that is an **input to a human decision** about
    ADR-0005 — not an automatic architectural change. Nothing in R0/R1 consumes

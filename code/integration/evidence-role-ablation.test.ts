@@ -20,6 +20,7 @@ const VERSIONS = {
   corpusSha256: "a".repeat(64),
   modelVersion: "fake-model-v1",
   promptVersion: "evidence-critic-v1",
+  metricDefinitionVersion: "rubric-v1",
 } as const;
 
 function report(overrides: Partial<RoleRunReport> = {}): RoleRunReport {
@@ -63,6 +64,19 @@ describe("version binding", () => {
     const result = compareEvidenceRoles(
       report({ role: "split" }),
       report({ role: "combined", promptVersion: "evidence-critic-v2" }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("VERSION_MISMATCH");
+  });
+
+  it("REFUSES reports scored under different metric definitions", () => {
+    // Same prompt string, different scoring rubric. These LOOK comparable and
+    // are not: if "useful refinement" was redefined between runs, the two
+    // refinementQuality numbers are not measuring the same thing.
+    const result = compareEvidenceRoles(
+      report({ role: "split" }),
+      report({ role: "combined", metricDefinitionVersion: "rubric-v2" }),
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -120,6 +134,34 @@ describe("exact metrics", () => {
     // Stability: 3 identical repeats = 1; one differing repeat < 1.
     expect(result.value.split.outputStability).toBeCloseTo(1, 6);
     expect(result.value.combined.outputStability).toBeLessThan(1);
+  });
+
+  it("REFUSES counts that would produce a rate outside [0,1]", () => {
+    // A garbage rate that still yields a confident decision is the same family
+    // as a vacuous denominator — the output looks like a measurement.
+    for (const bad of [
+      { falseAcceptances: -1 },
+      { falseAcceptances: 999, totalJudgements: 20 },
+      { refinementsUseful: 99, refinementsTotal: 10 },
+      { costAud: -5 },
+    ]) {
+      const result = compareEvidenceRoles(
+        report({ role: "split", ...bad }),
+        report({ role: "combined" }),
+      );
+      expect(result.ok, `expected refusal for ${JSON.stringify(bad)}`).toBe(
+        false,
+      );
+      if (result.ok) continue;
+      expect(result.code).toBe("INSUFFICIENT_DATA");
+    }
+    // Positive control: in-range counts still produce a result, so the above
+    // cannot be satisfied by a function that refuses everything.
+    const ok = compareEvidenceRoles(
+      report({ role: "split" }),
+      report({ role: "combined" }),
+    );
+    expect(ok.ok).toBe(true);
   });
 
   it("REFUSES a zero denominator rather than reporting a vacuous rate", () => {

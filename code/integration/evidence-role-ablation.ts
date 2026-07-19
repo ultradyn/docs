@@ -64,6 +64,14 @@ export type RoleRunReport = {
   readonly corpusSha256: string;
   readonly modelVersion: string;
   readonly promptVersion: string;
+  /**
+   * Version of the SCORING RUBRIC — what counts as a false acceptance, what
+   * counts as a "useful" refinement. Two reports can share a prompt string and
+   * still be incomparable if the rubric changed underneath them, which looks
+   * like a comparison and is not. Bound explicitly rather than assumed folded
+   * into promptVersion.
+   */
+  readonly metricDefinitionVersion: string;
   readonly falseAcceptances: number;
   readonly totalJudgements: number;
   readonly refinementsUseful: number;
@@ -125,6 +133,7 @@ function isReport(value: unknown): value is RoleRunReport {
     typeof r.corpusSha256 === "string" &&
     typeof r.modelVersion === "string" &&
     typeof r.promptVersion === "string" &&
+    typeof r.metricDefinitionVersion === "string" &&
     typeof r.falseAcceptances === "number" &&
     typeof r.totalJudgements === "number" &&
     typeof r.refinementsUseful === "number" &&
@@ -151,6 +160,26 @@ function stability(outputsByRepeat: readonly (readonly string[])[]): number {
 }
 
 function metrics(report: RoleRunReport): RoleMetrics | undefined {
+  /**
+   * Counts must be non-negative and numerators must not exceed denominators.
+   * Without this, a negative or inflated count yields a rate outside [0,1] —
+   * falseAcceptance of -0.05, refinementQuality of 2 — and the decision rule
+   * consumes it happily. A garbage rate that still produces a confident
+   * decision is the same family as a vacuous denominator: it looks like a
+   * measurement.
+   */
+  const counts = [
+    report.falseAcceptances,
+    report.totalJudgements,
+    report.refinementsUseful,
+    report.refinementsTotal,
+    report.childBranches,
+    report.parentQuestions,
+    report.costAud,
+  ];
+  if (counts.some((n) => !Number.isFinite(n) || n < 0)) return undefined;
+  if (report.falseAcceptances > report.totalJudgements) return undefined;
+  if (report.refinementsUseful > report.refinementsTotal) return undefined;
   if (
     report.totalJudgements <= 0 ||
     report.refinementsTotal <= 0 ||
@@ -162,6 +191,13 @@ function metrics(report: RoleRunReport): RoleMetrics | undefined {
   return {
     falseAcceptance: report.falseAcceptances / report.totalJudgements,
     refinementQuality: report.refinementsUseful / report.refinementsTotal,
+    /**
+     * REPORTED, NEVER GATED. Required by the plan's result shape and useful as
+     * context, but deliberately not part of ABLATION_DECISION_RULE: a lower
+     * branch factor is not self-evidently better — fewer child questions can
+     * mean less curiosity rather than more precision. Left ungated rather than
+     * inventing a criterion, and said out loud so a reader does not invent one.
+     */
     branchFactor: report.childBranches / report.parentQuestions,
     costAud: report.costAud,
     outputStability: stability(report.outputsByRepeat),
@@ -181,7 +217,8 @@ export function compareEvidenceRoles(
   if (
     a.corpusSha256 !== b.corpusSha256 ||
     a.modelVersion !== b.modelVersion ||
-    a.promptVersion !== b.promptVersion
+    a.promptVersion !== b.promptVersion ||
+    a.metricDefinitionVersion !== b.metricDefinitionVersion
   ) {
     return failure("VERSION_MISMATCH");
   }
