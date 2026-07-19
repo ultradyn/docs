@@ -5,7 +5,12 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { Sha256, SnapshotId, SourceFileId, SourceUnitId } from "../../domain/ingest/index.js";
+import type {
+  Sha256,
+  SnapshotId,
+  SourceFileId,
+  SourceUnitId,
+} from "../../domain/ingest/index.js";
 import { ClaimSchema, type Claim } from "../../domain/ingest/claim.js";
 
 import {
@@ -197,7 +202,9 @@ describe("transition — acceptance gates (T-22-01 structure + T-22-03 authority
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(["ACCEPTANCE_FORBIDDEN", "REVIEW_REQUIRED"]).toContain(result.code);
+      expect(["ACCEPTANCE_FORBIDDEN", "REVIEW_REQUIRED"]).toContain(
+        result.code,
+      );
     }
   });
 
@@ -472,6 +479,40 @@ describe("append-only CAS and idempotency", () => {
     expect(conflict.ok).toBe(false);
     if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
   });
+
+  it("transition is idempotent for the same key and conflicts on different payload", async () => {
+    const r = repo();
+    const created = await r.create(createInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const first = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "disputed",
+      reason: "peer",
+      idempotencyKey: "tx-1",
+    });
+    const second = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "disputed",
+      reason: "peer",
+      idempotencyKey: "tx-1",
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(second.value.version).toBe(first.value.version);
+    expect(second.value.state).toBe("disputed");
+    const conflict = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: first.value.version,
+      to: "disputed",
+      reason: "different reason payload",
+      idempotencyKey: "tx-1",
+    });
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
+  });
 });
 
 describe("list and immutability", () => {
@@ -643,7 +684,7 @@ describe("durable store / crash / custody", () => {
     }
   }, 60_000);
 
-  it("crash after immutable publish before operation commit leaves no half-success", async () => {
+  it("crash after immutable publish before operation commit reconstructs same-key", async () => {
     if (process.platform !== "linux") return;
     const root = await mkdtemp(join(tmpdir(), "clm-crash2-"));
     try {
@@ -662,11 +703,11 @@ describe("durable store / crash / custody", () => {
       ).rejects.toThrow(/injected-crash-op/);
       const freshStore = createFileClaimStore(root);
       const id = deriveClaimId(QUESTION, PACKET, createInput().statement);
-      // no half-success readable as durable latest
-      const latest = await freshStore.latest(id).catch(() => undefined);
-      // either undefined or stream not committed
-      expect(latest === undefined || latest === null).toBe(true);
-      // same-key retry reconciles
+      // Post-publish crash: immutable record is visible (half-commit of op only).
+      const orphan = await freshStore.latest(id);
+      expect(orphan).toBeDefined();
+      expect(orphan?.version).toBe(1);
+      // Same-key retry reconciles without inventing a second version.
       const retry = createClaimRepository({
         store: createFileClaimStore(root),
         evidence: verifierOk(),
@@ -677,6 +718,16 @@ describe("durable store / crash / custody", () => {
         idempotencyKey: "crash-op-1",
       });
       expect(again.ok).toBe(true);
+      if (!again.ok) return;
+      expect(again.value.id).toBe(id);
+      expect(again.value.version).toBe(1);
+      const again2 = await retry.create({
+        ...createInput(),
+        idempotencyKey: "crash-op-1",
+      });
+      expect(again2.ok).toBe(true);
+      if (!again2.ok) return;
+      expect(again2.value.version).toBe(1);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -921,9 +972,9 @@ describe("durable store / crash / custody", () => {
       expect(listed.ok).toBe(true);
       if (!listed.ok) return;
       // must not surface memory-only claims
-      expect(
-        listed.value.every((c) => c.statement !== "memory-only"),
-      ).toBe(true);
+      expect(listed.value.every((c) => c.statement !== "memory-only")).toBe(
+        true,
+      );
 
       // plant corrupt claim file
       const created = await durable.create(

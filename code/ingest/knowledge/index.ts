@@ -33,7 +33,17 @@ export {
   type EvidenceVerdictService,
   type QuestionFacetReader,
 } from "./evidence-verdict-service.js";
-export * from "./claim-repository.js";
+// Claim repository: production surface only — in-memory store is module/testing-only.
+export {
+  createClaimRepository,
+  createFileClaimStore,
+  deriveClaimId,
+  type ClaimServiceError,
+  type EvidenceVerificationReader,
+  type ClaimAcceptanceAuthority,
+  type ClaimStore,
+  type ClaimRepository,
+} from "./claim-repository.js";
 export * from "./obligation-service.js";
 export * from "./question-admissibility.js";
 export * from "./question-link-service.js";

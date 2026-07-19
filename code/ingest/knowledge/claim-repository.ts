@@ -592,11 +592,6 @@ export function createFileClaimStore(
         if (hooks.afterTempWriteBeforePublish) {
           await hooks.afterTempWriteBeforePublish();
         }
-        // Fire "after immutable / before op" before rename so crash leaves no
-        // half-success latest (claim custody: no visible incomplete commit).
-        if (hooks.afterImmutablePublishBeforeOpCommit) {
-          await hooks.afterImmutablePublishBeforeOpCommit();
-        }
         try {
           const existing = await lstat(path);
           if (existing.isSymbolicLink()) {
@@ -610,7 +605,11 @@ export function createFileClaimStore(
         } catch (error) {
           if (errorCode(error) !== "ENOENT") throw error;
         }
+        // Immutable publish (rename). Op/idempotency commit is the next service step.
         await rename(temporary, path);
+        if (hooks.afterImmutablePublishBeforeOpCommit) {
+          await hooks.afterImmutablePublishBeforeOpCommit();
+        }
         return "created";
       } catch (error) {
         await rm(temporary, { force: true }).catch(() => undefined);
@@ -1145,8 +1144,45 @@ export function createClaimRepository(options: {
         supersederId = superProp.value;
       }
 
+      let idempotencyKey: string | undefined;
+      const idemProp = ownData(input, "idempotencyKey");
+      if (idemProp.ok && idemProp.present) {
+        if (typeof idemProp.value !== "string" || idemProp.value.length === 0) {
+          return failure("INVALID_INPUT", "idempotencyKey invalid.");
+        }
+        idempotencyKey = idemProp.value;
+      }
+
+      const transitionDigest = sha256Hex(
+        JSON.stringify([
+          claimId,
+          expectedVersion,
+          to,
+          reviewerRunId ?? null,
+          reason ?? null,
+          supersederId ?? null,
+        ]),
+      );
+      const idKey =
+        idempotencyKey !== undefined
+          ? `transition:${claimId}:${idempotencyKey}`
+          : undefined;
+
       try {
         return await store.locked(async () => {
+          if (idKey && store.lookupIdempotency) {
+            const prior = await store.lookupIdempotency(idKey);
+            if (prior) {
+              if (prior.digest !== transitionDigest) {
+                return failure(
+                  "IDEMPOTENCY_CONFLICT",
+                  "Idempotency key reused with a different payload.",
+                );
+              }
+              return success(structuredClone(prior.claim));
+            }
+          }
+
           const current = await store.latest(claimId);
           if (!current) {
             return failure("CLAIM_NOT_FOUND", "Claim not found.");
@@ -1253,6 +1289,19 @@ export function createClaimRepository(options: {
           const appendResult = await store.append(next);
           if (appendResult === "exists_conflict") {
             return failure("OVERWRITE_DENIED", "Version overwrite denied.");
+          }
+          if (idKey && store.rememberIdempotency) {
+            const remembered = await store.rememberIdempotency(
+              idKey,
+              transitionDigest,
+              next,
+            );
+            if (remembered === "conflict") {
+              return failure(
+                "IDEMPOTENCY_CONFLICT",
+                "Idempotency key reused with a different payload.",
+              );
+            }
           }
           return success(next);
         });
