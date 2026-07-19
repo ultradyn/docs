@@ -909,3 +909,548 @@ describe("D — atomic verdict append+idempotency", () => {
     }
   }, 60_000);
 });
+
+// =============================================================================
+// RED-3 — exact composer pairing / digest / version streams + crash reconstruction
+// =============================================================================
+describe("C3 — composer pairing and complete packetDigest", () => {
+  async function composeFn() {
+    const mod = await import("./evidence-loop-policy.js");
+    return (
+      mod as {
+        composeAndEvaluateEvidenceLoop: (
+          i: unknown,
+        ) => Promise<{
+          ok: boolean;
+          value?: { route?: string; historyReceipt?: unknown };
+        }>;
+      }
+    ).composeAndEvaluateEvidenceLoop;
+  }
+
+  it("composer rejects verdict packetId/version mismatch vs loaded packet (wrong pairing)", async () => {
+    const compose = await composeFn();
+    const packets = createInMemoryEvidencePacketStore();
+    const verdicts = createInMemoryEvidenceVerdictStore();
+    const packet = samplePacket();
+    await packets.append(packet);
+    // Plant a verdict that claims wrong packetVersion
+    await verdicts.append({
+      schemaVersion: 1,
+      id: deriveEvidenceVerdictId(QUESTION, packet.id),
+      questionId: QUESTION,
+      packetId: packet.id,
+      packetVersion: 99, // wrong
+      version: 1,
+      referenceReviews: [
+        {
+          unitId: UNIT_A,
+          classification: "necessary_primary",
+          reason: "r",
+        },
+      ],
+      facetStates: [
+        { facetId: "purpose", state: "satisfied", reason: "r" },
+      ],
+      verdict: "accepted",
+      criticisms: [],
+      followUpRequest: null,
+      packetDigest: DIGEST_A as Sha256,
+    } as never);
+    const result = await compose({
+      questionId: QUESTION,
+      packets,
+      verdicts,
+      budget: { maxRefinements: 3 },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.value?.historyReceipt).toBeUndefined();
+  });
+
+  it("composer rejects verdict.packetDigest mismatch vs COMPLETE recomputed digest", async () => {
+    const compose = await composeFn();
+    const packets = createInMemoryEvidencePacketStore();
+    const verdicts = createInMemoryEvidenceVerdictStore();
+    const packet = samplePacket();
+    await packets.append(packet);
+    await verdicts.append({
+      schemaVersion: 1,
+      id: deriveEvidenceVerdictId(QUESTION, packet.id),
+      questionId: QUESTION,
+      packetId: packet.id,
+      packetVersion: 1,
+      version: 1,
+      referenceReviews: [
+        {
+          unitId: UNIT_A,
+          classification: "necessary_primary",
+          reason: "r",
+        },
+      ],
+      facetStates: [
+        { facetId: "purpose", state: "satisfied", reason: "r" },
+      ],
+      verdict: "accepted",
+      criticisms: [],
+      followUpRequest: null,
+      packetDigest: "f".repeat(64) as Sha256, // wrong vs complete digest
+    } as never);
+    const result = await compose({
+      questionId: QUESTION,
+      packets,
+      verdicts,
+      budget: { maxRefinements: 3 },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.value?.historyReceipt).toBeUndefined();
+  });
+});
+
+describe("C3 — separate packet and verdict version stream failures", () => {
+  it("pure path rejects reordered packet versions", () => {
+    const result = evaluateEvidenceLoop(
+      {
+        questionId: QUESTION,
+        steps: [
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 2,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["a"],
+              requiredSearch: { subject: "x" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 2,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["b"],
+              requiredSearch: { subject: "y" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+        ],
+      },
+      { maxRefinements: 5 },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("pure path rejects skipped packet versions", () => {
+    const result = evaluateEvidenceLoop(
+      {
+        questionId: QUESTION,
+        steps: [
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["a"],
+              requiredSearch: { subject: "x" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 3,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 2,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["b"],
+              requiredSearch: { subject: "y" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+        ],
+      },
+      { maxRefinements: 5 },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("pure path rejects duplicated packet versions", () => {
+    const result = evaluateEvidenceLoop(
+      {
+        questionId: QUESTION,
+        steps: [
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["a"],
+              requiredSearch: { subject: "x" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 2,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["b"],
+              requiredSearch: { subject: "y" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+        ],
+      },
+      { maxRefinements: 5 },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("pure path rejects reordered verdict versions", () => {
+    const result = evaluateEvidenceLoop(
+      {
+        questionId: QUESTION,
+        steps: [
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 2,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["a"],
+              requiredSearch: { subject: "x" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 2,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["b"],
+              requiredSearch: { subject: "y" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+        ],
+      },
+      { maxRefinements: 5 },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("pure path rejects skipped verdict versions", () => {
+    const result = evaluateEvidenceLoop(
+      {
+        questionId: QUESTION,
+        steps: [
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["a"],
+              requiredSearch: { subject: "x" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 2,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 3,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["b"],
+              requiredSearch: { subject: "y" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+        ],
+      },
+      { maxRefinements: 5 },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("pure path rejects duplicated verdict versions", () => {
+    const result = evaluateEvidenceLoop(
+      {
+        questionId: QUESTION,
+        steps: [
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["a"],
+              requiredSearch: { subject: "x" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 2,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["b"],
+              requiredSearch: { subject: "y" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+        ],
+      },
+      { maxRefinements: 5 },
+    );
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("D3 — packet crash reconstruction + corrupt op mapping", () => {
+  it("same-key retry returns structurally same packet version after crash", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "pkt-recon-"));
+    try {
+      const store = createFileEvidencePacketStore(root, {
+        afterImmutablePublishBeforeOpCommit: () => {
+          throw new Error("injected-crash-op");
+        },
+      } as never);
+      const links = {
+        get: async (id: string) =>
+          id === QUESTION
+            ? { questionId: QUESTION, snapshotId: SNAPSHOT }
+            : undefined,
+      };
+      const svc = createEvidenceService({
+        store,
+        links,
+        receipts: { get: async () => undefined },
+      });
+      const receipt = healthyReceipt();
+      const input = {
+        questionId: QUESTION,
+        references: [ref()],
+        receipt,
+        receiptDigest: receiptDigestOf(receipt),
+        context: context(),
+        idempotencyKey: "recon-p",
+      };
+      await expect(svc.appendPacket(input)).rejects.toThrow(/injected-crash-op/);
+      const fresh = createEvidenceService({
+        store: createFileEvidencePacketStore(root),
+        links,
+        receipts: { get: async () => undefined },
+      });
+      const a = await fresh.appendPacket(input);
+      const b = await fresh.appendPacket(input);
+      expect(a.ok && b.ok).toBe(true);
+      if (!a.ok || !b.ok) return;
+      expect(a.value.version).toBe(1);
+      expect(b.value.version).toBe(1);
+      expect(a.value.id).toBe(b.value.id);
+      expect(a.value.receiptDigest).toBe(b.value.receiptDigest);
+      // different payload same key conflicts
+      const conflict = await fresh.appendPacket({
+        ...input,
+        receipt: healthyReceipt({ query: "mutated" }),
+        receiptDigest: receiptDigestOf(healthyReceipt({ query: "mutated" })),
+      });
+      expect(conflict.ok).toBe(false);
+      if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("corrupted operation intent cannot authorize packet replay", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "pkt-corrupt-op-"));
+    try {
+      // GREEN must validate op digest against record; RED expects typed fail
+      // when journal mapping is corrupted after a partial commit.
+      const store = createFileEvidencePacketStore(root);
+      const links = {
+        get: async (id: string) =>
+          id === QUESTION
+            ? { questionId: QUESTION, snapshotId: SNAPSHOT }
+            : undefined,
+      };
+      const svc = createEvidenceService({
+        store,
+        links,
+        receipts: { get: async () => undefined },
+      });
+      const receipt = healthyReceipt();
+      const first = await svc.appendPacket({
+        questionId: QUESTION,
+        references: [ref()],
+        receipt,
+        receiptDigest: receiptDigestOf(receipt),
+        context: context(),
+        idempotencyKey: "corrupt-op-p",
+      });
+      expect(first.ok).toBe(true);
+      // Corrupt journal idem mapping if present
+      const { readdir, readFile, writeFile } = await import("node:fs/promises");
+      const journal = join(root, ".ultradyn", "evidence", "journal");
+      let corrupted = false;
+      try {
+        const names = await readdir(journal);
+        for (const name of names) {
+          if (name.startsWith("idem-")) {
+            const path = join(journal, name);
+            const raw = await readFile(path, "utf8");
+            await writeFile(path, raw.replace(/"digest":"[a-f0-9]+"/, '"digest":"0".repeat(64)'.slice(0, 0) + '"digest":"' + "0".repeat(64) + '"'));
+            corrupted = true;
+          }
+        }
+      } catch {
+        // journal path may differ — force fail expectation on replay validation API
+      }
+      const fresh = createEvidenceService({
+        store: createFileEvidencePacketStore(root),
+        links,
+        receipts: { get: async () => undefined },
+      });
+      // Replay same key: if mapping corrupt, must fail closed not invent new version
+      const replay = await fresh.appendPacket({
+        questionId: QUESTION,
+        references: [ref()],
+        receipt,
+        receiptDigest: receiptDigestOf(receipt),
+        context: context(),
+        idempotencyKey: "corrupt-op-p",
+      });
+      // After GREEN: either exact replay of v1 OR typed IDEMPOTENCY/STREAM failure
+      if (corrupted) {
+        if (replay.ok) {
+          expect(replay.value.version).toBe(1);
+        } else {
+          expect(["IDEMPOTENCY_CONFLICT", "COMMIT_FAILED", "STREAM_CORRUPT"]).toContain(
+            replay.code,
+          );
+        }
+      } else {
+        // RED: require store-level validateOperation API
+        const mod = await import("./evidence-service.js");
+        expect(
+          typeof (mod as { validateIdempotencyOperation?: unknown })
+            .validateIdempotencyOperation,
+        ).toBe("function");
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+describe("D3 — verdict crash reconstruction + different-payload conflict", () => {
+  it("verdict same-key retry one version and different-payload conflicts after crash", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "evv-recon-"));
+    try {
+      const mod = await import("./evidence-verdict-service.js");
+      const createFacets = (
+        mod as {
+          createInMemoryQuestionFacetReader: (
+            m: Map<string, string[]>,
+          ) => unknown;
+        }
+      ).createInMemoryQuestionFacetReader;
+      expect(typeof createFacets).toBe("function");
+      const facets = createFacets(new Map([[QUESTION, ["purpose"]]]));
+      const packet = samplePacket();
+      const store = createFileEvidenceVerdictStore(root, {
+        afterImmutablePublishBeforeOpCommit: () => {
+          throw new Error("injected-crash-op");
+        },
+      } as never);
+      const applyBase = {
+        questionId: QUESTION,
+        packetId: packet.id,
+        packetVersion: 1,
+        requiredFacetIds: ["purpose"],
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "necessary_primary",
+            reason: "ok",
+          },
+        ],
+        facetStates: [
+          { facetId: "purpose", state: "satisfied", reason: "ok" },
+        ],
+        verdict: "accepted",
+        criticisms: [],
+        followUpRequest: null,
+        idempotencyKey: "recon-v",
+      };
+      const deps = {
+        packets: { get: async () => packet },
+        receipts: {
+          get: async () => ({
+            id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            failures: [],
+            selectedIds: [UNIT_A],
+          }),
+        },
+        verifier: {
+          verifyReferences: async () => ({
+            ok: true as const,
+            value: true as const,
+          }),
+        },
+        facets,
+      };
+      await expect(
+        mod.createEvidenceVerdictService({ store, ...deps }).apply(applyBase),
+      ).rejects.toThrow(/injected-crash-op/);
+      const fresh = mod.createEvidenceVerdictService({
+        store: createFileEvidenceVerdictStore(root),
+        ...deps,
+      });
+      const a = await fresh.apply(applyBase);
+      const b = await fresh.apply(applyBase);
+      expect(a.ok && b.ok).toBe(true);
+      if (!a.ok || !b.ok) return;
+      expect(a.value.version).toBe(1);
+      expect(b.value.version).toBe(1);
+      const conflict = await fresh.apply({
+        ...applyBase,
+        criticisms: ["different payload"],
+      });
+      expect(conflict.ok).toBe(false);
+      if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("corrupted verdict op mapping fails closed", async () => {
+    const mod = await import("./evidence-verdict-service.js");
+    // Require explicit validation seam for corrupt journal (not silent accept)
+    expect(
+      typeof (mod as { validateIdempotencyOperation?: unknown })
+        .validateIdempotencyOperation,
+    ).toBe("function");
+  });
+});
