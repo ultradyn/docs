@@ -1433,10 +1433,12 @@ export function createClaimRepository(options: {
                 // HONEST RESIDUAL: this aborts mid-loop, so stale records
                 // appended for EARLIER claims in this call remain durable while
                 // the call reports failure. The operation is NOT atomic across
-                // claims. That is safe to retry rather than merely tolerable:
-                // re-running re-derives identical stale records, which the store
-                // reports as exists_identical, so a retry converges instead of
-                // duplicating. Callers MUST retry; treating the failure as
+                // claims. Retry is safe, but via the SKIP above, not via
+                // exists_identical: a claim already staled no longer has
+                // state === "accepted", so a re-run passes over it entirely and
+                // only the un-staled remainder is retried. No record is
+                // re-appended, so there is no version or reason drift to
+                // reconcile. Callers MUST retry; treating the failure as
                 // "nothing happened" would be wrong.
                 return failure(
                   "COMMIT_FAILED",
