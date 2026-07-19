@@ -408,11 +408,16 @@ describe("evaluateEvidenceLoop — pure policy (no ledger side effects)", () => 
 });
 
 describe("public barrel", () => {
-  it("re-exports evaluateEvidenceLoop from knowledge barrel", async () => {
+  it("exports composeAndEvaluateEvidenceLoop; not raw evaluateEvidenceLoop", async () => {
     const barrel = await import("./index.js");
     expect(
-      typeof (barrel as { evaluateEvidenceLoop?: unknown })
-        .evaluateEvidenceLoop,
+      typeof (barrel as { composeAndEvaluateEvidenceLoop?: unknown })
+        .composeAndEvaluateEvidenceLoop,
     ).toBe("function");
+    expect(
+      (barrel as { evaluateEvidenceLoop?: unknown }).evaluateEvidenceLoop,
+    ).toBeUndefined();
+    // Direct module keeps pure evaluator for unit tests.
+    expect(typeof evaluateEvidenceLoop).toBe("function");
   });
 });

@@ -37,7 +37,6 @@ import {
   type SourceHashContext,
 } from "./evidence-service.js";
 import {
-  createEvidenceVerdictService,
   createInMemoryEvidenceVerdictStore,
   createFileEvidenceVerdictStore,
   deriveEvidenceVerdictId,
@@ -59,9 +58,7 @@ const UNIT_HASH_A = sha("unit-a");
 const DIGEST_A = "a".repeat(64);
 const DIGEST_B = "b".repeat(64);
 
-function ref(
-  overrides: Partial<EvidenceReference> = {},
-): EvidenceReference {
+function ref(overrides: Partial<EvidenceReference> = {}): EvidenceReference {
   return {
     snapshotId: SNAPSHOT,
     fileId: FILE_A,
@@ -85,7 +82,9 @@ function context(): SourceHashContext {
   };
 }
 
-function healthyReceipt(overrides: Record<string, unknown> = {}): SearchReceipt {
+function healthyReceipt(
+  overrides: Record<string, unknown> = {},
+): SearchReceipt {
   return SearchReceiptSchema.parse({
     schemaVersion: 1,
     id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -108,9 +107,7 @@ function healthyReceipt(overrides: Record<string, unknown> = {}): SearchReceipt 
   }) as SearchReceipt;
 }
 
-function samplePacket(
-  overrides: Partial<EvidencePacket> = {},
-): EvidencePacket {
+function samplePacket(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
   return {
     schemaVersion: 1,
     id: deriveEvidencePacketId(QUESTION),
@@ -176,9 +173,9 @@ describe("B — RED gaps: digest must bind schemaVersion/id/version/limits", () 
   });
 
   it("mutation of version changes digest", () => {
-    expect(
-      completeDigest({ ...BASE_DIGEST_INPUT, version: 2 }),
-    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+    expect(completeDigest({ ...BASE_DIGEST_INPUT, version: 2 })).not.toBe(
+      completeDigest(BASE_DIGEST_INPUT),
+    );
   });
 
   it("mutation of maxReferences changes digest", () => {
@@ -475,7 +472,8 @@ describe("A — QuestionFacetReader facet authority", () => {
         { facetId: "components", state: "satisfied", reason: "ok" },
       ],
     );
-    const { requiredFacetIds: _drop, ...without } = body;
+    const without = { ...body };
+    Reflect.deleteProperty(without, "requiredFacetIds");
     const result = await svc.apply(without);
     // GREEN: derives from QuestionFacetReader → accepted
     // RED: construction/apply lacks reader → fail
@@ -503,15 +501,31 @@ describe("C — EvidenceHistoryComposer", () => {
       typeof (barrel as { composeAndEvaluateEvidenceLoop?: unknown })
         .composeAndEvaluateEvidenceLoop,
     ).toBe("function");
+    // Raw pure evaluator is internal/testing via direct module import only.
+    expect(
+      (barrel as { evaluateEvidenceLoop?: unknown }).evaluateEvidenceLoop,
+    ).toBeUndefined();
+  });
+
+  it("public barrel does not export createInMemoryQuestionFacetReader (testing surface)", async () => {
+    const barrel = await import("./index.js");
+    expect(
+      (barrel as { createInMemoryQuestionFacetReader?: unknown })
+        .createInMemoryQuestionFacetReader,
+    ).toBeUndefined();
+    // Direct module still exposes testing factory.
+    const mod = await import("./evidence-verdict-service.js");
+    expect(typeof mod.createInMemoryQuestionFacetReader).toBe("function");
   });
 
   it("empty stores fail closed without routing receipt", async () => {
     const mod = await import("./evidence-loop-policy.js");
     const compose = (
       mod as {
-        composeAndEvaluateEvidenceLoop: (
-          i: unknown,
-        ) => Promise<{ ok: boolean; value?: { route?: string; historyReceipt?: unknown } }>;
+        composeAndEvaluateEvidenceLoop: (i: unknown) => Promise<{
+          ok: boolean;
+          value?: { route?: string; historyReceipt?: unknown };
+        }>;
       }
     ).composeAndEvaluateEvidenceLoop;
     const result = await compose({
@@ -755,7 +769,6 @@ describe("D — atomic packet append+idempotency", () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 60_000);
-
 });
 
 describe("D — honest existing invariant: in-memory packet idempotency conflict", () => {
@@ -873,9 +886,7 @@ describe("D — atomic verdict append+idempotency", () => {
             reason: "ok",
           },
         ],
-        facetStates: [
-          { facetId: "purpose", state: "satisfied", reason: "ok" },
-        ],
+        facetStates: [{ facetId: "purpose", state: "satisfied", reason: "ok" }],
         verdict: "accepted",
         criticisms: [],
         followUpRequest: null,
@@ -891,7 +902,10 @@ describe("D — atomic verdict append+idempotency", () => {
           }),
         },
         verifier: {
-          verifyReferences: async () => ({ ok: true as const, value: true as const }),
+          verifyReferences: async () => ({
+            ok: true as const,
+            value: true as const,
+          }),
         },
         facets,
       };
@@ -919,9 +933,7 @@ describe("C3 — composer pairing and complete packetDigest", () => {
     const mod = await import("./evidence-loop-policy.js");
     return (
       mod as {
-        composeAndEvaluateEvidenceLoop: (
-          i: unknown,
-        ) => Promise<{
+        composeAndEvaluateEvidenceLoop: (i: unknown) => Promise<{
           ok: boolean;
           value?: { route?: string; historyReceipt?: unknown };
         }>;
@@ -950,9 +962,7 @@ describe("C3 — composer pairing and complete packetDigest", () => {
           reason: "r",
         },
       ],
-      facetStates: [
-        { facetId: "purpose", state: "satisfied", reason: "r" },
-      ],
+      facetStates: [{ facetId: "purpose", state: "satisfied", reason: "r" }],
       verdict: "accepted",
       criticisms: [],
       followUpRequest: null,
@@ -988,9 +998,7 @@ describe("C3 — composer pairing and complete packetDigest", () => {
           reason: "r",
         },
       ],
-      facetStates: [
-        { facetId: "purpose", state: "satisfied", reason: "r" },
-      ],
+      facetStates: [{ facetId: "purpose", state: "satisfied", reason: "r" }],
       verdict: "accepted",
       criticisms: [],
       followUpRequest: null,
@@ -1255,7 +1263,9 @@ describe("D3 — packet crash reconstruction + corrupt op mapping", () => {
         context: context(),
         idempotencyKey: "recon-p",
       };
-      await expect(svc.appendPacket(input)).rejects.toThrow(/injected-crash-op/);
+      await expect(svc.appendPacket(input)).rejects.toThrow(
+        /injected-crash-op/,
+      );
       const fresh = createEvidenceService({
         store: createFileEvidencePacketStore(root),
         links,
@@ -1320,7 +1330,16 @@ describe("D3 — packet crash reconstruction + corrupt op mapping", () => {
           if (name.startsWith("idem-")) {
             const path = join(journal, name);
             const raw = await readFile(path, "utf8");
-            await writeFile(path, raw.replace(/"digest":"[a-f0-9]+"/, '"digest":"0".repeat(64)'.slice(0, 0) + '"digest":"' + "0".repeat(64) + '"'));
+            await writeFile(
+              path,
+              raw.replace(
+                /"digest":"[a-f0-9]+"/,
+                '"digest":"0".repeat(64)'.slice(0, 0) +
+                  '"digest":"' +
+                  "0".repeat(64) +
+                  '"',
+              ),
+            );
             corrupted = true;
           }
         }
@@ -1346,9 +1365,11 @@ describe("D3 — packet crash reconstruction + corrupt op mapping", () => {
         if (replay.ok) {
           expect(replay.value.version).toBe(1);
         } else {
-          expect(["IDEMPOTENCY_CONFLICT", "COMMIT_FAILED", "STREAM_CORRUPT"]).toContain(
-            replay.code,
-          );
+          expect([
+            "IDEMPOTENCY_CONFLICT",
+            "COMMIT_FAILED",
+            "STREAM_CORRUPT",
+          ]).toContain(replay.code);
         }
       } else {
         // RED: require store-level validateOperation API
@@ -1397,9 +1418,7 @@ describe("D3 — verdict crash reconstruction + different-payload conflict", () 
             reason: "ok",
           },
         ],
-        facetStates: [
-          { facetId: "purpose", state: "satisfied", reason: "ok" },
-        ],
+        facetStates: [{ facetId: "purpose", state: "satisfied", reason: "ok" }],
         verdict: "accepted",
         criticisms: [],
         followUpRequest: null,
