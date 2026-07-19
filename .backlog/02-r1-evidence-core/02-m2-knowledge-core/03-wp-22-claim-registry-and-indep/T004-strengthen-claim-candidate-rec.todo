@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T14:23:39Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T14:53:32Z"
 complexity: medium
 created_at: "2026-07-19T12:49:31Z"
 depends_on:
     - P2.M2.E3.T002
+duration_minutes: 29.883431497483333
 estimate_hours: 3
 id: P2.M2.E3.T004
 priority: medium
 started_at: "2026-07-19T14:23:39Z"
-status: in_progress
+status: done
 tags: []
 title: Strengthen claim-candidate recall corpus and metric
-updated_at: "2026-07-19T14:23:39Z"
+updated_at: "2026-07-19T14:53:32Z"
 ---
 Follow-up from T-22-02 independent review (River, Tier B PASS, Important finding #1).
 
