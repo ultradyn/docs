@@ -32,7 +32,7 @@ tasks:
       file: T002-t-30-02-implement-researcher-a.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: T-30-02 — Implement Researcher agent contract and prompt
     - complexity: high

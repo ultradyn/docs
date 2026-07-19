@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T12:47:13Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T12:59:46Z"
 complexity: medium
 created_at: "2026-07-18T08:10:11Z"
 depends_on:
     - P2.M3.E1.T001
+duration_minutes: 12.551667643183333
 estimate_hours: 5
 id: P2.M3.E1.T002
 priority: high
 started_at: "2026-07-19T12:47:13Z"
-status: in_progress
+status: done
 tags: []
 title: T-30-02 — Implement Researcher agent contract and prompt
-updated_at: "2026-07-19T12:47:13Z"
+updated_at: "2026-07-19T12:59:46Z"
 ---
 Bundle provenance: WP-30 / T-30-02
 
