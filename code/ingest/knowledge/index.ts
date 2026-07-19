@@ -44,6 +44,23 @@ export {
   type ClaimStore,
   type ClaimRepository,
 } from "./claim-repository.js";
+// Claim candidates: pure-read relationship candidates (no merge decision).
+export {
+  CLAIM_CANDIDATE_LIMITS,
+  CLAIM_CANDIDATE_RECALL_FLOOR,
+  MATCHER_VERSION,
+  createClaimCandidateFinder,
+  type ClaimCandidate,
+  type ClaimCandidateCorpusReader,
+  type ClaimCandidateError,
+  type ClaimCandidateFindResult,
+  type ClaimCandidateFinder,
+  type ClaimCandidateReceipt,
+  type ClaimCandidateRelation,
+  type ClaimCandidateSignals,
+  type ScopeSignal,
+  type TypeSignal,
+} from "./claim-candidates.js";
 export * from "./obligation-service.js";
 export * from "./question-admissibility.js";
 export * from "./question-link-service.js";
