@@ -1,0 +1,129 @@
+{
+  "_note": "T-32-03 pilot granularity labels. Two independent reviewers (A, B) label each claim's granularity as atomic | overbroad | fragmented. Statements are illustrative pilot claims, not real corpus content. Reviewer agreement and reuse/fragmentation rates are computed from these literal labels; see docs/engineering/claim-granularity-guide.md.",
+  "claims": [
+    {
+      "id": "clm-auth-expiry",
+      "statement": "Access tokens expire fifteen minutes after issue.",
+      "claimType": "constraint",
+      "reviewerA": "atomic",
+      "reviewerB": "atomic"
+    },
+    {
+      "id": "clm-auth-refresh",
+      "statement": "A refresh token may be exchanged once for a new access token.",
+      "claimType": "behavior",
+      "reviewerA": "atomic",
+      "reviewerB": "atomic"
+    },
+    {
+      "id": "clm-encrypt-rest",
+      "statement": "Data at rest is encrypted with AES-256-GCM.",
+      "claimType": "constraint",
+      "reviewerA": "atomic",
+      "reviewerB": "atomic"
+    },
+    {
+      "id": "clm-encrypt-and-audit",
+      "statement": "Data at rest is encrypted with AES-256-GCM and every access is written to the audit log and retained for thirty days.",
+      "claimType": "constraint",
+      "reviewerA": "overbroad",
+      "reviewerB": "overbroad"
+    },
+    {
+      "id": "clm-deploy-procedure",
+      "statement": "Deployment runs migrations, then starts the service, then registers health checks.",
+      "claimType": "procedure",
+      "orderedParts": [
+        "run database migrations",
+        "start the service process",
+        "register health checks"
+      ],
+      "reviewerA": "atomic",
+      "reviewerB": "atomic"
+    },
+    {
+      "id": "clm-restore-precondition",
+      "statement": "A restore requires, in order, a verified backup, a drained node, and an acquired restore lock.",
+      "claimType": "precondition",
+      "orderedParts": [
+        "a verified backup exists",
+        "the target node is drained",
+        "the restore lock is acquired"
+      ],
+      "reviewerA": "atomic",
+      "reviewerB": "atomic"
+    },
+    {
+      "id": "clm-ratelimit-fragment-a",
+      "statement": "The gateway limits requests.",
+      "claimType": "constraint",
+      "reviewerA": "fragmented",
+      "reviewerB": "fragmented"
+    },
+    {
+      "id": "clm-ratelimit-fragment-b",
+      "statement": "The limit is per minute.",
+      "claimType": "constraint",
+      "reviewerA": "fragmented",
+      "reviewerB": "fragmented"
+    },
+    {
+      "id": "clm-backup-retention",
+      "statement": "Nightly backups are retained for thirty days.",
+      "claimType": "requirement",
+      "reviewerA": "atomic",
+      "reviewerB": "atomic"
+    },
+    {
+      "id": "clm-index-rebuild",
+      "statement": "The search index is rebuilt from the primary store and is never committed to git.",
+      "claimType": "behavior",
+      "reviewerA": "atomic",
+      "reviewerB": "overbroad"
+    },
+    {
+      "id": "clm-provider-fake",
+      "statement": "Every external capability boundary has a deterministic fake for local operation.",
+      "claimType": "constraint",
+      "reviewerA": "atomic",
+      "reviewerB": "atomic"
+    },
+    {
+      "id": "clm-consent-then-canary",
+      "statement": "A connection test performs a non-sensitive provider canary.",
+      "claimType": "behavior",
+      "reviewerA": "atomic",
+      "reviewerB": "fragmented"
+    }
+  ],
+  "questions": [
+    {
+      "questionId": "q-auth-lifetime",
+      "acceptedClaimIds": [
+        "clm-auth-expiry",
+        "clm-auth-refresh"
+      ]
+    },
+    {
+      "questionId": "q-session-security",
+      "acceptedClaimIds": [
+        "clm-auth-expiry",
+        "clm-encrypt-rest"
+      ]
+    },
+    {
+      "questionId": "q-data-protection",
+      "acceptedClaimIds": [
+        "clm-encrypt-rest",
+        "clm-backup-retention"
+      ]
+    },
+    {
+      "questionId": "q-local-operation",
+      "acceptedClaimIds": [
+        "clm-provider-fake",
+        "clm-index-rebuild"
+      ]
+    }
+  ]
+}
