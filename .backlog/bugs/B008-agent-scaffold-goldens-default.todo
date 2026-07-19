@@ -1,17 +1,18 @@
 ---
+claimed_at: "2026-07-19T17:50:48Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-19T16:32:40Z"
 depends_on: []
 estimate_hours: 3
 id: B008
 priority: medium
-status: pending
-tags:
-    - agents
-    - fixtures
-    - systemic
+started_at: "2026-07-19T17:50:48Z"
+status: in_progress
+tags: []
 title: Agent scaffold goldens default to shape-only; every new agent inherits the gap
-updated_at: "2026-07-19T16:32:40Z"
+updated_at: "2026-07-19T17:50:48Z"
 ---
 THIRD occurrence of the same residual. Filing the cause rather than continuing to fix instances.
 
