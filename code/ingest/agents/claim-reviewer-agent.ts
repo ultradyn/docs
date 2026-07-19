@@ -366,8 +366,9 @@ export function validateClaimReviewerProposal(
     return failure("SEPARATION_OF_DUTIES");
   }
 
-  const subjects = subjectClaimIds(options.claims);
-  if (!subjects.ok) return subjects;
+  const subjectsResult = subjectClaimIds(options.claims);
+  if (!subjectsResult.ok) return failure(subjectsResult.code);
+  const subjects = subjectsResult.value;
 
   const packetParsed = EvidencePacketSchema.safeParse(options.packet);
   if (!packetParsed.success) return failure("INVALID_INPUT");
@@ -378,7 +379,7 @@ export function validateClaimReviewerProposal(
 
   if (!isPlainObject(input)) return failure("INVALID_PROPOSAL");
   for (const key of Reflect.ownKeys(input)) {
-    if (typeof key === "symbol") return failure("INVALID_PROPOSAL");
+    if (typeof key !== "string") return failure("INVALID_PROPOSAL");
     if ((CHILD_SMUGGLING_KEYS as readonly string[]).includes(key)) {
       return failure("INVALID_PROPOSAL");
     }
@@ -404,17 +405,18 @@ export function validateClaimReviewerProposal(
   for (const row of raw.reviews) {
     const id = row.claimId as string;
     if (reviewed.has(id)) return failure("INVALID_PROPOSAL");
-    if (!subjects.value.has(id)) return failure("INVALID_PROPOSAL");
+    if (!subjects.has(id)) return failure("INVALID_PROPOSAL");
     reviewed.set(id, row);
   }
-  for (const id of subjects.value.keys()) {
+  for (const id of subjects.keys()) {
     if (!reviewed.has(id)) return failure("UNEVALUATED_CLAIM");
   }
 
   // Fabrication gate + axis consistency + overgeneralisation on accept
   for (const row of raw.reviews) {
-    if (row.evidenceUnitIds) {
-      for (const unitId of row.evidenceUnitIds) {
+    const evidenceUnits = row.evidenceUnitIds;
+    if (evidenceUnits !== undefined) {
+      for (const unitId of evidenceUnits) {
         if (!packetUnits.has(unitId as string)) {
           return failure("UNSUPPORTED_EVIDENCE");
         }
@@ -423,7 +425,8 @@ export function validateClaimReviewerProposal(
 
     if (row.decision === "accept") {
       if (!acceptAxesReady(row)) return failure("INVALID_PROPOSAL");
-      const subject = subjects.value.get(row.claimId as string)!;
+      const subject = subjects.get(row.claimId as string);
+      if (!subject) return failure("INVALID_PROPOSAL");
       if (isOvergeneralStatement(subject.statement, subject.claimType)) {
         return failure("INVALID_PROPOSAL");
       }
