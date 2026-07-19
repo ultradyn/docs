@@ -19,8 +19,13 @@
  * - "Fresh instance over shared stores" SIMULATES a process restart; it does
  *   not prove durability across a real OS process boundary (Maps stay in memory).
  *
- * CRASH DISPOSITION (v1): abandonPendingOperations clears intents only; orphans
- * may remain (append-only). Safe for admission only because C1 filters them out.
+ * CRASH DISPOSITION:
+ * - Same-key retry RESUMES via the intent journal (commandDigest must match —
+ *   different payload is still IDEMPOTENCY_CONFLICT). Precursors are adopted
+ *   via ClaimStore-style trichotomy (created | exists_identical | exists_conflict)
+ *   then the commit is appended. Retry must SUCCEED with exactly one of each record.
+ * - abandonPendingOperations clears intents under the store lock (I-D).
+ *   Orphans may remain (append-only) but are excluded from admission (C1).
  *
  * Authority: command schema is STRICT — obligations/admitted/lexical/link smuggled
  * keys → INVALID_INPUT. Admission envelope filled from commit-reachable store
@@ -264,6 +269,7 @@ export interface GraphGatewayDeps {
   readonly wordings: GeneratedWordingStore;
   readonly humanQuestions?: {
     has(id: string): Promise<boolean>;
+    register?(id: string, wording: string): void;
   };
   readonly hooks?: GraphGatewayHooks;
 }
@@ -335,7 +341,8 @@ export function createInMemoryGeneratedQuestionPort(): GeneratedQuestionPort {
   const map = new Map<string, GraphGeneratedQuestion>();
   return {
     create: async (q) => {
-      map.set(q.id, deepFreeze({ ...q }));
+      // Idempotent adopt: resume after crash may re-create the same id.
+      if (!map.has(q.id)) map.set(q.id, deepFreeze({ ...q }));
     },
     get: async (id) => map.get(id),
     listAll: async () => [...map.values()],
@@ -479,26 +486,73 @@ export function createInMemoryGraphGatewayDeps(
     wordings: createInMemoryGeneratedWordingStore(),
     humanQuestions: {
       has: async (id) => human.has(id),
+      register: (id: string) => {
+        human.add(id);
+      },
     },
-    hooks,
+    ...(hooks ? { hooks } : {}),
     obligationFake,
     linkStore,
-    // expose register human for tests via closure
-    ...{
-      _registerHuman: (id: string) => human.add(id),
-    },
-  } as GraphGatewayDeps & {
-    obligationFake: ReturnType<
-      typeof createInMemoryCoverageObligationEventWriter
-    >;
-    linkStore: QuestionLinkStore;
-    _registerHuman?: (id: string) => void;
   };
 }
 
 // ---------------------------------------------------------------------------
 // Reachability (visibility gate for ALL authoritative reads)
 // ---------------------------------------------------------------------------
+
+/**
+ * Link create trichotomy — same idiom as ClaimStore.append
+ * (created | exists_identical | exists_conflict). Collapses boolean false into
+ * distinguishable adopt-vs-conflict so same-key resume can adopt its own orphans.
+ */
+async function adoptOrCreateLink(
+  store: QuestionLinkStore,
+  link: IngestionQuestionLink,
+): Promise<"created" | "exists_identical" | "exists_conflict"> {
+  const existing = await store.get(link.questionId);
+  if (existing) {
+    // Compare content identity (not object identity)
+    const a = JSON.stringify({
+      origin: existing.origin,
+      sourceUnitIds: existing.sourceUnitIds,
+      systemActor: existing.systemActor,
+      generation: existing.generation,
+      snapshotId: existing.snapshotId,
+      rawArtifactId: existing.rawArtifactId,
+    });
+    const b = JSON.stringify({
+      origin: link.origin,
+      sourceUnitIds: link.sourceUnitIds,
+      systemActor: link.systemActor,
+      generation: link.generation,
+      snapshotId: link.snapshotId,
+      rawArtifactId: link.rawArtifactId,
+    });
+    return a === b ? "exists_identical" : "exists_conflict";
+  }
+  const created = await store.create(link);
+  if (created) return "created";
+  // Lost race: re-read
+  const again = await store.get(link.questionId);
+  if (!again) return "exists_conflict";
+  const a = JSON.stringify({
+    origin: again.origin,
+    sourceUnitIds: again.sourceUnitIds,
+    systemActor: again.systemActor,
+    generation: again.generation,
+    snapshotId: again.snapshotId,
+    rawArtifactId: again.rawArtifactId,
+  });
+  const b = JSON.stringify({
+    origin: link.origin,
+    sourceUnitIds: link.sourceUnitIds,
+    systemActor: link.systemActor,
+    generation: link.generation,
+    snapshotId: link.snapshotId,
+    rawArtifactId: link.rawArtifactId,
+  });
+  return a === b ? "exists_identical" : "exists_conflict";
+}
 
 function subjectIdsFromCommits(
   commits: readonly GraphCommit[],
@@ -647,7 +701,6 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
     );
   }
   const hooks = deps.hooks ?? {};
-  const humans = new Set<string>();
 
   async function isReachableViaCommit(subjectId: string): Promise<boolean> {
     const commits = await deps.commits.listCommits();
@@ -724,9 +777,8 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
 
       if (op.parentQuestionId) {
         const human =
-          (deps.humanQuestions &&
-            (await deps.humanQuestions.has(op.parentQuestionId))) ||
-          humans.has(op.parentQuestionId);
+          deps.humanQuestions &&
+          (await deps.humanQuestions.has(op.parentQuestionId));
         const gen = await deps.questions.get(op.parentQuestionId);
         const reachable =
           gen && (await isReachableViaCommit(op.parentQuestionId));
@@ -747,6 +799,49 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
     });
   }
 
+  async function finalizeCommit(args: {
+    command: GraphGatewayCommand;
+    questionId: string;
+    obligationId: string;
+    intentKey: string;
+  }): Promise<IngestResult<GraphCommit, GraphGatewayError>> {
+    const commitId = crockfordId("gcm", `gcm:${args.command.idempotencyKey}`);
+    const eventId = crockfordId("gev", `gev:${args.command.idempotencyKey}`);
+    const nextRevision = ((await deps.commits.getRevision()) +
+      1) as GraphRevision;
+    const rawCommit = {
+      schemaVersion: 1 as const,
+      commitId,
+      revision: nextRevision,
+      idempotencyKey: args.command.idempotencyKey,
+      events: [
+        {
+          schemaVersion: 1 as const,
+          id: eventId,
+          revision: nextRevision,
+          operationType: "create_generated_branch" as const,
+          subjectIds: [args.questionId, args.obligationId],
+        },
+      ],
+      createdQuestionId: args.questionId,
+      createdLinkQuestionId: args.questionId,
+      createdObligationId: args.obligationId,
+    };
+    const valid = GraphCommitSchema.safeParse(rawCommit);
+    if (!valid.success) return failure("COMMIT_FAILED");
+    const commit = deepFreeze(valid.data) as GraphCommit;
+    await deps.commits.setRevision(nextRevision);
+    await deps.commits.appendCommit(commit);
+    await deps.commits.clearIntent(args.intentKey);
+    const remembered = await deps.commits.rememberIdempotency(
+      args.command.idempotencyKey,
+      commandDigest(args.command),
+      commit,
+    );
+    if (remembered === "conflict") return failure("IDEMPOTENCY_CONFLICT");
+    return success(commit);
+  }
+
   async function executeCreateBranch(
     command: GraphGatewayCommand,
     op: Extract<GraphOperation, { type: "create_generated_branch" }>,
@@ -759,10 +854,32 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
       "obl",
       `obl:${command.idempotencyKey}:${questionId}`,
     ) as ObligationId;
-    const commitId = crockfordId("gcm", `gcm:${command.idempotencyKey}`);
-    const eventId = crockfordId("gev", `gev:${command.idempotencyKey}`);
+    const intentKey = `graph:${command.idempotencyKey}`;
+    const digest = commandDigest(command);
 
-    // C1: admission from COMMIT-REFERENCED records only
+    // I-A: same-key resume — adopt intent-bound precursors, then commit.
+    // Same key + DIFFERENT payload → IDEMPOTENCY_CONFLICT (do not adopt across payloads).
+    const existingIntent = await deps.commits.lookupIntent(intentKey);
+    if (existingIntent) {
+      if (existingIntent.commandDigest !== digest) {
+        return failure("IDEMPOTENCY_CONFLICT");
+      }
+      if (
+        existingIntent.phase === "precursors" &&
+        existingIntent.precursorQuestionId === questionId
+      ) {
+        if (hooks.afterPrecursorBeforeCommit) {
+          await hooks.afterPrecursorBeforeCommit();
+        }
+        return finalizeCommit({
+          command,
+          questionId,
+          obligationId: existingIntent.precursorObligationId,
+          intentKey,
+        });
+      }
+    }
+
     const admitted = await loadCommitReachableAdmitted();
     const envelope = buildAdmissionEnvelope({
       questionId,
@@ -774,10 +891,9 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
     const decision = assessQuestionProposal(envelope);
     if (!decision.admitted) return failure("ADMISSION_REJECTED");
 
-    const intentKey = `graph:${command.idempotencyKey}`;
     await deps.commits.writeIntent({
       key: intentKey,
-      commandDigest: commandDigest(command),
+      commandDigest: digest,
       expectedRevision: command.expectedRevision,
       wording: op.wording,
       sourceUnitIds: op.sourceUnitIds,
@@ -787,7 +903,6 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
       phase: "precursors",
     });
 
-    // Precursors via real seams
     await deps.questions.create({
       id: questionId,
       wording: op.wording,
@@ -808,18 +923,15 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
       ] as unknown as IngestionQuestionLink["sourceUnitIds"],
       createdRevision: command.expectedRevision,
     });
-    const linked = await deps.links.create(link);
-    if (!linked) return failure("COMMIT_FAILED");
+    // Trichotomy (ClaimStore.append idiom): created | exists_identical | exists_conflict
+    const linkOutcome = await adoptOrCreateLink(deps.links, link);
+    if (linkOutcome === "exists_conflict") return failure("COMMIT_FAILED");
 
-    // Atomic single-unresolved-owner via claimUnresolvedOwnerQuestionId
-    const reserve = await deps.obligations.reserveCreate({
+    await deps.obligations.reserveCreate({
       idempotencyKey: `reserve:${command.idempotencyKey}`,
-      commandDigest: commandDigest(command),
+      commandDigest: digest,
       allocateObligationId: () => obligationId,
     });
-    if (reserve.status === "idempotency_conflict") {
-      return failure("IDEMPOTENCY_CONFLICT");
-    }
     const obligationRecord = {
       schemaVersion: 1 as const,
       id: obligationId,
@@ -833,7 +945,7 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
       obligationId,
       expectedVersion: 0,
       idempotencyKey: `obl:${command.idempotencyKey}`,
-      commandDigest: commandDigest(command),
+      commandDigest: digest,
       claimUnresolvedOwnerQuestionId: questionId as QuestionId,
       event: {
         obligationId,
@@ -846,10 +958,7 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
         obligation: obligationRecord,
       },
     });
-    if (
-      appendResult.status === "ownership_conflict" ||
-      appendResult.status === "idempotency_conflict"
-    ) {
+    if (appendResult.status === "ownership_conflict") {
       return failure("COMMIT_FAILED");
     }
 
@@ -857,77 +966,50 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
       await hooks.afterPrecursorBeforeCommit();
     }
 
-    const nextRevision = ((await deps.commits.getRevision()) +
-      1) as GraphRevision;
-    const rawCommit = {
-      schemaVersion: 1 as const,
-      commitId,
-      revision: nextRevision,
-      idempotencyKey: command.idempotencyKey,
-      events: [
-        {
-          schemaVersion: 1 as const,
-          id: eventId,
-          revision: nextRevision,
-          operationType: "create_generated_branch" as const,
-          subjectIds: [questionId, obligationId],
-        },
-      ],
-      createdQuestionId: questionId,
-      createdLinkQuestionId: questionId,
-      createdObligationId: obligationId,
-    };
-    const valid = GraphCommitSchema.safeParse(rawCommit);
-    if (!valid.success) return failure("COMMIT_FAILED");
-    const commit = deepFreeze(valid.data) as GraphCommit;
-
-    await deps.commits.setRevision(nextRevision);
-    await deps.commits.appendCommit(commit);
-    await deps.commits.clearIntent(intentKey);
-    const remembered = await deps.commits.rememberIdempotency(
-      command.idempotencyKey,
-      commandDigest(command),
-      commit,
-    );
-    if (remembered === "conflict") return failure("IDEMPOTENCY_CONFLICT");
-
-    return success(commit);
+    return finalizeCommit({
+      command,
+      questionId,
+      obligationId,
+      intentKey,
+    });
   }
 
   async function abandonPendingOperations(): Promise<
     IngestResult<{ abandoned: number }, GraphGatewayError>
   > {
-    const intents = await deps.commits.listIntents();
-    let abandoned = 0;
-    for (const intent of intents) {
-      if (intent.phase === "precursors") {
-        await deps.commits.clearIntent(intent.key);
-        abandoned += 1;
+    return deps.commits.locked(async () => {
+      const intents = await deps.commits.listIntents();
+      let abandoned = 0;
+      for (const intent of intents) {
+        if (intent.phase === "precursors") {
+          await deps.commits.clearIntent(intent.key);
+          abandoned += 1;
+        }
       }
-    }
-    return Object.freeze({
-      ok: true as const,
-      value: deepFreeze({ abandoned }),
+      return Object.freeze({
+        ok: true as const,
+        value: deepFreeze({ abandoned }),
+      });
     });
   }
 
   return {
     apply,
     listCommits: () => deps.commits.listCommits(),
+    // RAW diagnostic counts (include orphans). Admission uses commit-gated reads.
     countGeneratedQuestions: async () =>
       (await deps.questions.listAll()).length,
     countGeneratedLinks: async () => {
-      // Count only commit-reachable links for honesty? Counts used for
-      // four-store absence include orphans on purpose for crash diagnostics.
+      // QuestionLinkStore has no listAll; count commit-reachable links only.
+      // Deliberate: differs from questions/obligations raw counts — documented.
       const commits = await deps.commits.listCommits();
-      return subjectIdsFromCommits(commits).size > 0
-        ? [...subjectIdsFromCommits(commits)].filter((id) =>
-            id.startsWith("q-"),
-          ).length
-        : 0;
+      let n = 0;
+      for (const id of subjectIdsFromCommits(commits)) {
+        if (id.startsWith("q-") && (await deps.links.get(id))) n += 1;
+      }
+      return n;
     },
     countSelfOwnedUnresolvedObligations: async () => {
-      // Prefer fake helper when present; else readAll heuristic
       const fake = deps.obligations as {
         countSelfOwnedUnresolved?: () => number;
       };
@@ -938,8 +1020,8 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
     },
     isReachableViaCommit,
     abandonPendingOperations,
-    registerHumanQuestion(id) {
-      humans.add(id);
+    registerHumanQuestion(id, wording) {
+      deps.humanQuestions?.register?.(id, wording);
     },
   };
 }

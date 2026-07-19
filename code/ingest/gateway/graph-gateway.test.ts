@@ -224,7 +224,81 @@ describe("authoritative integration", () => {
     expect(await gw.listCommits()).toHaveLength(1);
   });
 
-  it("C1: crash orphan does NOT poison admission for same wording after abandon", async () => {
+  it("I-A: SAME key after crash RESUMES and completes (one of each record)", async () => {
+    let crashed = false;
+    const deps = createInMemoryGraphGatewayDeps({
+      afterPrecursorBeforeCommit: async () => {
+        if (!crashed) {
+          crashed = true;
+          throw new Error("injected-crash afterPrecursorBeforeCommit");
+        }
+      },
+    });
+    const g1 = createGraphGateway(deps);
+    await expect(
+      g1.apply(cmd("ia-same-key", 0, CONCRETE_WORDING)),
+    ).rejects.toThrow(/injected-crash/);
+    expect(await g1.listCommits()).toHaveLength(0);
+
+    // Resume WITHOUT crash hook — SAME key must SUCCEED (not COMMIT_FAILED forever)
+    const g2 = createGraphGateway({
+      commits: deps.commits,
+      questions: deps.questions,
+      links: deps.links,
+      obligations: deps.obligations,
+      wordings: deps.wordings,
+      ...(deps.humanQuestions ? { humanQuestions: deps.humanQuestions } : {}),
+    });
+    const retry = await g2.apply(cmd("ia-same-key", 0, CONCRETE_WORDING));
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) return;
+    expect(await g2.listCommits()).toHaveLength(1);
+    expect(await g2.countGeneratedQuestions()).toBeGreaterThanOrEqual(1);
+    expect(await g2.countGeneratedLinks()).toBe(1);
+    expect(await g2.countSelfOwnedUnresolvedObligations()).toBeGreaterThanOrEqual(
+      1,
+    );
+
+    // Retry twice: still exactly one commit
+    const again = await g2.apply(cmd("ia-same-key", 0, CONCRETE_WORDING));
+    expect(again.ok && again.value.commitId).toBe(retry.value.commitId);
+    expect(await g2.listCommits()).toHaveLength(1);
+  });
+
+  it("I-A: SAME key DIFFERENT payload after crash is IDEMPOTENCY_CONFLICT", async () => {
+    let crashed = false;
+    const deps = createInMemoryGraphGatewayDeps({
+      afterPrecursorBeforeCommit: async () => {
+        if (!crashed) {
+          crashed = true;
+          throw new Error("injected-crash afterPrecursorBeforeCommit");
+        }
+      },
+    });
+    const g1 = createGraphGateway(deps);
+    await expect(
+      g1.apply(cmd("ia-payload", 0, CONCRETE_WORDING)),
+    ).rejects.toThrow(/injected-crash/);
+
+    const g2 = createGraphGateway({
+      commits: deps.commits,
+      questions: deps.questions,
+      links: deps.links,
+      obligations: deps.obligations,
+      wordings: deps.wordings,
+    });
+    const conflict = await g2.apply(
+      cmd(
+        "ia-payload",
+        0,
+        "What is the concrete timeout value for cache eviction windows?",
+      ),
+    );
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
+  });
+
+  it("C1: crash orphan does NOT poison admission for different key same wording", async () => {
     const deps = createInMemoryGraphGatewayDeps({
       afterPrecursorBeforeCommit: async () => {
         throw new Error("injected-crash afterPrecursorBeforeCommit");
