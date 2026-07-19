@@ -1,0 +1,21 @@
+---
+complexity: medium
+created_at: "2026-07-19T19:02:19Z"
+depends_on: []
+estimate_hours: 1
+id: B009
+priority: low
+status: pending
+tags: []
+title: pack-application-audit derive uses single claimId, not acceptedClaimIds/rejectedClaimIds arrays; diverges if multi-id applications appear
+updated_at: "2026-07-19T19:02:19Z"
+---
+Found by pi + Wicket in T004 dual-axis review (both flagged as forward-looking Minor, aligned today).
+
+deriveClaimIdsFromApplicationRefs (code/ingest/knowledge/pack-application-audit.ts) re-derives the accepted set from each application ref's SINGLE claimId + decision. Pack membership authority (claim-pack-service listAcceptedClaimIds) uses the ClaimReviewApplication's acceptedClaimIds / rejectedClaimIds ARRAYS.
+
+Today these agree: accept/reject applications put the subject claim in those arrays equal to the single claimId, so the audit witness and membership stay aligned. No current defect.
+
+TRIGGER: the day a multi-id application appears (an application that accepts/rejects more than one claimId), deriveClaimIdsFromApplicationRefs and listAcceptedClaimIds could diverge silently — verifyPackSelection would then either false-mismatch a valid pack or (worse) mis-audit. Whoever introduces multi-id applications MUST realign the refs witness with array semantics (carry the arrays, or one ref per (application, claimId) pair) and add a divergence pin.
+
+Not a blocker for the current accept/reject-single-subject production path. Split/qualify apps are intentionally omitted from refs (builder continues only on accept|reject).
