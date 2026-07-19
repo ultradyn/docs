@@ -15,12 +15,14 @@ tasks:
     - complexity: medium
       depends_on:
         - P2.M2.E2.T003
+        - P2.M3.E1.T002
         - P1.M1.E3.T003
       estimate_hours: 5
       file: T001-t-31-01-implement-evidence-cri.todo
       id: T001
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: T-31-01 — Implement Evidence Critic contract and prompt
     - complexity: medium
       depends_on:
