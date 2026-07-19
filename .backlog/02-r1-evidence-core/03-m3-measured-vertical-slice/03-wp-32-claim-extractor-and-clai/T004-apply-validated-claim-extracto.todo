@@ -1,14 +1,14 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-07-19T15:45:45Z"
 depends_on: []
 estimate_hours: 3
 id: P2.M3.E3.T004
 priority: high
+started_at: null
 status: pending
-tags:
-    - idea
-    - planning
+tags: []
 title: Apply validated Claim Extractor proposals via ClaimRepository.create
 updated_at: "2026-07-19T15:45:45Z"
 ---
@@ -31,3 +31,27 @@ ACCEPTANCE:
 - An unsupported ref refuses the whole batch and writes nothing — assert absence on the store, not just the return value.
 - Re-applying the same proposal is idempotent (no duplicates), verified with a fresh service instance over shared stores.
 - Mutation-proof: removing the packet-mapping step must fail a certifying test.
+
+
+
+## Added from T-32-01 independent review (pi)
+
+**ID minting must be pure.** When this task mints claim ids, derive them from
+(packet identity + proposal content + policy) only — never wall-clock, never
+random. T-32-01 itself has no id-drift risk because validate-only mints nothing;
+this task introduces that risk for the first time. Non-deterministic ids break
+downstream idempotency: a re-applied proposal would create duplicates rather
+than converging, which is the failure T-22-03 and T-23-01 both spent a fold
+fixing.
+
+**candidateRelationships are CANDIDATES, not authority.** T-32-01 accepts
+relationship target ids as free strings, unchecked against the packet or against
+prior claims. That is correct for a proposal surface. But apply MUST re-resolve
+them against authoritative state and drop or refuse unknown targets — never
+persist a relationship edge to an id it has not verified exists. Writing an edge
+to an unverified target is the caller-trusted-authority shape this project has
+hit repeatedly.
+
+Test both: re-applying the same proposal twice yields no duplicates (fresh
+instance over shared stores), and a relationship naming an unknown target does
+not silently persist.

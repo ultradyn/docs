@@ -48,4 +48,5 @@ tasks:
       id: T004
       priority: high
       status: pending
+      tags: []
       title: Apply validated Claim Extractor proposals via ClaimRepository.create
