@@ -95,7 +95,7 @@ Any failure returns `AUDIT_REQUIRED` without partial units. The message names th
 
 ### Document root
 
-Every non-empty qualified representation produces one `document` root. Its range spans the first through last audited representation locator, including leading/trailing separators. It is a container and does not participate in selected-text accounting. This also gives a whitespace-only non-empty representation an honest document locator even though it has no atomic selected units.
+Every non-empty qualified representation produces one `document` root. Its normalized range/hash covers the complete normalized representation, including leading/trailing separators. Its original locator composes the first/last audited original boundaries only; SourceUnit v1 cannot honestly extend original line/column coordinates across trailing separators not covered by an extractor locator, because unitization does not receive original bytes. It is a container and does not participate in selected-text accounting. This also gives a whitespace-only non-empty representation an honest document locator even though it has no atomic selected units.
 
 A genuinely empty source (`sourceFile.size === 0`, empty normalized text, empty locator map) produces one zero-length document unit at normalized/original offset 0, line 1, column 1. A non-empty source with empty normalized text or no usable locator cannot have a claim-eligible fresh audit and therefore fails `AUDIT_REQUIRED` at qualification before structural parsing.
 
@@ -152,11 +152,11 @@ Each atomic unit is built from a contiguous sequence of existing audited locator
 
 - Normalized start/line/column come from the first locator.
 - Normalized end/line/column come from the last locator.
-- Original byte/line/column start and end come from the same first/last audited locators.
+- Original byte/line/column start and end come from the same first/last audited locators and must remain within `SourceFile.size`.
 - The unitizer verifies locator order, contiguity modulo known delimiters, and representation bounds before composition.
 - It never computes original bytes from normalized text.
 
-Document range composes the first and last atomic units. Section parenthood does not widen section locators over descendants. Empty source uses the explicit zero-length rule only when `sourceFile.size === 0`.
+Document original range composes the first and last audited representation locators; its normalized range is the explicit whole-representation exception. Section parenthood does not widen section locators over descendants. Empty source uses the explicit zero-length rule only when `sourceFile.size === 0`.
 
 ## Parent and heading relationships
 

@@ -1,0 +1,244 @@
+[
+  {
+    "schemaVersion": 1,
+    "id": "unit-1MRXJVEVZN766KA71J2JP61QZQ",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "document",
+    "headingPath": [],
+    "normalizedLocator": {
+      "utf16Start": 0,
+      "utf16End": 165,
+      "lineStart": 1,
+      "columnStart": 1,
+      "lineEnd": 23,
+      "columnEnd": 1
+    },
+    "originalLocator": {
+      "byteStart": 0,
+      "byteEnd": 164,
+      "lineStart": 1,
+      "columnStart": 1,
+      "lineEnd": 22,
+      "columnEnd": 9
+    },
+    "textSha256": "63b635d24e7092dce469204b8b3503884caac17cc034a01037ccc9528a87cfd1"
+  },
+  {
+    "schemaVersion": 1,
+    "id": "unit-2BDBHRAE8FTWECXSPTE43QWRW3",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "paragraph",
+    "parentId": "unit-1MRXJVEVZN766KA71J2JP61QZQ",
+    "headingPath": [],
+    "normalizedLocator": {
+      "utf16Start": 0,
+      "utf16End": 9,
+      "lineStart": 1,
+      "columnStart": 1,
+      "lineEnd": 1,
+      "columnEnd": 10
+    },
+    "originalLocator": {
+      "byteStart": 0,
+      "byteEnd": 9,
+      "lineStart": 1,
+      "columnStart": 1,
+      "lineEnd": 1,
+      "columnEnd": 10
+    },
+    "textSha256": "31a394e26a635bcd4a07b20f969909895c8fa5ab63db47b734022b588f7ae64e"
+  },
+  {
+    "schemaVersion": 1,
+    "id": "unit-18RT0A1ZKNWPK1D4PFN50CEM2P",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "section",
+    "parentId": "unit-1MRXJVEVZN766KA71J2JP61QZQ",
+    "headingPath": ["Install"],
+    "normalizedLocator": {
+      "utf16Start": 11,
+      "utf16End": 20,
+      "lineStart": 3,
+      "columnStart": 1,
+      "lineEnd": 3,
+      "columnEnd": 10
+    },
+    "originalLocator": {
+      "byteStart": 11,
+      "byteEnd": 20,
+      "lineStart": 3,
+      "columnStart": 1,
+      "lineEnd": 3,
+      "columnEnd": 10
+    },
+    "textSha256": "2c87dcba31d31e030f5ed2ea3fe877f8cffa38f0268508763559015082223c54"
+  },
+  {
+    "schemaVersion": 1,
+    "id": "unit-20W549YJHHVC910D16TEMTASZN",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "paragraph",
+    "parentId": "unit-18RT0A1ZKNWPK1D4PFN50CEM2P",
+    "headingPath": ["Install"],
+    "normalizedLocator": {
+      "utf16Start": 22,
+      "utf16End": 49,
+      "lineStart": 5,
+      "columnStart": 1,
+      "lineEnd": 6,
+      "columnEnd": 11
+    },
+    "originalLocator": {
+      "byteStart": 22,
+      "byteEnd": 49,
+      "lineStart": 5,
+      "columnStart": 1,
+      "lineEnd": 6,
+      "columnEnd": 11
+    },
+    "textSha256": "74a020ea00fd5e5e5134e09ced163fab7ba27b5b1f9f6cfacea92deb431e1403"
+  },
+  {
+    "schemaVersion": 1,
+    "id": "unit-1THTE3FQ2VG50TT4MBV61311KX",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "list",
+    "parentId": "unit-18RT0A1ZKNWPK1D4PFN50CEM2P",
+    "headingPath": ["Install"],
+    "normalizedLocator": {
+      "utf16Start": 51,
+      "utf16End": 77,
+      "lineStart": 8,
+      "columnStart": 1,
+      "lineEnd": 10,
+      "columnEnd": 6
+    },
+    "originalLocator": {
+      "byteStart": 51,
+      "byteEnd": 77,
+      "lineStart": 8,
+      "columnStart": 1,
+      "lineEnd": 10,
+      "columnEnd": 6
+    },
+    "textSha256": "74f182d238acc7ba60b27c6a9c65b89c48493d735d98b946687f552c4715e11e"
+  },
+  {
+    "schemaVersion": 1,
+    "id": "unit-4461NETV6ZNY67AJNDE0HSABSS",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "table",
+    "parentId": "unit-18RT0A1ZKNWPK1D4PFN50CEM2P",
+    "headingPath": ["Install"],
+    "normalizedLocator": {
+      "utf16Start": 79,
+      "utf16End": 119,
+      "lineStart": 12,
+      "columnStart": 1,
+      "lineEnd": 14,
+      "columnEnd": 10
+    },
+    "originalLocator": {
+      "byteStart": 79,
+      "byteEnd": 119,
+      "lineStart": 12,
+      "columnStart": 1,
+      "lineEnd": 14,
+      "columnEnd": 10
+    },
+    "textSha256": "30051ca2bad2acb5fd9c698cf49cb488f1ecacde5573dc30698933f98dfe3c7c"
+  },
+  {
+    "schemaVersion": 1,
+    "id": "unit-05C0V5D6NJJR499HB4E7449GQA",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "code",
+    "parentId": "unit-18RT0A1ZKNWPK1D4PFN50CEM2P",
+    "headingPath": ["Install"],
+    "normalizedLocator": {
+      "utf16Start": 121,
+      "utf16End": 143,
+      "lineStart": 16,
+      "columnStart": 1,
+      "lineEnd": 18,
+      "columnEnd": 4
+    },
+    "originalLocator": {
+      "byteStart": 121,
+      "byteEnd": 143,
+      "lineStart": 16,
+      "columnStart": 1,
+      "lineEnd": 18,
+      "columnEnd": 4
+    },
+    "textSha256": "e347c370d40fc0d54390c532ae176bad3a961bec6038723b1857751e456ebaa4"
+  },
+  {
+    "schemaVersion": 1,
+    "id": "unit-5P23SD32A5YYR3WCNSZ1DAGPST",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "section",
+    "parentId": "unit-18RT0A1ZKNWPK1D4PFN50CEM2P",
+    "headingPath": ["Install", "Linux"],
+    "normalizedLocator": {
+      "utf16Start": 145,
+      "utf16End": 154,
+      "lineStart": 20,
+      "columnStart": 1,
+      "lineEnd": 20,
+      "columnEnd": 10
+    },
+    "originalLocator": {
+      "byteStart": 145,
+      "byteEnd": 154,
+      "lineStart": 20,
+      "columnStart": 1,
+      "lineEnd": 20,
+      "columnEnd": 10
+    },
+    "textSha256": "6061d7e666c692fe8458059518a5ba57308808c58b60ddec4e99eb0bfecb8020"
+  },
+  {
+    "schemaVersion": 1,
+    "id": "unit-62AJY41SRX1MWBXCPF83NVS2VW",
+    "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceFileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "representationId": "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "kind": "paragraph",
+    "parentId": "unit-5P23SD32A5YYR3WCNSZ1DAGPST",
+    "headingPath": ["Install", "Linux"],
+    "normalizedLocator": {
+      "utf16Start": 156,
+      "utf16End": 164,
+      "lineStart": 22,
+      "columnStart": 1,
+      "lineEnd": 22,
+      "columnEnd": 9
+    },
+    "originalLocator": {
+      "byteStart": 156,
+      "byteEnd": 164,
+      "lineStart": 22,
+      "columnStart": 1,
+      "lineEnd": 22,
+      "columnEnd": 9
+    },
+    "textSha256": "d4c11048de15fd7081c8abc8066517c31e162779e071c0b5b5a9190b4f79a481"
+  }
+]

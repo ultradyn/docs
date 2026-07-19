@@ -211,11 +211,11 @@ describe("unitizeRepresentation", () => {
         headingPath: [],
         normalizedLocator: {
           utf16Start: 0,
-          utf16End: 26,
+          utf16End: 27,
           lineStart: 1,
           columnStart: 1,
-          lineEnd: 4,
-          columnEnd: 5,
+          lineEnd: 5,
+          columnEnd: 1,
         },
         originalLocator: {
           byteStart: 0,
@@ -225,7 +225,7 @@ describe("unitizeRepresentation", () => {
           lineEnd: 4,
           columnEnd: 5,
         },
-        textSha256: sha256("Alpha line\ncontinued\n\nBeta"),
+        textSha256: sha256("Alpha line\ncontinued\n\nBeta\n"),
       },
       {
         kind: "paragraph",
@@ -298,6 +298,17 @@ describe("unitizeRepresentation", () => {
     expect(after.value[0]!.id).not.toBe(before.value[0]!.id);
   });
 
+  it("assigns deterministic distinct ordinals to identical sibling paragraphs", () => {
+    const result = unitizeRepresentation(textInput("Same\n\nSame\n"));
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    const paragraphs = result.value.filter((unit) => unit.kind === "paragraph");
+    expect(paragraphs).toHaveLength(2);
+    expect(paragraphs[0]!.textSha256).toBe(paragraphs[1]!.textSha256);
+    expect(paragraphs[0]!.id).not.toBe(paragraphs[1]!.id);
+    expect(unitizeRepresentation(textInput("Same\n\nSame\n"))).toEqual(result);
+  });
+
   it("emits only a document for non-empty whitespace-only text", () => {
     const result = unitizeRepresentation(textInput("  \n\n"));
     expect(result).toMatchObject({
@@ -365,6 +376,16 @@ describe("unitizeRepresentation", () => {
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) return;
+    const expected = JSON.parse(
+      await readFile(
+        new URL(
+          "./fixtures/unitization/markdown-structure.expected.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    expect(result.value).toEqual(expected);
     expect(result.value.map((unit) => unit.kind)).toEqual([
       "document",
       "paragraph",
@@ -470,6 +491,109 @@ describe("unitizeRepresentation", () => {
     );
     expect(result).toMatchObject({ ok: false, code: "TEXT_DROPPED" });
     if (!result.ok) expect(result.message).not.toContain(secret);
+  });
+
+  it("rejects polluted arrays and accessor-backed records without throwing", () => {
+    const base = emptyInput();
+    const polluted = structuredClone(base);
+    Object.setPrototypeOf(
+      polluted.representation.locatorMap,
+      Object.create(Array.prototype) as Array<unknown>,
+    );
+    expect(unitizeRepresentation(polluted)).toMatchObject({
+      ok: false,
+      code: "AUDIT_REQUIRED",
+    });
+
+    const accessor = structuredClone(base) as UnitizeInput;
+    Object.defineProperty(accessor.representation, "normalizedText", {
+      enumerable: true,
+      get(): never {
+        throw new Error("EXECUTED_GETTER");
+      },
+    });
+    expect(() => unitizeRepresentation(accessor)).not.toThrow();
+    expect(unitizeRepresentation(accessor)).toMatchObject({
+      ok: false,
+      code: "AUDIT_REQUIRED",
+    });
+  });
+
+  it("classifies non-empty empty representations as requiring audit", () => {
+    const base = emptyInput();
+    expect(
+      unitizeRepresentation({
+        ...base,
+        sourceFile: {
+          ...base.sourceFile,
+          size: 1,
+          sha256: sha256("x"),
+        },
+      }),
+    ).toMatchObject({ ok: false, code: "AUDIT_REQUIRED" });
+  });
+
+  it("includes trailing separators in the whole-document range and digest", () => {
+    const input = textInput("\n# H\n\nP\n\n", "markdown");
+    const result = unitizeRepresentation(input);
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(result.value[0]).toMatchObject({
+      normalizedLocator: {
+        utf16Start: 0,
+        utf16End: input.representation.normalizedText.length,
+      },
+      originalLocator: {
+        byteStart: 0,
+        byteEnd: 8,
+        lineEnd: 5,
+        columnEnd: 1,
+      },
+      textSha256: sha256(input.representation.normalizedText),
+    });
+  });
+
+  it("rejects audited original locators beyond the source-file byte bound", () => {
+    const input = textInput("x\n");
+    const locator = input.representation.locatorMap[0]!;
+    const representation: SourceRepresentation = {
+      ...input.representation,
+      locatorMap: [
+        {
+          ...locator,
+          original: {
+            ...locator.original,
+            byteStart: 99,
+            byteEnd: 100,
+          },
+        },
+      ],
+    };
+    const audited = auditRepresentation(representation);
+    expect(audited.ok).toBe(true);
+    if (!audited.ok) return;
+    expect(
+      unitizeRepresentation({ ...input, representation, audit: audited.value }),
+    ).toMatchObject({ ok: false, code: "TEXT_DROPPED" });
+  });
+
+  it("scales near-linearly across many tiny paragraph units", () => {
+    const run = (count: number): number => {
+      const text = Array.from(
+        { length: count },
+        (_, index) => `p${index}\n\n`,
+      ).join("");
+      const input = textInput(text);
+      const started = performance.now();
+      const result = unitizeRepresentation(input);
+      const duration = performance.now() - started;
+      expect(result).toMatchObject({ ok: true });
+      return duration;
+    };
+    run(200);
+    const small = run(1_000);
+    const large = run(4_000);
+    expect(large).toBeLessThan(small * 7 + 50);
   });
 
   it("requires exact canonical provenance and a fresh matching built-in audit", () => {

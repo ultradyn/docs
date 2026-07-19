@@ -62,47 +62,36 @@ function unitId(input: {
   return SourceUnitIdSchema.parse(`unit-${encoded}`);
 }
 
-function hasPlainPrototype(input: unknown): input is Record<string, unknown> {
-  return (
-    typeof input === "object" &&
-    input !== null &&
-    Object.getPrototypeOf(input) === Object.prototype
-  );
-}
-
-function hasPlainRepresentation(input: unknown): boolean {
-  if (!hasPlainPrototype(input)) return false;
-  if (!Array.isArray(input.locatorMap) || !Array.isArray(input.warnings)) {
-    return false;
-  }
-  for (const value of input.locatorMap) {
-    if (!hasPlainPrototype(value)) return false;
+function isPlainDataGraph(input: unknown): boolean {
+  if (typeof input !== "object" || input === null) return false;
+  const pending: object[] = [input];
+  const seen = new WeakSet<object>();
+  let visited = 0;
+  while (pending.length > 0) {
+    const value = pending.pop()!;
+    if (seen.has(value)) return false;
+    seen.add(value);
+    visited += 1;
+    if (visited > 1_000_000) return false;
+    const array = Array.isArray(value);
     if (
-      !hasPlainPrototype(value.normalized) ||
-      !hasPlainPrototype(value.original) ||
-      (value.cell !== undefined && !hasPlainPrototype(value.cell))
+      Object.getPrototypeOf(value) !==
+      (array ? Array.prototype : Object.prototype)
     ) {
       return false;
     }
-  }
-  for (const value of input.warnings) {
-    if (!hasPlainPrototype(value) || !hasPlainPrototype(value.location)) {
-      return false;
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key === "symbol") return false;
+      if (array && key === "length") continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+        return false;
+      }
+      const child: unknown = descriptor.value;
+      if (typeof child === "object" && child !== null) pending.push(child);
     }
   }
   return true;
-}
-
-function hasPlainAudit(input: unknown): boolean {
-  if (!hasPlainPrototype(input)) return false;
-  if (!hasPlainPrototype(input.capability) || !Array.isArray(input.findings)) {
-    return false;
-  }
-  return input.findings.every(
-    (value) =>
-      hasPlainPrototype(value) &&
-      (value.cell === undefined || hasPlainPrototype(value.cell)),
-  );
 }
 
 function qualificationFailure(
@@ -127,30 +116,65 @@ interface UnitDraft {
   readonly parentDraft?: number;
 }
 
+function textEndPosition(text: string): {
+  readonly line: number;
+  readonly column: number;
+} {
+  let line = 1;
+  let column = 1;
+  for (const character of text) {
+    if (character === "\n") {
+      line += 1;
+      column = 1;
+    } else column += character.length;
+  }
+  return { line, column };
+}
+
 function composedUnit(
   input: UnitizeRepresentationInput,
   draft: UnitDraft,
   parentId: SourceUnitId | undefined,
   duplicateOrdinal: number,
+  documentEnd: { readonly line: number; readonly column: number },
 ): SourceUnit {
   const first = input.representation.locatorMap[draft.firstLocator]!;
   const last = input.representation.locatorMap[draft.lastLocator]!;
-  const normalizedLocator = {
-    utf16Start: first.normalized.utf16Start,
-    utf16End: last.normalized.utf16End,
-    lineStart: first.normalized.lineStart,
-    columnStart: first.normalized.columnStart,
-    lineEnd: last.normalized.lineEnd,
-    columnEnd: last.normalized.columnEnd,
-  };
-  const originalLocator = {
-    byteStart: first.original.byteStart,
-    byteEnd: last.original.byteEnd,
-    lineStart: first.original.lineStart,
-    columnStart: first.original.columnStart,
-    lineEnd: last.original.lineEnd,
-    columnEnd: last.original.columnEnd,
-  };
+  const document = draft.kind === "document";
+  const normalizedLocator = document
+    ? {
+        utf16Start: 0,
+        utf16End: input.representation.normalizedText.length,
+        lineStart: 1,
+        columnStart: 1,
+        lineEnd: documentEnd.line,
+        columnEnd: documentEnd.column,
+      }
+    : {
+        utf16Start: first.normalized.utf16Start,
+        utf16End: last.normalized.utf16End,
+        lineStart: first.normalized.lineStart,
+        columnStart: first.normalized.columnStart,
+        lineEnd: last.normalized.lineEnd,
+        columnEnd: last.normalized.columnEnd,
+      };
+  const originalLocator = document
+    ? {
+        byteStart: first.original.byteStart,
+        byteEnd: last.original.byteEnd,
+        lineStart: first.original.lineStart,
+        columnStart: first.original.columnStart,
+        lineEnd: last.original.lineEnd,
+        columnEnd: last.original.columnEnd,
+      }
+    : {
+        byteStart: first.original.byteStart,
+        byteEnd: last.original.byteEnd,
+        lineStart: first.original.lineStart,
+        columnStart: first.original.columnStart,
+        lineEnd: last.original.lineEnd,
+        columnEnd: last.original.columnEnd,
+      };
   const selected = input.representation.normalizedText.slice(
     normalizedLocator.utf16Start,
     normalizedLocator.utf16End,
@@ -467,6 +491,7 @@ function buildUnits(
   ];
   const units: SourceUnit[] = [];
   const duplicateCounts = new Map<string, number>();
+  const documentEnd = textEndPosition(input.representation.normalizedText);
   for (const draft of drafts) {
     const parentId =
       draft.parentDraft === undefined
@@ -485,10 +510,23 @@ function buildUnits(
     if (!first || !last) {
       return textDropped("Structural locator composition failed.");
     }
-    const selected = input.representation.normalizedText.slice(
-      first.normalized.utf16Start,
-      last.normalized.utf16End,
-    );
+    if (
+      first.original.byteStart > input.sourceFile.size ||
+      first.original.byteEnd > input.sourceFile.size ||
+      last.original.byteStart > input.sourceFile.size ||
+      last.original.byteEnd > input.sourceFile.size
+    ) {
+      return textDropped(
+        "Structural original locator exceeds source-file bytes.",
+      );
+    }
+    const selected =
+      draft.kind === "document"
+        ? input.representation.normalizedText
+        : input.representation.normalizedText.slice(
+            first.normalized.utf16Start,
+            last.normalized.utf16End,
+          );
     const duplicateKey = JSON.stringify({
       parentId,
       anchor: draft.anchor,
@@ -497,7 +535,9 @@ function buildUnits(
     });
     const ordinal = (duplicateCounts.get(duplicateKey) ?? 0) + 1;
     duplicateCounts.set(duplicateKey, ordinal);
-    units.push(composedUnit(input, resolvedDraft, parentId, ordinal));
+    units.push(
+      composedUnit(input, resolvedDraft, parentId, ordinal, documentEnd),
+    );
   }
   if (new Set(units.map((unit) => unit.id)).size !== units.length) {
     return textDropped("Structural unit identities collide.");
@@ -521,18 +561,8 @@ function freezeUnits(units: readonly SourceUnit[]): readonly SourceUnit[] {
 export function unitizeRepresentation(
   input: UnitizeRepresentationInput,
 ): IngestResult<readonly SourceUnit[], "AUDIT_REQUIRED" | "TEXT_DROPPED"> {
-  if (!hasPlainPrototype(input) || !hasPlainPrototype(input.sourceFile)) {
-    return qualificationFailure(
-      "Canonical plain source-file input is required.",
-    );
-  }
-  if (
-    !hasPlainRepresentation(input.representation) ||
-    !hasPlainAudit(input.audit)
-  ) {
-    return qualificationFailure(
-      "Canonical plain representation audit input is required.",
-    );
+  if (!isPlainDataGraph(input)) {
+    return qualificationFailure("Canonical plain data input is required.");
   }
 
   const sourceFileResult = SourceFileSchema.safeParse(input.sourceFile);
@@ -567,6 +597,15 @@ export function unitizeRepresentation(
   ) {
     return qualificationFailure(
       "A matching eligible built-in representation audit is required.",
+    );
+  }
+  if (
+    sourceFile.size > 0 &&
+    (representation.normalizedText === "" ||
+      representation.locatorMap.length === 0)
+  ) {
+    return qualificationFailure(
+      "A qualifying mapped representation is required for non-empty source bytes.",
     );
   }
   const currentAudit = auditRepresentation(representation);
