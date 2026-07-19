@@ -120,3 +120,10 @@ export {
   type QuestionReader,
   type QuestionLinkService,
 } from "./question-link-service.js";
+
+// T-60-03 — answer citation/validity review (not an agent).
+export {
+  reviewAnswerComposition,
+  type AnswerValidity,
+  type ReviewAnswerCompositionInput,
+} from "./answer-validity.js";
