@@ -14,6 +14,7 @@ import {
   createFileClaimStore,
   deriveClaimId,
   type EvidenceVerificationReader,
+  type AcceptanceAuthority,
 } from "./claim-repository.js";
 
 const SNAPSHOT = `snap-${"b".repeat(64)}` as SnapshotId;
@@ -70,15 +71,35 @@ function verifierNone(): EvidenceVerificationReader {
   };
 }
 
+/** T-22-03 seam stand-in: grants structural permission only (not crypto auth). */
+function authorityAllow(): AcceptanceAuthority {
+  return {
+    authorizeAcceptance: async () => ({ ok: true as const }),
+  };
+}
+
+function authorityDeny(): AcceptanceAuthority {
+  return {
+    authorizeAcceptance: async () => ({
+      ok: false as const,
+      code: "ACCEPTANCE_FORBIDDEN" as const,
+      message: "No independent review application.",
+    }),
+  };
+}
+
 function repo(
   overrides: {
     store?: ReturnType<typeof createInMemoryClaimStore>;
     evidence?: EvidenceVerificationReader;
+    acceptance?: AcceptanceAuthority;
   } = {},
 ) {
   return createClaimRepository({
     store: overrides.store ?? createInMemoryClaimStore(),
     evidence: overrides.evidence ?? verifierOk(),
+    // Default tests that need accept inject allow; public default is deny-until-T22-03
+    acceptance: overrides.acceptance ?? authorityAllow(),
   });
 }
 
@@ -87,8 +108,18 @@ describe("construction", () => {
     expect(() =>
       createClaimRepository({
         store: createInMemoryClaimStore(),
+        acceptance: authorityAllow(),
       } as never),
     ).toThrow(/evidence/i);
+  });
+
+  it("requires acceptance authority seam (T-22-03 implements; not public auto-accept)", () => {
+    expect(() =>
+      createClaimRepository({
+        store: createInMemoryClaimStore(),
+        evidence: verifierOk(),
+      } as never),
+    ).toThrow(/acceptance/i);
   });
 });
 
@@ -143,9 +174,10 @@ describe("create — proposed only", () => {
   });
 });
 
-describe("transition — acceptance gates (T-22-01 + T-22-03 seam)", () => {
-  it("rejects accept without reviewerRunId (T-22-03 owns acceptance application)", async () => {
-    const r = repo();
+describe("transition — acceptance gates (T-22-01 structure + T-22-03 authority)", () => {
+  it("reviewerRunId is provenance only — without acceptance authority grant, accept is forbidden", async () => {
+    // reviewerRunId alone must NOT prove independent review (not authenticated authority).
+    const r = repo({ acceptance: authorityDeny() });
     const created = await r.create(createInput());
     expect(created.ok).toBe(true);
     if (!created.ok) return;
@@ -153,14 +185,31 @@ describe("transition — acceptance gates (T-22-01 + T-22-03 seam)", () => {
       claimId: created.value.id,
       expectedVersion: 1,
       to: "accepted",
-      // no reviewerRunId
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(["ACCEPTANCE_FORBIDDEN", "REVIEW_REQUIRED"]).toContain(result.code);
+    }
+  });
+
+  it("rejects accept without reviewerRunId provenance even when authority grants", async () => {
+    const r = repo({ acceptance: authorityAllow() });
+    const created = await r.create(createInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const result = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      // missing provenance reviewerRunId
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("REVIEW_REQUIRED");
   });
 
-  it("rejects accept without verified evidence even with reviewerRunId", async () => {
-    const r = repo({ evidence: verifierNone() });
+  it("rejects accept without verified evidence even with authority + provenance", async () => {
+    const r = repo({ evidence: verifierNone(), acceptance: authorityAllow() });
     const created = await r.create(createInput());
     expect(created.ok).toBe(true);
     if (!created.ok) return;
@@ -174,36 +223,51 @@ describe("transition — acceptance gates (T-22-01 + T-22-03 seam)", () => {
     if (!result.ok) expect(result.code).toBe("EVIDENCE_UNVERIFIED");
   });
 
-  it("rejects accept when scope, authority, or lifecycle missing on record", async () => {
-    // create requires them; transition re-validates mandatory acceptance fields
-    const r = repo();
+  it("accepts when authority grants + verified evidence + scope/authority/lifecycle + provenance", async () => {
+    const r = repo({ acceptance: authorityAllow(), evidence: verifierOk() });
     const created = await r.create(createInput());
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    // Accept path with verified evidence + review
     const ok = await r.transition({
       claimId: created.value.id,
       expectedVersion: 1,
       to: "accepted",
       reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
     });
-    // With verifierOk and full fields, accept succeeds
     expect(ok.ok).toBe(true);
     if (!ok.ok) return;
     expect(ok.value.state).toBe("accepted");
     expect(ok.value.version).toBe(2);
+    // provenance recorded; not treated as crypto proof
+    expect(ok.value.reviewerRunId).toBe("run-01ARZ3NDEKTSV4RRFFQ69G5FAV");
   });
 
-  it("rejects accept when evidenceRefs empty", async () => {
+  it("rejects accept when evidenceRefs empty at create", async () => {
     const r = repo();
     const created = await r.create(
       createInput({
         evidenceRefs: [],
       }),
     );
-    // create may allow empty for draft-ish proposed OR reject — RED: create requires ≥1 ref
     expect(created.ok).toBe(false);
     if (!created.ok) expect(created.code).toBe("INVALID_INPUT");
+  });
+
+  it("public barrel exports createClaimRepository and not auto-accept helpers", async () => {
+    const barrel = await import("./index.js");
+    // Positive export must fail on RED placeholders / missing barrel wire.
+    expect(
+      typeof (barrel as { createClaimRepository?: unknown })
+        .createClaimRepository,
+    ).toBe("function");
+    // Negative locks: no free-standing auto-accept bypass of T-22-03.
+    expect(
+      (barrel as { autoAcceptClaim?: unknown }).autoAcceptClaim,
+    ).toBeUndefined();
+    expect(
+      (barrel as { acceptClaimWithoutReview?: unknown })
+        .acceptClaimWithoutReview,
+    ).toBeUndefined();
   });
 });
 
@@ -429,6 +493,7 @@ describe("durable store / crash / custody", () => {
       const r = createClaimRepository({
         store,
         evidence: verifierOk(),
+        acceptance: authorityAllow(),
       });
       const created = await r.create(createInput());
       expect(created.ok).toBe(true);
@@ -436,6 +501,7 @@ describe("durable store / crash / custody", () => {
       const fresh = createClaimRepository({
         store: createFileClaimStore(root),
         evidence: verifierOk(),
+        acceptance: authorityAllow(),
       });
       const got = await fresh.get(created.value.id);
       expect(got.ok).toBe(true);
@@ -455,7 +521,11 @@ describe("durable store / crash / custody", () => {
           throw new Error("injected-crash");
         },
       });
-      const r = createClaimRepository({ store, evidence: verifierOk() });
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
       await expect(r.create(createInput())).rejects.toThrow(/injected-crash/);
       const fresh = createFileClaimStore(root);
       const id = deriveClaimId(QUESTION, PACKET, createInput().statement);
