@@ -62,5 +62,6 @@ tasks:
       file: T005-t-60-04-wire-remaining-r1-acce.todo
       id: T005
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-60-04 — Wire remaining R1 acceptance scenarios AS-02/03/04 + small corpus
