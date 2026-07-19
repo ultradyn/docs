@@ -5,7 +5,10 @@ import Ajv2020Module from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
 import { PolicyApprovalSchema } from "./policy-approval.js";
-import { DataRightsPolicyProfileSchema } from "./data-rights-policy-profile.js";
+import {
+  DataRightsPolicyProfileSchema,
+  digestDataRightsPolicyProfile,
+} from "./data-rights-policy-profile.js";
 
 const HUMAN = "alex.review-1";
 
@@ -37,7 +40,9 @@ const approval = {
   schemaVersion: 1,
   profileId: canonicalProfile.id,
   profile: canonicalProfile,
-  profileSha256: "a".repeat(64),
+  // Recomputed, not invented: the schema verifies that the digest commits to
+  // the embedded profile, so a record is self-authenticating.
+  profileSha256: digestDataRightsPolicyProfile(canonicalProfile),
   approvedBy: HUMAN,
   approvedAt: "2026-07-19T07:30:00.000Z",
   reason: "Reviewed against the source licence.",

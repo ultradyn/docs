@@ -12,6 +12,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { digestDataRightsPolicyProfile } from "../../domain/ingest/index.js";
+
 import {
   POLICY_APPROVAL_ROOT,
   createFilePolicyApprovalStore,
@@ -20,8 +22,6 @@ import {
 
 const HUMAN = "alex.review-1";
 const APPROVED_AT = "2026-07-19T07:30:00.000Z";
-const DIGEST_A = "a".repeat(64);
-const DIGEST_B = "b".repeat(64);
 
 const canonicalProfile = {
   schemaVersion: 1,
@@ -47,12 +47,19 @@ const canonicalProfile = {
   maxExpandedBytes: 100_000_000,
 } as const;
 
+// Digests are recomputed from the profile they commit to: the record schema
+// verifies them, so a fixture can no longer invent one. DIGEST_B belongs to a
+// genuinely different profile, which is what makes the conflict cases real.
+const DIGEST_A = () => digestDataRightsPolicyProfile(canonicalProfile);
+const changedProfile = { ...canonicalProfile, retentionDays: 30 } as const;
+const DIGEST_B = () => digestDataRightsPolicyProfile(changedProfile);
+
 function approval(overrides: Record<string, unknown> = {}) {
   return {
     schemaVersion: 1 as const,
     profileId: canonicalProfile.id,
     profile: canonicalProfile,
-    profileSha256: DIGEST_A,
+    profileSha256: DIGEST_A(),
     approvedBy: HUMAN,
     approvedAt: APPROVED_AT,
     reason: "Reviewed against the source licence.",
@@ -88,7 +95,7 @@ describe.each(implementations)(
       const read = await store.read(canonicalProfile.id);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      expect(read.value?.profileSha256).toBe(DIGEST_A);
+      expect(read.value?.profileSha256).toBe(DIGEST_A());
     });
 
     it("reports an absent approval as absent rather than failing", async () => {
@@ -113,7 +120,7 @@ describe.each(implementations)(
       const store = make();
       await store.publish(approval());
       const conflicting = await store.publish(
-        approval({ profileSha256: DIGEST_B }),
+        approval({ profile: changedProfile, profileSha256: DIGEST_B() }),
       );
       expect(conflicting.ok).toBe(false);
       if (conflicting.ok) return;
@@ -123,11 +130,13 @@ describe.each(implementations)(
     it("keeps the first record byte-identical after a conflicting attempt", async () => {
       const store = make();
       await store.publish(approval());
-      await store.publish(approval({ profileSha256: DIGEST_B }));
+      await store.publish(
+        approval({ profile: changedProfile, profileSha256: DIGEST_B() }),
+      );
       const read = await store.read(canonicalProfile.id);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      expect(read.value?.profileSha256).toBe(DIGEST_A);
+      expect(read.value?.profileSha256).toBe(DIGEST_A());
     });
 
     it("rejects a record whose embedded identity disagrees with its key", async () => {
@@ -161,11 +170,11 @@ describe.each(implementations)(
       const store = make();
       const mutable = approval();
       await store.publish(mutable);
-      (mutable as { profileSha256: string }).profileSha256 = DIGEST_B;
+      (mutable as { profileSha256: string }).profileSha256 = DIGEST_B();
       const read = await store.read(canonicalProfile.id);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      expect(read.value?.profileSha256).toBe(DIGEST_A);
+      expect(read.value?.profileSha256).toBe(DIGEST_A());
     });
 
     it("exposes no member that could delete, revoke or overwrite", async () => {
@@ -214,7 +223,7 @@ describe("approvals survive process restart", () => {
   it("still conflicts across instances rather than overwriting", async () => {
     await createFilePolicyApprovalStore({ root }).publish(approval());
     const conflicting = await createFilePolicyApprovalStore({ root }).publish(
-      approval({ profileSha256: DIGEST_B }),
+      approval({ profile: changedProfile, profileSha256: DIGEST_B() }),
     );
     expect(conflicting.ok).toBe(false);
     if (conflicting.ok) return;
@@ -240,6 +249,10 @@ describe("the file adapter fails closed on hostile custody", () => {
       approval({
         profileId: hostileId,
         profile: { ...canonicalProfile, id: hostileId },
+        profileSha256: digestDataRightsPolicyProfile({
+          ...canonicalProfile,
+          id: hostileId,
+        }),
       }),
     );
     expect(published.ok).toBe(true);

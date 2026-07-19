@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
-
 import {
   DataRightsPolicyProfileSchema,
   canonicalDataRightsPolicyProfile,
+  digestDataRightsPolicyProfile,
   type DataRightsPolicyProfile,
   type PolicyApproval,
 } from "../../domain/ingest/index.js";
@@ -23,6 +22,7 @@ export type ApprovedPolicyProfile = PolicyApproval;
 
 export type PolicyApprovalFailure =
   | "POLICY_UNAPPROVED"
+  | "PROFILE_PROHIBITED"
   | "PROFILE_NOT_RUNNABLE"
   | "APPROVER_NOT_AUTHORIZED"
   | "APPROVAL_CONFLICT"
@@ -60,23 +60,25 @@ export interface PolicyService {
 }
 
 /**
- * Agent-shaped handles are refused regardless of what the injected authority
- * says. The authority seam is the control; this is defence in depth, so a
- * permissive or misconfigured roll still cannot let an agent approve its own
- * work.
+ * A lint against obvious misconfiguration, NOT a control.
+ *
+ * `isAuthorisedHuman` is the only real authority: this pattern is a denylist
+ * over an unbounded set of handles, so it catches `agent:x` and nothing about
+ * a handle that simply does not carry one of these prefixes. It is applied to
+ * a normalised string so that whitespace and invisible characters cannot walk
+ * straight past it, but no claim is made that it prevents an agent approving
+ * its own work — only the injected seam does that.
  */
-const AGENT_HANDLE = /^(agent|bot|service):/iu;
+const AGENT_HANDLE = /^(agent|bot|service):/u;
 
-export function digestDataRightsPolicyProfile(
-  profile: DataRightsPolicyProfile,
-): string {
-  // Hash the CANONICAL form so two semantically identical profiles that differ
-  // only in list order share a digest. JSON.stringify over the raw object would
-  // not do this: Zod rebuilds parsed objects in schema key order, so the byte
-  // sequence depends on how the value happened to be constructed.
-  return createHash("sha256")
-    .update(JSON.stringify(canonicalDataRightsPolicyProfile(profile)), "utf8")
-    .digest("hex");
+/** Normalise once, then judge and record the same value. A trimmed parse plus a
+ * raw persist would let the recorded approver differ from the identity the
+ * authority was actually asked about. */
+function normaliseActor(actor: string): string {
+  return actor
+    .trim()
+    .normalize("NFKC")
+    .replace(/[\u200b-\u200d\ufeff]/gu, "");
 }
 
 export function createPolicyService(
@@ -84,8 +86,34 @@ export function createPolicyService(
 ): PolicyService {
   const { store, approvalPolicy, now } = dependencies;
 
-  return {
-    async approve({ profile, actor, reason }) {
+  const assertRunAllowed = async (
+    profileId: string,
+  ): Promise<IngestResult<ApprovedPolicyProfile, PolicyApprovalFailure>> => {
+    const found = await store.read(profileId);
+    if (!found.ok) {
+      // An outage is not a policy decision. Reporting it as POLICY_UNAPPROVED
+      // would make a storage failure indistinguishable from a deliberate
+      // refusal, so the distinct code survives to the caller.
+      return { ok: false, code: found.code, message: found.message };
+    }
+    if (!found.value) {
+      return {
+        ok: false,
+        code: "POLICY_UNAPPROVED",
+        message: `no approval record exists for policy profile ${profileId}`,
+      };
+    }
+    return { ok: true, value: found.value };
+  };
+
+  const approve = async ({
+    profile,
+    actor,
+    reason,
+  }: ApprovePolicyInput): Promise<
+    IngestResult<ApprovedPolicyProfile, PolicyApprovalFailure>
+  > => {
+    {
       if (reason.trim().length === 0) {
         return {
           ok: false,
@@ -94,14 +122,16 @@ export function createPolicyService(
         };
       }
 
+      const approver = normaliseActor(actor);
       if (
-        AGENT_HANDLE.test(actor) ||
-        !approvalPolicy.isAuthorisedHuman(actor)
+        approver.length === 0 ||
+        AGENT_HANDLE.test(approver.toLowerCase()) ||
+        !approvalPolicy.isAuthorisedHuman(approver)
       ) {
         return {
           ok: false,
           code: "APPROVER_NOT_AUTHORIZED",
-          message: `${actor} may not approve a policy profile`,
+          message: "the actor may not approve a policy profile",
         };
       }
 
@@ -113,12 +143,20 @@ export function createPolicyService(
         return {
           ok: false,
           code: "PROFILE_NOT_RUNNABLE",
-          message: parsed.error.issues
-            .map(
-              (issue) =>
-                `${issue.path.join(".") || "<root>"}: ${issue.message}`,
-            )
-            .join("; "),
+          message:
+            "the profile is not a valid data rights policy profile and cannot authorise a run",
+        };
+      }
+
+      // Explicitly prohibited material is declarable but never approvable, and
+      // is refused with its own code so a gate can distinguish "forbidden" from
+      // "merely unapproved". No record is written.
+      if (parsed.data.dataRightsClass === "prohibited") {
+        return {
+          ok: false,
+          code: "PROFILE_PROHIBITED",
+          message:
+            "material classified prohibited may never be approved for a run",
         };
       }
 
@@ -128,7 +166,7 @@ export function createPolicyService(
         profileId: canonical.id,
         profile: canonical,
         profileSha256: digestDataRightsPolicyProfile(parsed.data),
-        approvedBy: actor,
+        approvedBy: approver,
         approvedAt: now(),
         reason,
       };
@@ -138,27 +176,13 @@ export function createPolicyService(
         return { ok: false, code: published.code, message: published.message };
       }
 
-      // Read back rather than returning what we hoped we wrote. On a replay the
-      // stored record is the authority, and it may predate this call.
-      return this.assertRunAllowed(canonical.id);
-    },
-
-    async assertRunAllowed(profileId) {
-      const found = await store.read(profileId);
-      if (!found.ok) {
-        // An outage is not a policy decision. Reporting it as POLICY_UNAPPROVED
-        // would make a storage failure indistinguishable from a deliberate
-        // refusal, so the distinct code survives to the caller.
-        return { ok: false, code: found.code, message: found.message };
-      }
-      if (!found.value) {
-        return {
-          ok: false,
-          code: "POLICY_UNAPPROVED",
-          message: `no approval record exists for policy profile ${profileId}`,
-        };
-      }
-      return { ok: true, value: found.value };
-    },
+      // Read back rather than returning what we hoped we wrote. The stored
+      // record is the authority, it may predate this call, and because the
+      // schema recomputes the digest a record that reads back cleanly is
+      // self-authenticating.
+      return assertRunAllowed(canonical.id);
+    }
   };
+
+  return { approve, assertRunAllowed };
 }

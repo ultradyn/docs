@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
-import { constants as fsConstants, existsSync } from "node:fs";
-import { mkdir, open, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
+import { open, unlink } from "node:fs/promises";
 
 import {
   PolicyApprovalSchema,
+  digestDataRightsPolicyProfile,
   type PolicyApproval,
 } from "../../domain/ingest/index.js";
 import type { IngestResult } from "../../domain/ingest/types.js";
@@ -31,20 +32,28 @@ export type PolicyApprovalReadResult = IngestResult<
 >;
 
 /**
- * The seam PolicyService depends on.
+ * Public failure text is fixed per code.
  *
- * There is deliberately no delete, revoke, or overwrite member. A conflicting
- * digest under an approved id is refused rather than resolved, because
- * last-write-wins would let a second approval silently retarget a policy id
- * underneath a running gate.
+ * Nothing derived from a caught exception, a stored record, a profile, or an
+ * absolute path may reach a caller: a Result message crosses trust boundaries,
+ * and this module handles both attacker-influenced ids and records that may
+ * contain credentials planted by whoever wrote them. Diagnostics stay internal.
  */
-export interface PolicyApprovalStore {
-  publish(approval: PolicyApproval): Promise<PolicyApprovalPublishResult>;
-  read(profileId: string): Promise<PolicyApprovalReadResult>;
+const PUBLIC_MESSAGE: Record<PolicyApprovalErrorCode, string> = {
+  APPROVAL_CONFLICT:
+    "the profile id is already approved at a different content digest; changed content must use a new profile id",
+  INVALID_APPROVAL: "the approval record failed strict validation",
+  CUSTODY_UNAVAILABLE: "the approval store could not be read or written",
+};
+
+function failure<T>(
+  code: PolicyApprovalErrorCode,
+): IngestResult<T, PolicyApprovalErrorCode> {
+  return { ok: false, code, message: PUBLIC_MESSAGE[code] };
 }
 
-/** Filesystem capabilities, injected so hostile and unavailable custody can be
- * exercised deterministically without touching anything outside the root. */
+/** Filesystem capabilities, injected so unavailable custody can be exercised
+ * deterministically without touching anything outside the root. */
 export interface PolicyApprovalCapabilities {
   openDirectory?(path: string): Promise<unknown | undefined>;
   readFile?(path: string): Promise<Uint8Array>;
@@ -56,66 +65,76 @@ export interface FilePolicyApprovalStoreOptions {
   capabilities?: PolicyApprovalCapabilities;
 }
 
-function validate(
-  candidate: unknown,
-): IngestResult<PolicyApproval, "INVALID_APPROVAL"> {
-  const parsed = PolicyApprovalSchema.safeParse(candidate);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      code: "INVALID_APPROVAL",
-      message: parsed.error.issues
-        .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
-        .join("; "),
-    };
-  }
-  return { ok: true, value: parsed.data };
-}
-
-function conflict(existing: PolicyApproval): PolicyApprovalPublishResult {
-  return {
-    ok: false,
-    code: "APPROVAL_CONFLICT",
-    message: `profile id ${existing.profileId} is already approved at digest ${existing.profileSha256}; changed content must use a new profile id`,
-  };
+/**
+ * There is deliberately no delete, revoke, or overwrite member. A conflicting
+ * digest under an approved id is refused rather than resolved, because
+ * last-write-wins would let a second approval silently retarget a policy id
+ * underneath a running gate.
+ */
+export interface PolicyApprovalStore {
+  publish(approval: PolicyApproval): Promise<PolicyApprovalPublishResult>;
+  read(profileId: string): Promise<PolicyApprovalReadResult>;
 }
 
 /**
- * Deep-freeze so a caller cannot mutate a record it was handed and thereby
- * rewrite history in the fake while the file adapter, which serialises, would
- * be unaffected. Parity between the two implementations is the whole point of
- * having a fake at all.
+ * Recursive freeze.
+ *
+ * `Object.freeze` is shallow, so freezing only the record leaves every nested
+ * array and object writable while `Object.isFrozen` still reports true — a
+ * policy record handed to an enforcement gate could then be edited in place by
+ * anything else holding it.
  */
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object") return value;
+  for (const nested of Object.values(value as Record<string, unknown>)) {
+    deepFreeze(nested);
+  }
+  return Object.freeze(value);
+}
+
 function frozenCopy(approval: PolicyApproval): PolicyApproval {
-  return Object.freeze(
-    JSON.parse(JSON.stringify(approval)) as PolicyApproval,
-  ) as PolicyApproval;
+  return deepFreeze(JSON.parse(JSON.stringify(approval)) as PolicyApproval);
+}
+
+/**
+ * Strict validation, including the digest recomputation the schema performs.
+ * A record that parses is self-authenticating: its digest commits to the
+ * profile it carries.
+ */
+function validate(
+  candidate: unknown,
+): IngestResult<PolicyApproval, PolicyApprovalErrorCode> {
+  const parsed = PolicyApprovalSchema.safeParse(candidate);
+  if (!parsed.success) return failure("INVALID_APPROVAL");
+  return { ok: true, value: parsed.data };
 }
 
 export function createInMemoryPolicyApprovalStore(): PolicyApprovalStore {
   const records = new Map<string, PolicyApproval>();
 
-  return {
-    async publish(approval) {
-      const validated = validate(approval);
-      if (!validated.ok) return validated;
+  const publish = async (
+    approval: PolicyApproval,
+  ): Promise<PolicyApprovalPublishResult> => {
+    const validated = validate(approval);
+    if (!validated.ok) return validated;
 
-      const existing = records.get(validated.value.profileId);
-      if (existing) {
-        return existing.profileSha256 === validated.value.profileSha256
-          ? { ok: true, value: "replayed" }
-          : conflict(existing);
-      }
+    const existing = records.get(validated.value.profileId);
+    if (existing) {
+      return existing.profileSha256 === validated.value.profileSha256
+        ? { ok: true, value: "replayed" }
+        : failure("APPROVAL_CONFLICT");
+    }
 
-      records.set(validated.value.profileId, frozenCopy(validated.value));
-      return { ok: true, value: "published" };
-    },
-
-    async read(profileId) {
-      const found = records.get(profileId);
-      return { ok: true, value: found ? frozenCopy(found) : undefined };
-    },
+    records.set(validated.value.profileId, frozenCopy(validated.value));
+    return { ok: true, value: "published" };
   };
+
+  const read = async (profileId: string): Promise<PolicyApprovalReadResult> => {
+    const found = records.get(profileId);
+    return { ok: true, value: found ? frozenCopy(found) : undefined };
+  };
+
+  return { publish, read };
 }
 
 /**
@@ -123,56 +142,40 @@ export function createInMemoryPolicyApprovalStore(): PolicyApprovalStore {
  * components. The leaf name is a digest of the id; the record's embedded
  * identity is what proves which profile it describes.
  */
-function leafName(profileId: string): string {
+async function leafName(profileId: string): Promise<string> {
+  const { createHash } = await import("node:crypto");
   return `${createHash("sha256").update(profileId, "utf8").digest("hex")}.json`;
 }
 
 /**
- * A directory that has never been created is genuinely absent. A directory we
- * cannot bind because a component was swapped for a link is an outage. These
- * must stay distinguishable: collapsing them would let an attacker who relinks
- * the root make every read report "nothing approved", which reads as a policy
- * decision rather than the tampering it is.
- */
-type BindOutcome = "bound" | "absent" | "refused";
-
-/**
- * Bind the configured root and every component beneath it down to the approval
- * directory.
+ * Descriptor-relative paths.
  *
- * O_NOFOLLOW only refuses a symlinked FINAL component, so checking the leaf
- * alone would still traverse a symlinked root or intermediate directory and
- * write outside the intended tree. Walking the chain closes that, and doing it
- * by descriptor means a directory swapped after the check cannot redirect a
- * later write: the descriptor still refers to the inode we bound.
+ * Node exposes no `openat`, so a held directory descriptor is re-entered
+ * through `/proc/self/fd/<fd>`. That keeps every subsequent operation anchored
+ * to the inode we validated: a directory swapped after the check cannot
+ * redirect a later write, because the descriptor still refers to the original
+ * inode. This is Linux-specific, and the store fails closed elsewhere rather
+ * than silently downgrading to pathname I/O that cannot offer the guarantee.
  */
-async function bindDirectoryChain(
-  root: string,
-  descendants: readonly string[],
-): Promise<BindOutcome> {
-  // Scoped to the configured root and below. Walking above it would fail on any
-  // host where an ancestor is legitimately a symlink, which says nothing about
-  // whether OUR custody tree has been tampered with.
-  const handles: Awaited<ReturnType<typeof open>>[] = [];
-  const flags =
-    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_DIRECTORY;
-  let current = root;
+const DESCRIPTOR_PATHS_AVAILABLE = process.platform === "linux";
 
+function within(directory: FileHandle, leaf: string): string {
+  return `/proc/self/fd/${directory.fd}/${leaf}`;
+}
+
+const DIRECTORY_FLAGS =
+  fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_DIRECTORY;
+
+/** Open a child directory relative to a held descriptor, never following a
+ * link at the final component. */
+async function openChildDirectory(
+  parent: FileHandle,
+  name: string,
+): Promise<FileHandle | undefined> {
   try {
-    handles.push(await open(current, flags));
-    for (const part of descendants) {
-      current = join(current, part);
-      handles.push(await open(current, flags));
-    }
-    return "bound";
-  } catch (error) {
-    // ELOOP is the kernel refusing a symlink under O_NOFOLLOW; ENOTDIR means a
-    // component was replaced by a non-directory. Both are tampering. Only a
-    // plain ENOENT is a tree that simply has not been created yet.
-    const code = (error as NodeJS.ErrnoException | undefined)?.code;
-    return code === "ENOENT" ? "absent" : "refused";
-  } finally {
-    await Promise.all(handles.map((handle) => handle.close().catch(() => {})));
+    return await open(within(parent, name), DIRECTORY_FLAGS);
+  } catch {
+    return undefined;
   }
 }
 
@@ -180,152 +183,236 @@ export function createFilePolicyApprovalStore(
   options: FilePolicyApprovalStoreOptions,
 ): PolicyApprovalStore {
   const capabilities = options.capabilities ?? {};
-  const approvalDirectory = join(options.root, POLICY_APPROVAL_ROOT);
+  const components = POLICY_APPROVAL_ROOT.split("/");
+  // Whether this instance has ever bound the approval directory. A tree that
+  // has never existed is a fresh checkout holding no approvals; a tree that
+  // vanishes after we have bound it is tampering, and must surface as a typed
+  // storage failure rather than as "nothing approved".
+  let hasBound = false;
 
-  const bind = async (): Promise<BindOutcome> => {
+  async function bind(
+    create: boolean,
+  ): Promise<
+    { ok: true; handle: FileHandle } | { ok: false; absent: boolean }
+  > {
+    if (!DESCRIPTOR_PATHS_AVAILABLE) return { ok: false, absent: false };
+
     if (capabilities.openDirectory) {
-      const bound = await capabilities.openDirectory(approvalDirectory);
-      return bound === undefined ? "refused" : "bound";
+      const bound = await capabilities.openDirectory(
+        `${options.root}/${POLICY_APPROVAL_ROOT}`,
+      );
+      if (bound === undefined) return { ok: false, absent: false };
     }
-    return bindDirectoryChain(options.root, POLICY_APPROVAL_ROOT.split("/"));
-  };
 
-  const readBytes = capabilities.readFile ?? ((path: string) => readFile(path));
+    let current: FileHandle;
+    try {
+      current = await open(options.root, DIRECTORY_FLAGS);
+    } catch {
+      return { ok: false, absent: !hasBound };
+    }
 
-  const fsyncDirectory =
-    capabilities.fsyncDirectory ??
-    (async (path: string) => {
-      const handle = await open(path, fsConstants.O_RDONLY);
-      try {
-        await handle.sync();
-      } finally {
-        await handle.close();
+    for (const component of components) {
+      let next = await openChildDirectory(current, component);
+      if (!next && create) {
+        try {
+          const { mkdir } = await import("node:fs/promises");
+          await mkdir(within(current, component));
+          next = await openChildDirectory(current, component);
+        } catch {
+          next = undefined;
+        }
       }
-    });
+      await current.close().catch(() => {});
+      if (!next) return { ok: false, absent: !hasBound && !create };
+      current = next;
+    }
 
-  function recordPath(profileId: string): string {
-    return join(approvalDirectory, leafName(profileId));
+    hasBound = true;
+    return { ok: true, handle: current };
   }
 
-  async function readExisting(
-    profileId: string,
+  /** Read and validate the record at `leaf`, refusing anything that is not a
+   * regular file reached without following a link. */
+  async function readLeaf(
+    directory: FileHandle,
+    leaf: string,
   ): Promise<PolicyApprovalReadResult> {
-    let bytes: Uint8Array;
-    try {
-      bytes = await readBytes(recordPath(profileId));
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException | undefined)?.code;
-      // Absent is a legitimate answer; anything else is an outage and must not
-      // be reported as "nothing approved", which would silently deny every run
-      // for a reason the caller cannot distinguish from a policy decision.
-      if (code === "ENOENT") return { ok: true, value: undefined };
-      return {
-        ok: false,
-        code: "CUSTODY_UNAVAILABLE",
-        message: `approval record unreadable: ${String(error)}`,
-      };
+    if (capabilities.readFile) {
+      try {
+        const bytes = await capabilities.readFile(within(directory, leaf));
+        return decode(bytes);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        return code === "ENOENT"
+          ? { ok: true, value: undefined }
+          : failure("CUSTODY_UNAVAILABLE");
+      }
     }
 
+    let handle: FileHandle;
+    try {
+      handle = await open(
+        within(directory, leaf),
+        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+      );
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      // ENOENT is a record that does not exist. ELOOP means the leaf is a
+      // symlink and O_NOFOLLOW refused it; anything else is an outage. Neither
+      // may be reported as an absent approval.
+      if (code === "ENOENT") return { ok: true, value: undefined };
+      return failure("CUSTODY_UNAVAILABLE");
+    }
+
+    try {
+      const stat = await handle.stat();
+      // A FIFO would block, a directory is nonsense, a device is hostile. Only
+      // a regular file can be an approval record.
+      if (!stat.isFile()) return failure("CUSTODY_UNAVAILABLE");
+      return decode(await handle.readFile());
+    } catch {
+      return failure("CUSTODY_UNAVAILABLE");
+    } finally {
+      await handle.close().catch(() => {});
+    }
+  }
+
+  function decode(bytes: Uint8Array): PolicyApprovalReadResult {
     let candidate: unknown;
     try {
       candidate = JSON.parse(Buffer.from(bytes).toString("utf8"));
-    } catch (error) {
-      return {
-        ok: false,
-        code: "INVALID_APPROVAL",
-        message: `approval record is not JSON: ${String(error)}`,
-      };
+    } catch {
+      // The parse error text quotes the offending bytes, which may be planted
+      // credentials. It never reaches the caller.
+      return failure("INVALID_APPROVAL");
     }
-
-    // A tampered or truncated record must not be trusted merely because it
-    // parses as JSON.
     const validated = validate(candidate);
     if (!validated.ok) return validated;
-    if (validated.value.profileId !== profileId) {
-      return {
-        ok: false,
-        code: "INVALID_APPROVAL",
-        message: `record at ${profileId}'s key declares profile id ${validated.value.profileId}`,
-      };
-    }
     return { ok: true, value: frozenCopy(validated.value) };
   }
 
-  return {
-    async publish(approval) {
-      const validated = validate(approval);
-      if (!validated.ok) return validated;
+  async function existingRecord(
+    directory: FileHandle,
+    profileId: string,
+  ): Promise<PolicyApprovalReadResult> {
+    const found = await readLeaf(directory, await leafName(profileId));
+    if (!found.ok) return found;
+    if (found.value && found.value.profileId !== profileId) {
+      return failure("INVALID_APPROVAL");
+    }
+    return found;
+  }
 
-      try {
-        await mkdir(approvalDirectory, { recursive: true });
-      } catch (error) {
-        return {
-          ok: false,
-          code: "CUSTODY_UNAVAILABLE",
-          message: `approval root unavailable: ${String(error)}`,
-        };
-      }
+  const publish = async (
+    approval: PolicyApproval,
+  ): Promise<PolicyApprovalPublishResult> => {
+    const validated = validate(approval);
+    if (!validated.ok) return validated;
 
-      // Bind the directory before writing. A symlinked root or intermediate
-      // component fails here rather than after bytes have landed elsewhere.
-      if ((await bind()) !== "bound") {
-        return {
-          ok: false,
-          code: "CUSTODY_UNAVAILABLE",
-          message: `approval root ${approvalDirectory} could not be bound`,
-        };
-      }
+    const bound = await bind(true);
+    if (!bound.ok) return failure("CUSTODY_UNAVAILABLE");
+    const directory = bound.handle;
 
-      const existing = await readExisting(validated.value.profileId);
+    try {
+      const leaf = await leafName(validated.value.profileId);
+      const existing = await existingRecord(
+        directory,
+        validated.value.profileId,
+      );
       if (!existing.ok) return existing;
       if (existing.value) {
         return existing.value.profileSha256 === validated.value.profileSha256
           ? { ok: true, value: "replayed" }
-          : conflict(existing.value);
+          : failure("APPROVAL_CONFLICT");
       }
 
-      const finalPath = recordPath(validated.value.profileId);
+      // A fresh, unguessable temp name every attempt. Reusing a
+      // content-addressed name would let an attacker pre-plant bytes at a
+      // predictable path and have them promoted unread.
+      const temp = `.${randomBytes(16).toString("hex")}.tmp`;
       const bytes = `${JSON.stringify(validated.value, null, 2)}\n`;
-      // The staging name is content-addressed, so an interrupted attempt leaves
-      // a file a retry of the SAME record can reuse rather than collide with.
-      // Nothing is ever unlinked: this module has no deletion path.
-      const staged = `${finalPath}.${createHash("sha256").update(bytes, "utf8").digest("hex").slice(0, 16)}.staged`;
+
+      let staged: FileHandle;
+      try {
+        staged = await open(
+          within(directory, temp),
+          fsConstants.O_CREAT |
+            fsConstants.O_EXCL |
+            fsConstants.O_WRONLY |
+            fsConstants.O_NOFOLLOW,
+          0o600,
+        );
+      } catch {
+        return failure("CUSTODY_UNAVAILABLE");
+      }
 
       try {
-        // Exclusive staging write, then a rename that cannot clobber, then a
-        // directory fsync. Nothing is readable at the final path until the
-        // whole record is durable.
-        if (!existsSync(staged)) {
-          await writeFile(staged, bytes, { flag: "wx", encoding: "utf8" });
+        const stat = await staged.stat();
+        if (!stat.isFile()) return failure("CUSTODY_UNAVAILABLE");
+        await staged.writeFile(bytes, "utf8");
+        await staged.sync();
+      } catch {
+        return failure("CUSTODY_UNAVAILABLE");
+      } finally {
+        await staged.close().catch(() => {});
+      }
+
+      if (capabilities.fsyncDirectory) {
+        try {
+          await capabilities.fsyncDirectory(within(directory, "."));
+        } catch {
+          return failure("CUSTODY_UNAVAILABLE");
         }
-        await fsyncDirectory(dirname(finalPath));
-        await rename(staged, finalPath);
-        await fsyncDirectory(dirname(finalPath));
+      }
+
+      try {
+        // link() refuses an existing destination, so publication cannot replace
+        // a record. rename() would clobber silently, which is exactly the
+        // last-write-wins retargeting this store exists to prevent.
+        const { link } = await import("node:fs/promises");
+        await link(within(directory, temp), within(directory, leaf));
+        await directory.sync();
       } catch (error) {
-        return {
-          ok: false,
-          code: "CUSTODY_UNAVAILABLE",
-          message: `approval publication interrupted: ${String(error)}`,
-        };
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        if (code === "EEXIST") {
+          // Someone published between our read and our link. Re-validate the
+          // record that actually won rather than assuming it is ours.
+          const winner = await existingRecord(
+            directory,
+            validated.value.profileId,
+          );
+          if (!winner.ok) return winner;
+          if (!winner.value) return failure("CUSTODY_UNAVAILABLE");
+          return winner.value.profileSha256 === validated.value.profileSha256
+            ? { ok: true, value: "replayed" }
+            : failure("APPROVAL_CONFLICT");
+        }
+        return failure("CUSTODY_UNAVAILABLE");
+      } finally {
+        // Removing our own temp is not a deletion path for records: the temp
+        // was never authoritative and is unreachable by any reader.
+        await unlink(within(directory, temp)).catch(() => {});
       }
 
       return { ok: true, value: "published" };
-    },
-
-    async read(profileId) {
-      // Bind BEFORE deciding absence. Checking existence first would let an
-      // attacker who relinks the root turn every read into a bare "absent",
-      // which a caller cannot distinguish from a genuine policy refusal.
-      const outcome = await bind();
-      if (outcome === "absent") return { ok: true, value: undefined };
-      if (outcome === "refused") {
-        return {
-          ok: false,
-          code: "CUSTODY_UNAVAILABLE",
-          message: `approval root ${approvalDirectory} could not be bound`,
-        };
-      }
-      return readExisting(profileId);
-    },
+    } finally {
+      await directory.close().catch(() => {});
+    }
   };
+
+  const read = async (profileId: string): Promise<PolicyApprovalReadResult> => {
+    const bound = await bind(false);
+    if (!bound.ok) {
+      return bound.absent
+        ? { ok: true, value: undefined }
+        : failure("CUSTODY_UNAVAILABLE");
+    }
+    try {
+      return await existingRecord(bound.handle, profileId);
+    } finally {
+      await bound.handle.close().catch(() => {});
+    }
+  };
+
+  return { publish, read };
 }

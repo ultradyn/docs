@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "include": ["docs/**"],
+  "exclude": ["docs/private/**"],
+  "allowedMediaTypes": ["text/markdown", "text/plain"],
+  "allowedProcessors": ["local-markdown", "local-text"],
+  "allowedProviders": ["provider:local-whisper"],
+  "allowedStorage": ["project-repository"],
+  "allowedRegions": ["local"],
+  "retentionClass": "session-scoped",
+  "retentionDays": 1,
+  "logging": "ids-only",
+  "cache": ["principalId", "profileId"],
+  "accessClass": "none",
+  "licenceRestrictions": [
+    "no-redistribution",
+    "no-derivatives",
+    "no-verbatim-quotes"
+  ],
+  "publication": "forbidden",
+  "maxQuoteBytes": 0,
+  "maxFiles": 1000,
+  "maxFileBytes": 10000000,
+  "maxExpandedBytes": 100000000,
+  "id": "policy-prohibited-material",
+  "dataRightsClass": "prohibited"
+}

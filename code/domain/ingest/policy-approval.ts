@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   DataRightsPolicyProfileSchema,
+  digestDataRightsPolicyProfile,
   type DataRightsPolicyProfile,
 } from "./data-rights-policy-profile.js";
 
@@ -52,6 +53,20 @@ export const PolicyApprovalSchema: z.ZodType<PolicyApproval> = z
         code: "custom",
         path: ["profileId"],
         message: `approval profileId "${approval.profileId}" does not match embedded profile id "${approval.profile.id}"`,
+      });
+    }
+
+    // The digest is the sole discriminator between an idempotent replay and a
+    // conflict, so it must actually commit to the embedded profile. Left
+    // unchecked it is free text, and a record pairing a hostile profile with a
+    // legitimate profile's digest replays as if it were the approved one.
+    const expected = digestDataRightsPolicyProfile(approval.profile);
+    if (approval.profileSha256 !== expected) {
+      context.addIssue({
+        code: "custom",
+        path: ["profileSha256"],
+        message:
+          "profileSha256 does not commit to the embedded profile; the record is not self-authenticating",
       });
     }
   });

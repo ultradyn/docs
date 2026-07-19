@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { z } from "zod";
 
 /**
@@ -17,9 +19,9 @@ import { z } from "zod";
  * Known legacy drift, deliberately left unrepaired: the frozen PolicyProfile
  * exports a `DataClass` union that names "prohibited", while its Zod enum
  * omits it, so a prohibited profile can never parse. That contract is frozen,
- * so the drift stays. `DataRightsClass` below is the aligned replacement:
- * prohibited material is expressed by having no approved profile at all, not
- * by a class that is unrepresentable by construction.
+ * so the drift stays there. `DataRightsClass` below aligns type and schema:
+ * `prohibited` is representable and parses as a declaration, and the refusal
+ * to run it lives in PolicyService rather than in an unparseable enum.
  *
  * Declarative policy only. This module must never grow a delete, erase, purge,
  * or unlink field, nor retention semantics meaning physical erasure. Authorised
@@ -27,7 +29,11 @@ import { z } from "zod";
  * gate.
  */
 export type DataRightsClass =
-  "public" | "internal" | "confidential" | "restricted-local-only";
+  | "public"
+  | "internal"
+  | "confidential"
+  | "restricted-local-only"
+  | "prohibited";
 
 /** Where a profile's material may be published. Closed by design: a downstream
  * gate must never invent a default for material whose licence forbids it. */
@@ -129,11 +135,19 @@ const CapabilityListSchema = z
 const PositiveIntegerSchema = z.number().int().positive();
 const NonNegativeIntegerSchema = z.number().int().nonnegative();
 
+/**
+ * `prohibited` parses as a valid DECLARATION but is never approvable: see
+ * PolicyService, which refuses it with a distinct PROFILE_PROHIBITED and writes
+ * no record. Keeping it representable is what lets a gate distinguish
+ * "explicitly forbidden" from "merely unclassified or unapproved" — collapsing
+ * the two leaves a refusal unable to report why.
+ */
 export const DATA_RIGHTS_CLASSES = [
   "public",
   "internal",
   "confidential",
   "restricted-local-only",
+  "prohibited",
 ] as const;
 
 export const PUBLICATION_RULES = [
@@ -299,4 +313,20 @@ export function canonicalDataRightsPolicyProfile(
     maxFileBytes: profile.maxFileBytes,
     maxExpandedBytes: profile.maxExpandedBytes,
   });
+}
+
+/**
+ * The content digest an approval commits to.
+ *
+ * Defined here, beside the canonicaliser, because the two are one contract: the
+ * digest is only meaningful over the canonical form. Hashing the raw object
+ * would make the value depend on how it happened to be constructed, since Zod
+ * rebuilds parsed objects in schema key order.
+ */
+export function digestDataRightsPolicyProfile(
+  profile: DataRightsPolicyProfile,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalDataRightsPolicyProfile(profile)), "utf8")
+    .digest("hex");
 }
