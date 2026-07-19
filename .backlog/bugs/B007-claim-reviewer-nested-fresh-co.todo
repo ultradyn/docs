@@ -1,0 +1,31 @@
+---
+complexity: low
+created_at: "2026-07-19T16:31:32Z"
+depends_on: []
+estimate_hours: 2
+id: B007
+priority: medium
+status: pending
+tags:
+    - agents
+    - fresh-context
+    - residual
+title: Claim Reviewer nested fresh-context is caller-trusted; scan before wiring a real LLM
+updated_at: "2026-07-19T16:31:32Z"
+---
+Residual accepted at T-32-02 merge, with re-open conditions supplied by pi during independent review.
+
+WHAT IS ENFORCED TODAY: fresh context is structural for NAMED TOP-LEVEL SLOTS. ClaimReviewerProposeContext has no extractorMessages / chat / transcript field, and runClaimReviewer refuses those keys plus symbol keys at the run boundary.
+
+WHAT IS NOT ENFORCED: packet is typed unknown and claims is readonly unknown[], and BOTH are passed RAW to propose before validation. Extractor transcript nested inside a packet object or a claim record reaches the proposer. The top-level scan never sees it.
+
+WHY THIS WAS ACCEPTED FOR v1: the threat model is an honest orchestrator making a mistake, not an adversarial caller — same posture as the agent-layer SoD pin, which is also caller-trusted. A full recursive scan of unknown object graphs is open-ended (depth limits, arrays, binary content) and easy to get wrong or make expensive. Authoritative SoD and acceptance both remain on ClaimReviewService.apply. The residual is documented in the module header rather than buried, which is what made it acceptable.
+
+RE-OPEN AS IMPORTANT IF ANY OF THESE BECOME TRUE (pi conditions, and they are good ones):
+1. A production orchestrator concatenates extractor transcripts into packet or claims without a separate boundary.
+2. Any header or doc starts claiming absolutely that the reviewer CANNOT see extractor context. The current wording is correctly scoped; widening it would make the claim false.
+3. THE MOST LIKELY TRIGGER — a follow-up task wires this propose() to a REAL LLM without a redaction adapter. Today propose is injected and tests use fakes, so nothing actually reaches a model. That changes the moment the agent runtime is wired.
+
+PREFERRED FIX WHEN IT FIRES: a BOUNDED shallow denylist scan of claim keys and packet top-level keys for messages / transcript / chat before calling propose. Not a full recursive walk — bounded and predictable beats thorough and fragile.
+
+Do NOT resolve this by widening the header to claim more than the code does. The current honesty is the reason the residual is safe to hold.
