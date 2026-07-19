@@ -12,21 +12,15 @@ import type { Claim } from "../../domain/ingest/claim.js";
 import type { ClaimId, GraphRevision, Sha256 } from "../../domain/ingest/types.js";
 import type { ClaimReviewDecision } from "../../domain/ingest/claim-review.js";
 
+import { createClaimPackService } from "./claim-pack-service.js";
 import {
-  createClaimPackService,
-  type ClaimPackService,
-} from "./claim-pack-service.js";
-import {
-  createClaimRepository,
   createInMemoryClaimStore,
-  type ClaimAcceptanceAuthority,
   type ClaimRepository,
   type EvidenceVerificationReader,
 } from "./claim-repository.js";
 import {
   createClaimReviewService,
   createInMemoryClaimReviewApplicationStore,
-  type ClaimReviewApplicationStore,
   type ClaimReviewService,
   type PacketCreationIdentityReader,
 } from "./claim-review-service.js";
