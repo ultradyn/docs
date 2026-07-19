@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T15:44:04Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T16:02:16Z"
 complexity: medium
 created_at: "2026-07-18T08:10:11Z"
 depends_on:
     - P2.M3.E2.T002
+duration_minutes: 18.209395138416667
 estimate_hours: 5
 id: P2.M3.E2.T003
 priority: high
 started_at: "2026-07-19T15:44:04Z"
-status: in_progress
+status: done
 tags: []
 title: T-31-03 — Run combined-versus-split ablation
-updated_at: "2026-07-19T15:44:04Z"
+updated_at: "2026-07-19T16:02:16Z"
 ---
 Bundle provenance: WP-31 / T-31-03
 

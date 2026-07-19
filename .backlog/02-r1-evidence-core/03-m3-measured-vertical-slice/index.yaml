@@ -18,7 +18,7 @@ epics:
       locked: false
       name: WP-31 — Evidence Critic agent
       path: 02-wp-31-evidence-critic-agent
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-32. Turn accepted evidence into independently reviewed reusable claims. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-32 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'

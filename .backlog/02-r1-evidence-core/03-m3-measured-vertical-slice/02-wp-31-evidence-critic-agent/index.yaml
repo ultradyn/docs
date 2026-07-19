@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -41,6 +41,6 @@ tasks:
       file: T003-t-31-03-run-combined-versus-sp.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: T-31-03 — Run combined-versus-split ablation
