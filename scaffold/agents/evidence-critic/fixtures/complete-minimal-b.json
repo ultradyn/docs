@@ -1,0 +1,54 @@
+{
+  "caseId": "complete-minimal-b",
+  "kind": "complete_minimal",
+  "packet": {
+    "schemaVersion": 1,
+    "id": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "version": 1,
+    "references": [
+      {
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "fileId": "file-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "role": "primary",
+        "facetIds": ["facet-definition"]
+      }
+    ],
+    "receiptId": "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "receiptDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "limits": {
+      "maxReferences": 32,
+      "maxFacetsPerReference": 8
+    }
+  },
+  "requiredFacetIds": ["facet-definition"],
+  "proposal": {
+    "schemaVersion": 1,
+    "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "referenceClassifications": [
+      {
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "classification": "necessary_primary",
+        "reason": "Sole material unit fully supports the definition facet."
+      }
+    ],
+    "facetStates": [
+      {
+        "facetId": "facet-definition",
+        "state": "satisfied",
+        "reason": "Primary unit covers the only required facet.",
+        "sourceUnitIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"]
+      }
+    ],
+    "verdict": "accepted",
+    "refinement": null
+  },
+  "expected": {
+    "ok": true,
+    "verdict": "accepted"
+  }
+}

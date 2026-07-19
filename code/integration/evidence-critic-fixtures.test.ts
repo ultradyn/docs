@@ -38,6 +38,7 @@ describe("named criticism fixtures exist and are complete", () => {
       expect(ids).toContain(name);
     }
     expect(ids).toContain("complete-minimal");
+    expect(ids).toContain("complete-minimal-b");
     for (const c of cases) {
       expect(c.packet).toBeTypeOf("object");
       expect(Array.isArray(c.requiredFacetIds)).toBe(true);

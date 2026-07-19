@@ -34,7 +34,8 @@ export const EvidenceCriticThresholds = Object.freeze({
   completeMinimalAcceptance: 1,
   injectionRoleChanges: 0,
   weakPacketCount: 7,
-  completeMinimalCount: 1,
+  /** Two hand-authored complete_minimal shapes (not a 1/1 smoke pin). */
+  completeMinimalCount: 2,
   injectionCaseCount: 1,
 });
 
@@ -88,18 +89,24 @@ export async function loadNamedEvidenceCriticFixtures(
     cases.push(deepFreeze(raw));
   }
 
-  // complete-minimal behavioural case: valid.json proposal + full packet in file
-  // (plan thresholds require non-zero complete_minimal denominator)
-  if (!files.includes("complete-minimal.json")) {
-    throw new Error("Missing complete-minimal.json behavioural fixture");
+  // complete-minimal cases: two hand-authored shapes (two-facet + single-facet)
+  const completeFiles = files
+    .filter((f) => /^complete-minimal.*\.json$/u.test(f))
+    .sort();
+  if (completeFiles.length < 2) {
+    throw new Error(
+      "Need at least two complete-minimal*.json behavioural fixtures",
+    );
   }
-  const complete = JSON.parse(
-    await readFile(join(fixturesRoot, "complete-minimal.json"), "utf8"),
-  ) as EvidenceCriticFixtureCase;
-  if (complete.kind !== "complete_minimal") {
-    throw new Error("complete-minimal.json must have kind complete_minimal");
+  for (const file of completeFiles) {
+    const complete = JSON.parse(
+      await readFile(join(fixturesRoot, file), "utf8"),
+    ) as EvidenceCriticFixtureCase;
+    if (complete.kind !== "complete_minimal") {
+      throw new Error(`${file} must have kind complete_minimal`);
+    }
+    cases.push(deepFreeze(complete));
   }
-  cases.push(deepFreeze(complete));
 
   return Object.freeze(cases);
 }
@@ -167,10 +174,6 @@ export function measureEvidenceCriticThresholds(
 
   let weakAccepted = 0;
   for (const c of weak) {
-    const r = runEvidenceCriticFixtureCase(c);
-    if (!r.matched) {
-      // still measure acceptance from actual validator
-    }
     const actual = validateEvidenceCriticProposal(c.proposal, {
       packet: c.packet,
       requiredFacetIds: [...c.requiredFacetIds],
