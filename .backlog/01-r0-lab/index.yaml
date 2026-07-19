@@ -16,9 +16,9 @@ milestones:
 name: R0 Lab
 stats:
     blocked: 0
-    done: 0
+    done: 10
     in_progress: 0
-    pending: 10
+    pending: 0
     total_tasks: 10
 status: done
 weeks: 12

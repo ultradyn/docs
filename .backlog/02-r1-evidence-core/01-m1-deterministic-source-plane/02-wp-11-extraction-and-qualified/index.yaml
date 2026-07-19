@@ -6,9 +6,9 @@ locked: false
 name: WP-11 — Extraction and qualified representations
 stats:
     blocked: 0
-    done: 0
+    done: 2
     in_progress: 0
-    pending: 3
+    pending: 1
     total: 3
 status: pending
 tasks:

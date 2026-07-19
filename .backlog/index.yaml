@@ -1,25 +1,20 @@
 critical_path:
-    - P1.M1.E1.T001
-    - P1.M1.E1.T002
-    - P1.M1.E1.T003
-    - P1.M1.E2.T001
-    - P1.M1.E2.T002
-    - P1.M1.E2.T003
-    - P1.M1.E3.T001
-    - P1.M1.E3.T002
-    - P1.M1.E3.T003
-    - P2.M1.E1.T001
-    - P2.M1.E1.T002
-    - P2.M1.E1.T003
-    - P2.M1.E2.T001
-    - P2.M1.E2.T002
-    - P2.M1.E3.T001
     - P2.M1.E3.T002
     - P2.M1.E3.T003
-    - P2.M1.E4.T002
-    - P2.M1.E4.T003
+    - P2.M2.E2.T001
+    - P2.M2.E2.T002
+    - P2.M2.E2.T003
+    - P2.M2.E3.T001
+    - P2.M2.E3.T002
+    - P2.M2.E3.T003
+    - P2.M2.E4.T001
+    - P2.M2.E4.T002
+    - P2.M2.E4.T003
+    - P2.M3.E4.T001
+    - P2.M3.E4.T002
+    - P2.M3.E4.T003
 description: Question-driven, Git-portable documentation with automatic evidence-grounded ingestion
-next_available: P1.M1.E1.T001
+next_available: P2.M1.E3.T002
 phases:
     - depends_on: []
       description: Contracts, fixtures, and a measured evaluation laboratory.
@@ -74,8 +69,8 @@ phases:
 project: ultradyn-docs
 stats:
     blocked: 1
-    done: 0
+    done: 20
     in_progress: 0
-    pending: 47
-    total_tasks: 48
+    pending: 28
+    total_tasks: 49
 timeline_weeks: 52

@@ -586,7 +586,7 @@ Do not freeze the exact final TypeScript shape ahead of the gates; these nouns a
 
 **IDs:** Backlog `P2.M1.E2.T003`; bundle `T-11-03`
 
-**Depends on:** T-11-02; may run in parallel with T-12-01
+**Depends on:** T-11-02, T-12-01
 
 **Files:**
 
@@ -600,8 +600,8 @@ Do not freeze the exact final TypeScript shape ahead of the gates; these nouns a
 - Consumes: failed `RepresentationAudit`, `SourceRepresentation`, append-only store, unitizer invalidation port.
 - Produces: `RepresentationRepairService.propose(input): Promise<RepresentationRepair>` and `.approve(id, reviewer): Promise<SourceRepresentation>`; new representation has `supersedesId` and monotonically increasing version.
 
-- [ ] **Red:** assert approval creates version 2, original/faulty bytes remain readable, and dependent unit IDs are returned in `InvalidationRequest`; overwrite is rejected. Run targeted Vitest. **Expected failure:** repair module missing.
-- [ ] **Green:** store correction as a new raw artifact plus derived representation, link supersession, and emit invalidation without mutating existing records.
+- [ ] **Red:** assert approval creates version 2, original/faulty bytes remain readable, unchanged units retain their IDs, `InvalidationRequest` contains exactly the changed unit IDs, superseded/current representations are never combined into one unitization result, and overwrite is rejected. Run targeted Vitest. **Expected failure:** repair module missing.
+- [ ] **Green:** store correction as a new raw artifact plus derived representation, link supersession, unitize each representation independently, preserve unchanged logical unit identities, and emit exact invalidation without mutating existing records.
 - [ ] **Pass:** targeted Vitest passes.
 - [ ] **Commit:** `git commit -m "feat(ingest): version representation repairs immutably"`.
 
@@ -624,8 +624,8 @@ Do not freeze the exact final TypeScript shape ahead of the gates; these nouns a
 - Consumes: `readonly SourceUnit[]`.
 - Produces: `ExactMap.build(units): ExactMapProjection`; `ExactMap.lookup(alias): { kind:"unique"; unit:SourceUnitId } | { kind:"ambiguous"; candidates:readonly {unit:SourceUnitId;reason:string}[] } | { kind:"missing" }` for IDs, paths, titles, headings, acronyms, and error codes.
 
-- [ ] **Red:** assert unique and ambiguous literal aliases, sorted candidates with reasons, and byte-identical rebuild after deleting the projection. Run targeted Vitest. **Expected failure:** exact-map module missing.
-- [ ] **Green:** build normalised aliases from canonical units, retain all collisions, sort keys/candidates, and keep the projection disposable.
+- [ ] **Red:** assert unique and ambiguous literal aliases, sorted candidates with reasons, rejection of duplicate `SourceUnitId` inputs, and byte-identical rebuild after deleting the projection. Run targeted Vitest. **Expected failure:** exact-map module missing.
+- [ ] **Green:** reject duplicate unit identities before projection, build normalised aliases from canonical units, retain all alias collisions, sort keys/candidates, and keep the projection disposable.
 - [ ] **Pass:** targeted Vitest passes.
 - [ ] **Commit:** `git commit -m "feat(ingest): build exact source maps"`.
 

@@ -43,8 +43,8 @@ locked: false
 name: M1 — Deterministic source plane
 stats:
     blocked: 1
-    done: 0
+    done: 6
     in_progress: 0
-    pending: 13
+    pending: 7
     total_tasks: 14
 status: pending

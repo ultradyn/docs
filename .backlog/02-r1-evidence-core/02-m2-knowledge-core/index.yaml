@@ -43,8 +43,8 @@ locked: false
 name: M2 — Knowledge core
 stats:
     blocked: 0
-    done: 0
+    done: 4
     in_progress: 0
-    pending: 12
-    total_tasks: 12
+    pending: 9
+    total_tasks: 13
 status: pending

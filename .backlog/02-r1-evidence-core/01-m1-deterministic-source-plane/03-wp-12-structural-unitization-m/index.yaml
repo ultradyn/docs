@@ -6,9 +6,9 @@ locked: false
 name: WP-12 — Structural unitization, maps, and lexical retrieval
 stats:
     blocked: 0
-    done: 0
+    done: 1
     in_progress: 0
-    pending: 4
+    pending: 3
     total: 4
 status: pending
 tasks:

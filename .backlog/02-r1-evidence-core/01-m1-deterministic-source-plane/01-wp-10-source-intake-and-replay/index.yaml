@@ -6,9 +6,9 @@ locked: false
 name: WP-10 — Source intake and replay custody
 stats:
     blocked: 1
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 4
 status: pending
 tasks:
