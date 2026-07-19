@@ -51,3 +51,21 @@ tasks:
       priority: medium
       status: pending
       title: Strengthen claim-candidate recall corpus and metric
+    - complexity: medium
+      depends_on:
+        - P2.M2.E3.T003
+      estimate_hours: 2
+      file: T005-enforce-rejected-claim-exclusi.todo
+      id: T005
+      priority: medium
+      status: pending
+      title: Enforce rejected-claim exclusion at the claim store boundary
+    - complexity: medium
+      depends_on:
+        - P2.M2.E3.T003
+      estimate_hours: 2
+      file: T006-implement-qualify-decision-in.todo
+      id: T006
+      priority: medium
+      status: pending
+      title: Implement qualify decision in ClaimReview application

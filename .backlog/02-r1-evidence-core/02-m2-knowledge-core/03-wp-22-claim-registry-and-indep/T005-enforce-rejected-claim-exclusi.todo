@@ -1,0 +1,29 @@
+---
+complexity: medium
+created_at: "2026-07-19T13:13:33Z"
+depends_on:
+    - P2.M2.E3.T003
+estimate_hours: 2
+id: P2.M2.E3.T005
+priority: medium
+status: pending
+tags:
+    - claim
+    - security
+    - packs
+title: Enforce rejected-claim exclusion at the claim store boundary
+updated_at: "2026-07-19T13:13:33Z"
+---
+Follow-up from T-22-03 (documented residual, not a defect in that task).
+
+T-22-03 guarantees 'rejected claims cannot enter answer/document packs' via a SAFE-BY-DEFAULT accessor: ClaimReviewService.listAcceptedClaimIds() excludes any id appearing in an application's rejectedClaimIds, and isEligibleForAcceptedPack delegates to it. Rejection is deliberately NOT a ClaimState (T-22-01 froze the five-set), so a rejected claim remains state='proposed' in the store.
+
+RESIDUAL: a consumer that BYPASSES the review service and reads the claim store directly still sees that claim as 'proposed' with no indication it was rejected. The guarantee therefore holds for consumers who go through the service, and is advisory for those who do not. T-22-03 documents this honestly in the service header rather than overstating it.
+
+Scope:
+- When pack builders land (T-32+), ensure they consume applications / listAcceptedClaimIds and cannot assemble a pack from a raw store read.
+- Evaluate a store-level or query-level exclusion so the safe path is structural rather than conventional (e.g. an accepted-claims query that is the only supported way to select for packs).
+- Adversarial tests: a rejected claim must not reach a pack via ANY supported selection path, including a direct store read if that path remains available.
+- Update the T-22-03 service header comment once the guarantee becomes structural, so it never overstates what is enforced.
+
+Non-goals: adding 'rejected' to ClaimState (would break merged T-22-01's frozen five-set); changing SoD or idempotency semantics.
