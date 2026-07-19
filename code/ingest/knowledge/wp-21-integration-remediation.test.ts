@@ -41,6 +41,7 @@ import {
   createInMemoryEvidenceVerdictStore,
   createFileEvidenceVerdictStore,
   deriveEvidenceVerdictId,
+  type QuestionFacetReader,
 } from "./evidence-verdict-service.js";
 import { evaluateEvidenceLoop } from "./evidence-loop-policy.js";
 
@@ -159,8 +160,8 @@ describe("B — RED gaps: digest must bind schemaVersion/id/version/limits", () 
     const withField = completeDigest(BASE_DIGEST_INPUT);
     const alt = completeDigest({
       ...BASE_DIGEST_INPUT,
-      // @ts-expect-error intentional illegal schema for mutation table
-      schemaVersion: 2 as 1,
+      // intentional illegal schema for mutation table
+      schemaVersion: 2 as unknown as 1,
     });
     expect(withField).not.toBe(alt);
   });
@@ -312,7 +313,7 @@ describe("A — QuestionFacetReader facet authority", () => {
       mod as {
         createInMemoryQuestionFacetReader: (
           m: Map<string, string[]>,
-        ) => unknown;
+        ) => QuestionFacetReader;
       }
     ).createInMemoryQuestionFacetReader;
     const facets = createFacets(facetMap);
@@ -849,7 +850,7 @@ describe("D — atomic verdict append+idempotency", () => {
         mod as {
           createInMemoryQuestionFacetReader: (
             m: Map<string, string[]>,
-          ) => unknown;
+          ) => QuestionFacetReader;
         }
       ).createInMemoryQuestionFacetReader;
       expect(typeof createFacets).toBe("function");
@@ -1373,7 +1374,7 @@ describe("D3 — verdict crash reconstruction + different-payload conflict", () 
         mod as {
           createInMemoryQuestionFacetReader: (
             m: Map<string, string[]>,
-          ) => unknown;
+          ) => QuestionFacetReader;
         }
       ).createInMemoryQuestionFacetReader;
       expect(typeof createFacets).toBe("function");
