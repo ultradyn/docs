@@ -159,9 +159,7 @@ function verifierOk(): PacketVerifier {
   };
 }
 
-function verifierFail(
-  code: string = "HASH_MISMATCH",
-): PacketVerifier {
+function verifierFail(code: string = "HASH_MISMATCH"): PacketVerifier {
   return {
     verifyReferences: async () => ({
       ok: false as const,
@@ -424,9 +422,11 @@ describe("apply — accepted lifecycle (River §3.3–3.4)", () => {
       );
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(["REFERENCE_INVALID", "FACET_UNSATISFIED", "INVALID_INPUT"]).toContain(
-          result.code,
-        );
+        expect([
+          "REFERENCE_INVALID",
+          "FACET_UNSATISFIED",
+          "INVALID_INPUT",
+        ]).toContain(result.code);
       }
     }
   });
@@ -515,7 +515,11 @@ describe("apply — retrieval outage cannot become no_supported_answer (River §
   });
 
   it("rejects no_supported_answer for SEARCH_UNAVAILABLE / PROVIDER_OUTAGE codes", async () => {
-    for (const code of ["SEARCH_UNAVAILABLE", "PROVIDER_OUTAGE", "RETRIEVAL_UNAVAILABLE"]) {
+    for (const code of [
+      "SEARCH_UNAVAILABLE",
+      "PROVIDER_OUTAGE",
+      "RETRIEVAL_UNAVAILABLE",
+    ]) {
       const result = await service({
         receipts: receiptReader([code]),
       }).apply(
@@ -1052,7 +1056,9 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         receipts: receiptReader(),
         verifier: verifierOk(),
       });
-      await expect(svc.apply(acceptedInput())).rejects.toThrow(/injected-crash/);
+      await expect(svc.apply(acceptedInput())).rejects.toThrow(
+        /injected-crash/,
+      );
       const fresh = createFileEvidenceVerdictStore(root);
       const latest = await fresh.latest(
         deriveEvidenceVerdictId(QUESTION, PACKET_ID),
@@ -1130,7 +1136,7 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         verdict: "search_incomplete",
         criticisms: ["x"],
         followUpRequest: null,
-        packetDigest: "a".repeat(64),
+        packetDigest: "a".repeat(64) as Sha256,
       } as EvidenceVerdict),
     ).rejects.toThrow(/symbolic|Refusing/i);
     await rm(base, { recursive: true, force: true });
@@ -1194,9 +1200,7 @@ describe("public seams — full schema not placeholder (genuine RED)", () => {
             reason: "x",
           },
         ],
-        facetStates: [
-          { facetId: "purpose", state: "satisfied", reason: "x" },
-        ],
+        facetStates: [{ facetId: "purpose", state: "satisfied", reason: "x" }],
         verdict: "accepted",
         criticisms: [],
         followUpRequest: null,
@@ -1230,9 +1234,7 @@ describe("public seams — full schema not placeholder (genuine RED)", () => {
             reason: "x",
           },
         ],
-        facetStates: [
-          { facetId: "purpose", state: "satisfied", reason: "x" },
-        ],
+        facetStates: [{ facetId: "purpose", state: "satisfied", reason: "x" }],
         verdict: "accepted",
         criticisms: [],
         followUpRequest: null,
@@ -1244,7 +1246,11 @@ describe("public seams — full schema not placeholder (genuine RED)", () => {
   it("domain barrel EvidenceVerdictSchema rejects placeholder (not soft typeof)", async () => {
     const barrel = await import("../../domain/ingest/index.js");
     const schema = (
-      barrel as { EvidenceVerdictSchema: { safeParse: (v: unknown) => { success: boolean } } }
+      barrel as {
+        EvidenceVerdictSchema: {
+          safeParse: (v: unknown) => { success: boolean };
+        };
+      }
     ).EvidenceVerdictSchema;
     expect(typeof schema?.safeParse).toBe("function");
     expect(

@@ -165,9 +165,9 @@ describe("EvidenceVerdict domain exports (River protocol enums)", () => {
       { proposedChildren: [] },
       { evil: true },
     ]) {
-      expect(
-        EvidenceVerdictSchema.safeParse(baseVerdict(bad)).success,
-      ).toBe(false);
+      expect(EvidenceVerdictSchema.safeParse(baseVerdict(bad)).success).toBe(
+        false,
+      );
     }
   });
 

@@ -1,5 +1,6 @@
 export * from "./coverage-obligation.js";
 export * from "./evidence-packet.js";
+export * from "./evidence-verdict.js";
 export * from "./id-schemas.js";
 export * from "./policy-profile.js";
 export * from "./question-link.js";

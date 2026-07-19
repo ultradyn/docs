@@ -114,9 +114,7 @@ export const SourceRepresentationSchema = z
 
 export { SearchReceiptSchema } from "./search-receipt.js";
 export { EvidencePacketSchema } from "./evidence-packet.js";
-export const EvidenceVerdictSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
+export { EvidenceVerdictSchema } from "./evidence-verdict.js";
 export const ClaimSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();

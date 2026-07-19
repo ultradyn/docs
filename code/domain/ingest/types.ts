@@ -9,6 +9,7 @@ export type SourceUnitId = Brand<string, "SourceUnitId">;
 export type QuestionId = Brand<string, "QuestionId">;
 export type ObligationId = Brand<string, "ObligationId">;
 export type EvidencePacketId = Brand<string, "EvidencePacketId">;
+export type EvidenceVerdictId = Brand<string, "EvidenceVerdictId">;
 export type ClaimId = Brand<string, "ClaimId">;
 export type GraphRevision = Brand<number, "GraphRevision">;
 export type Sha256 = Brand<string, "Sha256">;
