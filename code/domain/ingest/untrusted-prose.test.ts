@@ -53,8 +53,8 @@ describe("UntrustedProse brand surface", () => {
     // IMPORTANT 2 fold: type-level tripwire for future model wiring.
     // When someone wires a real sendToModel(text: string), this directive
     // documents that UntrustedProse must not pass without the hatch.
-    function sendToModel(_text: string): void {
-      /* provider boundary stub */
+    function sendToModel(text: string): void {
+      void text;
     }
     const reason = markUntrustedProse("must not enter model");
     // @ts-expect-error UntrustedProse is not a string — require deliberate expose

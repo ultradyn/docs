@@ -11,10 +11,7 @@ import {
 } from "../../domain/ingest/untrusted-prose.js";
 import type { Sha256, SourceUnitId } from "../../domain/ingest/types.js";
 
-import {
-  createEvidenceCriticAgent,
-  validateEvidenceCriticProposal,
-} from "./evidence-critic-agent.js";
+import { validateEvidenceCriticProposal } from "./evidence-critic-agent.js";
 
 const QUESTION = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const PACKET = "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -150,8 +147,8 @@ describe("B003 UntrustedProse on critic free text", () => {
     // Tripwire for future model round-trips of critic prose (IMPORTANT 2 fold).
     // A real provider boundary typed as (text: string) must not accept
     // UntrustedProse without deliberatelyExposeUntrustedProseToModel.
-    function sendToModel(_text: string): void {
-      /* provider boundary stub */
+    function sendToModel(text: string): void {
+      void text;
     }
     const result = validateEvidenceCriticProposal(validProposal(), {
       packet: packet(),
