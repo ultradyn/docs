@@ -7,7 +7,11 @@ import { describe, expect, it } from "vitest";
 
 import { INGEST_ROLE_TOOL_ALLOWLIST } from "../../agents/ingest-manifest.js";
 import { SearchReceiptSchema } from "../../domain/ingest/search-receipt.js";
-import type { SnapshotId } from "../../domain/ingest/index.js";
+import type { Sha256, SnapshotId } from "../../domain/ingest/index.js";
+import type {
+  SearchBackendIdentity,
+} from "./source-tool-seams.js";
+import type { SearchResponse } from "./lexical-index.js";
 
 import { createSourceTools } from "./source-tools.js";
 import {
