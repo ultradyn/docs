@@ -10,8 +10,6 @@ import {
   rename,
   rm,
 } from "node:fs/promises";
-import { join } from "node:path";
-
 import {
   DEFAULT_EVIDENCE_PACKET_LIMITS,
   EvidencePacketLimitsSchema,
@@ -189,6 +187,30 @@ export function deriveEvidencePacketId(questionId: string): EvidencePacketId {
   return `pkt-${body}` as EvidencePacketId;
 }
 
+function canonicalizeFilters(filters: unknown): unknown {
+  if (
+    filters === null ||
+    typeof filters !== "object" ||
+    Array.isArray(filters)
+  ) {
+    return filters;
+  }
+  const record = filters as Record<string, unknown>;
+  const keys = Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      out[key] = [...value]
+        .map(String)
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 export function receiptDigestOf(receipt: {
   readonly id: string;
   readonly snapshotId: string;
@@ -200,17 +222,17 @@ export function receiptDigestOf(receipt: {
   readonly selectedIds: readonly string[];
   readonly failures: readonly string[];
 }): Sha256 {
-  // Fixed field order for digest stability.
+  // Fixed field order; set-semantic arrays sorted; filter keys sorted.
   const material = [
     ["id", receipt.id],
     ["snapshotId", receipt.snapshotId],
     ["indexVersion", receipt.indexVersion],
     ["indexedRepresentationsSha256", receipt.indexedRepresentationsSha256],
     ["query", receipt.query],
-    ["filters", receipt.filters],
-    ["candidateIds", [...receipt.candidateIds]],
-    ["selectedIds", [...receipt.selectedIds]],
-    ["failures", [...receipt.failures]],
+    ["filters", canonicalizeFilters(receipt.filters)],
+    ["candidateIds", [...receipt.candidateIds].sort()],
+    ["selectedIds", [...receipt.selectedIds].sort()],
+    ["failures", [...receipt.failures].sort()],
   ] as const;
   return sha256Hex(JSON.stringify(material));
 }
@@ -353,8 +375,8 @@ function errorCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException | undefined)?.code;
 }
 
-export interface FileEvidencePacketStoreHooks {
-  /** Test-only fault seam: after temp write, before publish rename. */
+/** Test-only fault seam type — not part of the public knowledge barrel contract. */
+interface FileEvidencePacketStoreHooks {
   afterTempWriteBeforePublish?: () => void | Promise<void>;
 }
 
@@ -389,17 +411,18 @@ export function createFileEvidencePacketStore(
   const holder = new AsyncLocalStorage<true>();
   let queue: Promise<unknown> = Promise.resolve();
 
-  async function openBoundPath(
-    components: readonly string[],
-  ): Promise<{ dir: string; close: () => Promise<void> }> {
+  /** Held directory fd; all leaf paths are /proc/self/fd/<fd>/<leaf> only. */
+  async function openBoundPath(components: readonly string[]): Promise<{
+    at: (name: string) => string;
+    list: () => Promise<string[]>;
+    close: () => Promise<void>;
+  }> {
     let handle = await open(root, DIRECTORY_FLAGS).catch((error: unknown) => {
       const code = errorCode(error);
       if (code === "ELOOP" || code === "ENOTDIR") {
         throw new Error(
           "Refusing symbolic-link or non-directory evidence root.",
-          {
-            cause: error,
-          },
+          { cause: error },
         );
       }
       throw error;
@@ -432,9 +455,9 @@ export function createFileEvidencePacketStore(
         handle = child;
       }
       const bound = handle;
-      const dir = join(root, ...components);
       return {
-        dir,
+        at: (name: string) => `/proc/self/fd/${bound.fd}/${name}`,
+        list: async () => readdir(`/proc/self/fd/${bound.fd}`),
         close: async () => {
           await bound.close();
         },
@@ -454,13 +477,15 @@ export function createFileEvidencePacketStore(
   const PACKET_NAME = /^(pkt-[0-9A-HJKMNP-TV-Z]{26})-v(\d{8})\.json$/u;
 
   async function listPacketStream(
-    dir: string,
+    bound: { at: (name: string) => string; list: () => Promise<string[]> },
     packetId: string,
   ): Promise<EvidencePacket[]> {
-    const names = await readdir(dir);
+    const names = await bound.list();
     const versions = new Map<number, string>();
     for (const name of names) {
-      if (name.endsWith(".tmp")) continue;
+      if (name === "." || name === ".." || name.endsWith(".tmp")) continue;
+      // ignore journal-style files if any
+      if (name.startsWith("intent-") || name.startsWith("idem-")) continue;
       const match = PACKET_NAME.exec(name);
       if (!match) {
         // Unknown files in stream dir are attack/corrupt.
@@ -491,7 +516,7 @@ export function createFileEvidencePacketStore(
       let handle;
       try {
         handle = await open(
-          join(dir, name),
+          bound.at(name),
           constants.O_RDONLY | constants.O_NOFOLLOW,
         );
       } catch (error) {
@@ -526,7 +551,7 @@ export function createFileEvidencePacketStore(
       // Never fall back to process memory — durable only.
       const bound = await openBoundPath(EVIDENCE_COMPONENTS);
       try {
-        const path = join(bound.dir, packetFileName(packetId, version));
+        const path = bound.at(packetFileName(packetId, version));
         let handle;
         try {
           handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -556,7 +581,7 @@ export function createFileEvidencePacketStore(
     async latest(packetId) {
       const bound = await openBoundPath(EVIDENCE_COMPONENTS);
       try {
-        const stream = await listPacketStream(bound.dir, packetId);
+        const stream = await listPacketStream(bound, packetId);
         return stream.at(-1);
       } finally {
         await bound.close();
@@ -564,12 +589,13 @@ export function createFileEvidencePacketStore(
     },
     async append(packet) {
       const bound = await openBoundPath(EVIDENCE_COMPONENTS);
-      const path = join(bound.dir, packetFileName(packet.id, packet.version));
+      const leaf = packetFileName(packet.id, packet.version);
+      const path = bound.at(leaf);
       const bytes = `${JSON.stringify(packet)}\n`;
-      const temporary = `${path}.${process.pid}-${Date.now()}.tmp`;
+      const temporary = bound.at(`.${leaf}.${process.pid}-${Date.now()}.tmp`);
       try {
         // Validate stream before append (contiguous)
-        const stream = await listPacketStream(bound.dir, packet.id);
+        const stream = await listPacketStream(bound, packet.id);
         const expectedNext = stream.length + 1;
         if (packet.version !== expectedNext) {
           // Allow exact replay of last version only via exists_* paths below
@@ -614,8 +640,7 @@ export function createFileEvidencePacketStore(
         // Journal intent then publish (single-commit: journal first)
         const journal = await openBoundPath(JOURNAL_COMPONENTS);
         try {
-          const intentPath = join(
-            journal.dir,
+          const intentPath = journal.at(
             `intent-${packet.id}-v${packet.version}.json`,
           );
           const intent = await open(
@@ -655,7 +680,7 @@ export function createFileEvidencePacketStore(
       const journal = await openBoundPath(JOURNAL_COMPONENTS);
       try {
         const safeKey = sha256Hex(idKey);
-        const path = join(journal.dir, `idem-${safeKey}.json`);
+        const path = journal.at(`idem-${safeKey}.json`);
         const record = JSON.stringify({
           key: idKey,
           digest,
@@ -697,7 +722,7 @@ export function createFileEvidencePacketStore(
       const journal = await openBoundPath(JOURNAL_COMPONENTS);
       try {
         const safeKey = sha256Hex(idKey);
-        const path = join(journal.dir, `idem-${safeKey}.json`);
+        const path = journal.at(`idem-${safeKey}.json`);
         try {
           const existing = await readFile(path, "utf8");
           const parsed = JSON.parse(existing) as {
@@ -733,12 +758,15 @@ export function createEvidenceService(options: {
   readonly store: EvidencePacketStore;
   /** Mandatory authoritative question-link reader. */
   readonly links: QuestionLinkReader;
-  /** Optional receipt store for verifyReferences rehash. */
-  readonly receipts?: ReceiptReader;
+  /** Mandatory canonical receipt reader for verifyReferences rehash. */
+  readonly receipts: ReceiptReader;
 }): EvidenceService {
   const { store, links, receipts } = options;
   if (!links || typeof links.get !== "function") {
     throw new Error("QuestionLinkReader is required.");
+  }
+  if (!receipts || typeof receipts.get !== "function") {
+    throw new Error("ReceiptReader is required for evidence verification.");
   }
 
   return {
@@ -1049,21 +1077,37 @@ export function createEvidenceService(options: {
           `Unknown packet ${packetId}@${version}.`,
         );
       }
-      if (receipts) {
-        const stored = await receipts.get(packet.receiptId);
-        if (!stored) {
-          return failure(
-            "RECEIPT_INVALID",
-            "Canonical receipt missing for packet.",
-          );
-        }
-        const rehash = receiptDigestOf(stored);
-        if (rehash !== packet.receiptDigest) {
-          return failure(
-            "HASH_MISMATCH",
-            "Stored receipt does not match packet.receiptDigest.",
-          );
-        }
+      const stored = await receipts.get(packet.receiptId);
+      if (!stored) {
+        return failure(
+          "RECEIPT_INVALID",
+          "Canonical receipt missing for packet.",
+        );
+      }
+      // Strict-parse if possible via SearchReceiptSchema shape fields
+      if (
+        typeof stored.id !== "string" ||
+        typeof stored.snapshotId !== "string" ||
+        typeof stored.indexedRepresentationsSha256 !== "string" ||
+        !Array.isArray(stored.selectedIds)
+      ) {
+        return failure("RECEIPT_INVALID", "Canonical receipt is malformed.");
+      }
+      if (
+        Array.isArray(stored.failures) &&
+        stored.failures.includes("INDEX_UNAVAILABLE")
+      ) {
+        return failure(
+          "RECEIPT_INVALID",
+          "Outage receipt cannot verify an evidence packet.",
+        );
+      }
+      const rehash = receiptDigestOf(stored);
+      if (rehash !== packet.receiptDigest) {
+        return failure(
+          "RECEIPT_INVALID",
+          "Stored receipt does not match packet.receiptDigest.",
+        );
       }
       for (const reference of packet.references) {
         const verified = verifyReferenceAgainstContext(reference, context);

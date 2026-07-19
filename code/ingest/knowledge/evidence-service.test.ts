@@ -119,11 +119,22 @@ function service(
   overrides: {
     links?: { get: (id: string) => Promise<unknown> };
     store?: ReturnType<typeof createInMemoryEvidencePacketStore>;
+    receipts?: { get: (id: string) => Promise<SearchReceipt | undefined> };
   } = {},
 ) {
+  const store = overrides.store ?? createInMemoryEvidencePacketStore();
+  // Default receipts: remember last append via auto-map is not available;
+  // provide accepting reader that returns nothing unless test supplies one.
+  // For append-only tests, receipts are still required at construction.
+  const receipts =
+    overrides.receipts ??
+    ({
+      get: async () => undefined,
+    } as { get: (id: string) => Promise<SearchReceipt | undefined> });
   return createEvidenceService({
-    store: overrides.store ?? createInMemoryEvidencePacketStore(),
+    store,
     links: (overrides.links ?? linksOk()) as never,
+    receipts: receipts as never,
   });
 }
 
@@ -456,12 +467,16 @@ describe("createEvidenceService.appendPacket", () => {
 
 describe("createEvidenceService.verifyReferences", () => {
   it("re-verifies stored references against context", async () => {
-    const svc = service();
+    const receipt = healthyReceipt();
+    const receipts = new Map<string, SearchReceipt>([[receipt.id, receipt]]);
+    const svc = service({
+      receipts: { get: async (id) => receipts.get(id) },
+    });
     const appended = await svc.appendPacket({
       questionId: QUESTION,
       references: [refA()],
-      receipt: healthyReceipt(),
-      receiptDigest: withDigest(healthyReceipt()),
+      receipt,
+      receiptDigest: withDigest(receipt),
       context: context(),
     });
     expect(appended.ok).toBe(true);
@@ -919,9 +934,13 @@ describe("River binding: durable store / crash / custody seams", () => {
       // retry publish
       expect(await fresh.append(packet)).toBe("created");
       // durable idempotency across process
+      const receiptMap = new Map<string, SearchReceipt>();
       const svc = createEvidenceService({
         store: createFileEvidencePacketStore(root),
         links: linksOk() as never,
+        receipts: {
+          get: async (id) => receiptMap.get(id),
+        },
       });
       const receipt = healthyReceipt();
       const first = await svc.appendPacket({
@@ -937,6 +956,7 @@ describe("River binding: durable store / crash / custody seams", () => {
       const second = await createEvidenceService({
         store: createFileEvidencePacketStore(root),
         links: linksOk() as never,
+        receipts: { get: async () => undefined },
       }).appendPacket({
         questionId: QUESTION,
         references: [refA()],
@@ -952,6 +972,7 @@ describe("River binding: durable store / crash / custody seams", () => {
       const conflict = await createEvidenceService({
         store: createFileEvidencePacketStore(root),
         links: linksOk() as never,
+        receipts: { get: async () => undefined },
       }).appendPacket({
         questionId: QUESTION,
         references: [refA({ role: "supporting" })],
@@ -1024,7 +1045,7 @@ describe("River binding: durable store / crash / custody seams", () => {
       context(),
     );
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.code).toBe("HASH_MISMATCH");
+    if (!bad.ok) expect(bad.code).toBe("RECEIPT_INVALID");
   });
 });
 
