@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  RepresentationAuditSchema,
+  RepresentationCapabilitySchema,
+} from "./representation-audit.js";
 import { CoverageObligationSchema } from "./schemas.js";
 import {
   ingestSchemaRegistry,
@@ -107,6 +111,111 @@ describe("ingestion schema registry", () => {
         locatorMap: [{ schemaVersion: 1, id: "placeholder-shaped" }],
       }).success,
     ).toBe(false);
+  });
+
+  it("registers a strict policy-consistent RepresentationAudit schema", () => {
+    const current = {
+      schemaVersion: 1,
+      representationId: "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      capability: {
+        status: "resolved",
+        id: "a-tier:text",
+        version: 1,
+      },
+      tier: "A",
+      structuralPass: true,
+      mappingPass: true,
+      humanVerified: false,
+      claimEligible: true,
+      findings: [],
+    } as const;
+
+    expect(
+      ingestSchemaRegistry.get("RepresentationAudit", 1).parse(current),
+    ).toEqual(current);
+    expect(ingestSchemaRegistry.names()).toContain("RepresentationAudit");
+    expect(
+      ingestSchemaRegistry.get("RepresentationAudit", 1).safeParse({
+        ...current,
+        capability: { status: "unresolved" },
+        tier: "D",
+        claimEligible: true,
+        findings: [
+          {
+            code: "INVALID_CAPABILITY",
+            severity: "error",
+            message: "Capability is invalid.",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects malformed capabilities and unsupported audit record shapes", () => {
+    const capability = {
+      schemaVersion: 1,
+      id: "a-tier:text",
+      version: 1,
+      representationKind: "text",
+      tier: "A",
+      requiredChecks: ["mapping", "structure"],
+    } as const;
+    const audit = {
+      schemaVersion: 1,
+      representationId: "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      capability: { status: "resolved", id: capability.id, version: 1 },
+      tier: "A",
+      structuralPass: true,
+      mappingPass: true,
+      humanVerified: false,
+      claimEligible: true,
+      findings: [],
+    } as const;
+
+    expect(RepresentationCapabilitySchema.parse(capability)).toEqual(
+      capability,
+    );
+    for (const requiredChecks of [
+      ["structure", "mapping"],
+      ["mapping", "mapping"],
+    ]) {
+      expect(
+        RepresentationCapabilitySchema.safeParse({
+          ...capability,
+          requiredChecks,
+        }).success,
+      ).toBe(false);
+    }
+    for (const invalid of [
+      { ...audit, schemaVersion: 0 },
+      { ...audit, humanVerified: true },
+      { ...audit, extra: true },
+      {
+        ...audit,
+        capability: {
+          status: "resolved",
+          id: capability.id,
+          version: Number.MAX_SAFE_INTEGER + 1,
+        },
+      },
+      {
+        ...audit,
+        tier: "C",
+        findings: [
+          {
+            code: "TIER_REQUIRES_UNIT_VERIFICATION",
+            severity: "error",
+            message: "Verification required.",
+          },
+        ],
+      },
+      {
+        ...audit,
+        findings: [{ code: "UNKNOWN", severity: "error", message: "Unknown." }],
+      },
+    ]) {
+      expect(RepresentationAuditSchema.safeParse(invalid).success).toBe(false);
+    }
   });
 
   it("fails unknown versions explicitly", () => {
