@@ -214,6 +214,98 @@ describe("scaffold schema", () => {
   });
 });
 
+describe("executed goldens 001-003 (behavioural, not shape-only)", () => {
+  async function loadGolden(caseId: string): Promise<{
+    input: {
+      packet: unknown;
+      claims: readonly unknown[];
+      reviewerRunId: string;
+      extractorRunId: string;
+    };
+    expected: unknown;
+  }> {
+    const input = JSON.parse(
+      await readFile(join(fixturesRoot, `${caseId}-input.json`), "utf8"),
+    ) as {
+      packet: unknown;
+      claims: readonly unknown[];
+      reviewerRunId: string;
+      extractorRunId: string;
+    };
+    const expected = JSON.parse(
+      await readFile(join(fixturesRoot, `${caseId}-expected.json`), "utf8"),
+    ) as unknown;
+    return { input, expected };
+  }
+
+  it("001 accept golden executes through validateClaimReviewerProposal", async () => {
+    const { input, expected } = await loadGolden("001");
+    const result = validateClaimReviewerProposal(expected, {
+      packet: input.packet,
+      claims: input.claims,
+      reviewerRunId: input.reviewerRunId,
+      extractorRunId: input.extractorRunId,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.reviews[0]?.decision).toBe("accept");
+    expect(result.value.packetId).toBe(PACKET);
+  });
+
+  it("002 reject-overbroad golden executes (reject, not accept)", async () => {
+    const { input, expected } = await loadGolden("002");
+    const result = validateClaimReviewerProposal(expected, {
+      packet: input.packet,
+      claims: input.claims,
+      reviewerRunId: input.reviewerRunId,
+      extractorRunId: input.extractorRunId,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.reviews[0]?.decision).toBe("reject");
+    // Same claim must not validate as accept-ready axes
+    const forcedAccept = validateClaimReviewerProposal(
+      {
+        ...(expected as object),
+        reviews: [
+          {
+            ...((expected as { reviews: unknown[] }).reviews[0] as object),
+            decision: "accept",
+            entailment: "entailed",
+            atomicity: "atomic",
+            scope: "compatible",
+            qualifiers: "complete",
+            authorityEligible: true,
+          },
+        ],
+      },
+      {
+        packet: input.packet,
+        claims: input.claims,
+        reviewerRunId: input.reviewerRunId,
+        extractorRunId: input.extractorRunId,
+      },
+    );
+    expect(forcedAccept.ok).toBe(false);
+  });
+
+  it("003 split golden executes with splits retained on subject claimId", async () => {
+    const { input, expected } = await loadGolden("003");
+    const result = validateClaimReviewerProposal(expected, {
+      packet: input.packet,
+      claims: input.claims,
+      reviewerRunId: input.reviewerRunId,
+      extractorRunId: input.extractorRunId,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const row = result.value.reviews[0]!;
+    expect(row.decision).toBe("split");
+    expect(row.claimId).toBe(CLAIM_A);
+    expect(row.splits?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("happy path accept", () => {
   it("accepts a fully evaluated batch with accept-ready axes", () => {
     const result = validateClaimReviewerProposal(

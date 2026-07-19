@@ -14,14 +14,22 @@
  *   grant and never sufficient for durable acceptance. Only
  *   ClaimAcceptanceAuthority on apply grants acceptance.
  * - Free-text reason → UntrustedProse after validate (B003).
- * - Orchestrator join (T-22-03 ClaimReview.apply): ClaimReviewSchema.reason is a
- *   plain optional string (.strict()). A validated proposal's reason is
- *   UntrustedProse — Zod will refuse the class instance. Mapping requires
- *   unwrapping via deliberatelyExposeUntrustedProseToModel. That hatch name is
- *   model-shaped and MISLEADING for persistence: using it to fill ClaimReview
- *   is not "model exposure", and grepping the hatch name will false-hit this
- *   path. Documented residual — do not invent a second hatch here; rename only
- *   when a real orchestrator caller justifies one rename with a real consumer.
+ *
+ * APPLY MAPPING CHECKLIST (orchestrator → ClaimReviewService.apply):
+ * 1. Mint ClaimReview id (crv-…) yourself — agent must not mint review ids.
+ * 2. Set schemaVersion: 1 on each ClaimReview.
+ * 3. Lift packet-level reviewerRunId + extractorRunId from the proposal root
+ *    onto EVERY ClaimReview document.
+ * 4. Map per-row: claimId, expectedVersion, decision, splits?, qualifierClaimIds?.
+ * 5. DROP agent-only fields: entailment, atomicity, scope, qualifiers,
+ *    authorityEligible, evidenceUnitIds (not on ClaimReview).
+ * 6. reason: unwrap UntrustedProse via deliberatelyExposeUntrustedProseToModel
+ *    into a plain string for ClaimReviewSchema (.strict() rejects the class).
+ *    NAMING MISMATCH: that hatch says ToModel but this use is persistence —
+ *    grepping the hatch for model-input audits will false-hit. Misleading, not
+ *    forbidden. Do not add a second hatch here; rename once with a real
+ *    orchestrator caller if the name obstructs.
+ *
  * - Fresh context is STRUCTURAL for NAMED TOP-LEVEL SLOTS only:
  *   ProposeContext has no extractorMessages / chat / transcript field, and
  *   runClaimReviewer refuses those keys (and symbols) at the top level before
