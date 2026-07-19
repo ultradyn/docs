@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T15:23:26Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T15:44:56Z"
 complexity: high
 created_at: "2026-07-18T08:10:11Z"
 depends_on:
     - P2.M3.E1.T002
+duration_minutes: 21.509107297216666
 estimate_hours: 8
 id: P2.M3.E1.T003
 priority: high
 started_at: "2026-07-19T15:23:26Z"
-status: in_progress
+status: done
 tags: []
 title: T-30-03 — Calibrate Researcher retrieval policy
-updated_at: "2026-07-19T15:23:26Z"
+updated_at: "2026-07-19T15:44:56Z"
 ---
 Bundle provenance: WP-30 / T-30-03
 

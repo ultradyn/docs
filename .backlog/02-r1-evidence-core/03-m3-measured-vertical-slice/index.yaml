@@ -9,7 +9,7 @@ epics:
       locked: false
       name: WP-30 — Researcher agent and source tools
       path: 01-wp-30-researcher-agent-and-sou
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-31. Implement the strict independent current-question evidence gate. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-31 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
