@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T14:24:36Z"
 claimed_by: grok-river-nuance-isf5
-completed_at: null
+completed_at: "2026-07-19T14:33:53Z"
 complexity: medium
 created_at: "2026-07-19T13:13:33Z"
 depends_on:
     - P2.M2.E3.T003
+duration_minutes: 9.292867940633334
 estimate_hours: 2
 id: P2.M2.E3.T005
 priority: medium
 started_at: "2026-07-19T14:24:36Z"
-status: in_progress
+status: done
 tags: []
 title: Enforce rejected-claim exclusion at the claim store boundary
-updated_at: "2026-07-19T14:24:36Z"
+updated_at: "2026-07-19T14:33:53Z"
 ---
 Follow-up from T-22-03 (documented residual, not a defect in that task).
 
