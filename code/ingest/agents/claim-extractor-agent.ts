@@ -94,7 +94,10 @@ export const ClaimProposalSchema = z
     text: z.string().trim().min(1).max(CLAIM_EXTRACTOR_LIMITS.maxTextChars),
     type: ClaimTypeSchema,
     scope: z
-      .record(z.string().min(1).max(CLAIM_EXTRACTOR_LIMITS.maxScopeValueChars))
+      .record(
+        z.string().min(1).max(64),
+        z.string().min(1).max(CLAIM_EXTRACTOR_LIMITS.maxScopeValueChars),
+      )
       .refine(
         (obj) => Object.keys(obj).length <= CLAIM_EXTRACTOR_LIMITS.maxScopeKeys,
         "too many scope keys",
@@ -313,7 +316,9 @@ export function createClaimExtractorAgent(
           questionId: input.questionId,
           packet: input.packet,
           verdictAccepted: input.verdictAccepted,
-          candidates: input.candidates,
+          ...(input.candidates !== undefined
+            ? { candidates: input.candidates }
+            : {}),
         });
         return validateClaimExtractorProposal(draft, {
           packet: input.packet,
