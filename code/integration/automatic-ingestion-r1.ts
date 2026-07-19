@@ -509,7 +509,7 @@ async function runAs04Tiny(hooks: {
   }
 
   // promotable via real reviewAnswerComposition on empty/reject pack (not hardcoded)
-  const { service, packService } = makeService(tick);
+  const { packService } = makeService(tick);
   tick();
   const packResult = await packService.build(QUESTION, REVISION);
   if (!packResult.ok) {
