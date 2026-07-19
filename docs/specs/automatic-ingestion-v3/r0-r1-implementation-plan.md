@@ -590,19 +590,35 @@ Do not freeze the exact final TypeScript shape ahead of the gates; these nouns a
 
 **Files:**
 
+- Create: `code/domain/ingest/representation-repair.ts`
+- Modify: `code/domain/ingest/representation-records.ts`
+- Modify: `code/domain/ingest/schemas.ts`
+- Modify: `code/domain/ingest/schema-registry.ts`
+- Modify: `code/domain/ingest/index.ts`
 - Create: `code/ingest/source/representation-repair.ts`
 - Create: `code/ingest/source/representation-repair.test.ts`
 - Modify: `code/ingest/source/index.ts`
-- Test: `code/ingest/source/representation-repair.test.ts`
+- Create: `code/repository/representation-repair-repository.ts`
+- Create: `code/repository/representation-repair-repository.test.ts`
+- Modify: `code/repository/index.ts`
+- Create: `code/server/representation-repair-contract.ts`
+- Create: `code/server/representation-repair-contract.test.ts`
+- Create: `code/web/src/representation-repair/review-contract.ts`
+- Create: `code/web/src/representation-repair/review-contract.test.ts`
+- Create: `code/integration/representation-repair.integration.test.ts`
+- Create: `code/integration/representation-repair.recovery.test.ts`
 
 **Interfaces:**
 
-- Consumes: failed `RepresentationAudit`, `SourceRepresentation`, append-only store, unitizer invalidation port.
-- Produces: `RepresentationRepairService.propose(input): Promise<RepresentationRepair>` and `.approve(id, reviewer): Promise<SourceRepresentation>`; new representation has `supersedesId` and monotonically increasing version.
+- Consumes: current/faulty `SourceRepresentation`, failed matching `RepresentationAudit`, immutable correction bytes plus locators, expected current representation revision, stable idempotency key, human `ActorHandle`, injected human-approval policy, canonical fresh auditor and unitizer, and an idempotent invalidation-delivery sink.
+- Produces: one deep `RepresentationRepairService` with `propose`, `approve`, `reject`, `getReview`, and delivery-only `recoverInvalidations`; strict append-only `CorrectionArtifact`, proposal, approval/rejection, and `InvalidationRequest` domain records; a review API/web-state contract without visual UI implementation.
+- `SourceRepresentation` version 1 gains optional `supersedesId` before repaired records are audited or unitized; legacy records remain readable. Approval/rejection requires a named authorised human and a nonblank rationale. Reviewers never edit proposals: rejection and correction append new linked records.
+- Proposal/approval mutations use expected revision and idempotency. Approval runs a fresh audit, unitizes old and corrected representations separately, and atomically appends the head transition, fresh audit, replacement units, decision record, and invalidation outbox request. This append is the commit point; recovery only replays undelivered request IDs and cannot transition repair state.
+- Invalidation is the sorted unique union of removed unit IDs and same-ID units whose canonical encoded record changed, including locator/provenance shifts. Compare explicit canonical record fields/bytes, not `JSON.stringify()` of parsed objects. At most one representation version per source file may enter any unitization or derived projection input.
 
-- [ ] **Red:** assert approval creates version 2, original/faulty bytes remain readable, unchanged units retain their IDs, `InvalidationRequest` contains exactly the changed unit IDs, superseded/current representations are never combined into one unitization result, and overwrite is rejected. Run targeted Vitest. **Expected failure:** repair module missing.
-- [ ] **Green:** store correction as a new raw artifact plus derived representation, link supersession, unitize each representation independently, preserve unchanged logical unit identities, and emit exact invalidation without mutating existing records.
-- [ ] **Pass:** targeted Vitest passes.
+- [ ] **Red:** in vertical order assert: strict brands/records/mandatory rationales; optional `supersedesId` migration; immutable proposal plus original/faulty readability; idempotent retry/conflicting payload; separate human-only approval/rejection with stale-revision rejection; fresh-audit failure commits nothing; old/new unitization remains separate; unchanged records retain IDs while removed and same-ID locator/provenance-shifted records produce the exact sorted invalidation union; no derived projection receives multiple versions; atomic pre-commit fault matrix; post-commit invalidation replay returns exact request IDs once; review API/web states; legacy replay. Run focused Vitest after each slice. **Expected failure:** repair contracts/module missing.
+- [ ] **Green:** implement one deep repository-backed repair module using the existing canonical repository lock/transaction and append-only custody patterns. Store full corrected input as a new artifact and candidate representation; never overwrite or patch an existing proposal/representation. Use an outbox for post-commit invalidation delivery and deterministic recovery.
+- [ ] **Pass:** focused domain/workflow/repository/server/web/integration/recovery Vitest, typecheck, lint, changed-file formatting, full `pnpm check`, and preserved bundle validator pass.
 - [ ] **Commit:** `git commit -m "feat(ingest): version representation repairs immutably"`.
 
 ### Task T-12-02: Build exact maps and ambiguity-aware aliases
