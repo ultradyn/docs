@@ -1,7 +1,7 @@
 ---
 claimed_at: "2026-07-19T10:05:32Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T10:26:56Z"
 complexity: high
 created_at: "2026-07-18T08:10:11Z"
 depends_on:
@@ -9,14 +9,15 @@ depends_on:
     - P2.M1.E4.T002
     - P2.M2.E2.T003
     - P1.M1.E3.T003
+duration_minutes: 21.40126146965
 estimate_hours: 8
 id: P2.M3.E1.T001
 priority: critical
 started_at: "2026-07-19T10:05:32Z"
-status: in_progress
+status: done
 tags: []
 title: T-30-01 — Implement Researcher source tools
-updated_at: "2026-07-19T10:05:32Z"
+updated_at: "2026-07-19T10:26:56Z"
 ---
 Bundle provenance: WP-30 / T-30-01
 
