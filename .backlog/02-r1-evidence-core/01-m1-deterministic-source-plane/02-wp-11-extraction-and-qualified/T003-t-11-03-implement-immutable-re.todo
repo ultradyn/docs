@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-19T04:41:53Z"
+claimed_by: claude-pivot-cotton-27tq
+completed_at: null
 complexity: medium
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
@@ -7,13 +10,11 @@ depends_on:
 estimate_hours: 5
 id: P2.M1.E2.T003
 priority: medium
-status: pending
-tags:
-    - wp-11
-    - t-11-03
-    - ingest-v3
+started_at: "2026-07-19T04:41:53Z"
+status: in_progress
+tags: []
 title: T-11-03 — Implement immutable repair path
-updated_at: "2026-07-18T08:10:10Z"
+updated_at: "2026-07-19T04:41:53Z"
 ---
 Bundle provenance: WP-11 / T-11-03
 

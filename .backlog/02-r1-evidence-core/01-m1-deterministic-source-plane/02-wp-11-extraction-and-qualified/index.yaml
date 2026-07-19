@@ -35,9 +35,11 @@ tasks:
     - complexity: medium
       depends_on:
         - P2.M1.E2.T002
+        - P2.M1.E3.T001
       estimate_hours: 5
       file: T003-t-11-03-implement-immutable-re.todo
       id: T003
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: T-11-03 — Implement immutable repair path
