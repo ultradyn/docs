@@ -27,10 +27,13 @@ Acceptance criteria:
 - Repair creates a new representation version
 - Original and faulty representation remain inspectable
 - Dependent source units are regenerated and invalidated correctly
-- Units unchanged by a repair retain their identity across representation versions; the InvalidationRequest contains exactly the unit IDs that changed, and superseded and current representations are never unitized into one result set
+- Units whose canonical records are unchanged retain identity across repair versions; InvalidationRequest contains the sorted unique union of removed IDs and same-ID units whose canonical record changed (including locator/provenance shifts)
+- At most one representation version per source file enters any unitization, exact-map, lexical-index, or other derived projection input
+- SourceRepresentation schema/interface gains optional supersedesId before repaired records are audited or unitized; legacy schema-version-1 records remain readable
 - Approval is human-only through an injected authorization policy over ActorHandle; agents and deterministic auditors may advise or validate but cannot approve
 - Approval requires a nonblank rationale, and a reviewer cannot edit a proposal; rejection and correction append new linked records while preserving prior proposals and artifacts
 - Proposal and approval mutations use expected revisions and idempotency keys, commit atomically, and recover post-commit invalidation delivery without duplicate logical requests
+- Invalidation recovery has delivery-only authority and returns the exact replayed request IDs; it cannot transition repair state
 
 Test surfaces:
 - workflow
