@@ -21,6 +21,7 @@ import {
 import { createRepresentationRepairRepository } from "../repository/representation-repair-repository.js";
 
 const HUMAN = "alex.review-1";
+const OTHER_HUMAN = "sam.review-2";
 const SNAPSHOT_ID = `snap-${"b".repeat(64)}` as SnapshotId;
 const SOURCE_FILE_ID = `file-${"a".repeat(64)}` as SourceFileId;
 const FAULTY_REPRESENTATION_ID =
@@ -124,7 +125,10 @@ function service() {
   const instance = createRepresentationRepairService({
     sourceFile: sourceFile(),
     representation: faultyRepresentation(),
-    approvalPolicy: { isAuthorisedHuman: (actor: string) => actor === HUMAN },
+    approvalPolicy: {
+      isAuthorisedHuman: (actor: string) =>
+        actor === HUMAN || actor === OTHER_HUMAN,
+    },
     invalidationSink: {
       deliver: async (request: { id: string; unitIds: readonly string[] }) => {
         if (!delivered.some((entry) => entry.id === request.id)) {
@@ -153,7 +157,7 @@ async function approvedRepair() {
   if (!proposal.ok) throw new Error(`propose failed: ${proposal.code}`);
   const approved = await harness.service.approve({
     repairId: proposal.value.id,
-    approvedBy: HUMAN,
+    approvedBy: OTHER_HUMAN,
     reason: "Verified against the original document.",
     expectedRevision: 1,
   });

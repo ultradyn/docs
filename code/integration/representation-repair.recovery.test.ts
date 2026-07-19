@@ -18,6 +18,7 @@ import { createRepresentationRepairService } from "../ingest/source/index.js";
 import { createRepresentationRepairRepository } from "../repository/representation-repair-repository.js";
 
 const HUMAN = "alex.review-1";
+const OTHER_HUMAN = "sam.review-2";
 const SNAPSHOT_ID = `snap-${"b".repeat(64)}` as SnapshotId;
 const SOURCE_FILE_ID = `file-${"a".repeat(64)}` as SourceFileId;
 const FAULTY_REPRESENTATION_ID =
@@ -116,7 +117,10 @@ function baseOptions(root: string, deliver: (request: unknown) => void) {
       locatorMap: lineLocators(FAULTY_TEXT),
       warnings: [],
     } satisfies SourceRepresentation,
-    approvalPolicy: { isAuthorisedHuman: (actor: string) => actor === HUMAN },
+    approvalPolicy: {
+      isAuthorisedHuman: (actor: string) =>
+        actor === HUMAN || actor === OTHER_HUMAN,
+    },
     invalidationSink: { deliver: async (request: unknown) => deliver(request) },
   };
 }
@@ -161,7 +165,7 @@ async function approveWithFailingSink(failures: number) {
   if (!proposal.ok) throw new Error(`propose failed: ${proposal.code}`);
   const approved = await instance.approve({
     repairId: proposal.value.id,
-    approvedBy: HUMAN,
+    approvedBy: OTHER_HUMAN,
     reason: "Verified against the original document.",
     expectedRevision: 1,
   });

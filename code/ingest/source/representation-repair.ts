@@ -267,11 +267,12 @@ export function createRepresentationRepairService(
       }
       if (
         input.approvedBy.startsWith("agent:") ||
+        input.approvedBy === stored.proposal.proposedBy ||
         !options.approvalPolicy.isAuthorisedHuman(input.approvedBy)
       ) {
         return failure(
           "APPROVER_NOT_AUTHORIZED",
-          "Only an authorised human may approve a repair.",
+          "Only an authorised human who did not propose the repair may approve it.",
         );
       }
       if (input.reason.trim() === "") {
@@ -375,6 +376,15 @@ export function createRepresentationRepairService(
         return failure("NOT_FOUND", "The repair does not exist.");
       if (stored.proposal.state !== "proposed") {
         return failure("ALREADY_TERMINAL", "The repair is already terminal.");
+      }
+      if (
+        input.rejectedBy.startsWith("agent:") ||
+        !options.approvalPolicy.isAuthorisedHuman(input.rejectedBy)
+      ) {
+        return failure(
+          "APPROVER_NOT_AUTHORIZED",
+          "Only an authorised human may reject a repair.",
+        );
       }
       const rejection = RepresentationRepairRejectionSchema.safeParse({
         schemaVersion: 1,

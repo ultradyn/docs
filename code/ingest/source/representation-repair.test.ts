@@ -129,7 +129,7 @@ function harness(
     representation: faultyRepresentation(),
     approvalPolicy: {
       isAuthorisedHuman: (actor: string) =>
-        (options.approvers ?? [HUMAN]).includes(actor),
+        (options.approvers ?? [HUMAN, OTHER_HUMAN]).includes(actor),
     },
     invalidationSink: {
       deliver: async (request: DeliveredRequest) => {
@@ -246,7 +246,7 @@ describe("approval authority is human and injected", () => {
     if (!proposal.ok) return;
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 1,
     });
@@ -254,7 +254,7 @@ describe("approval authority is human and injected", () => {
   });
 
   it("refuses an approval from an unauthorised human", async () => {
-    const { service } = harness();
+    const { service } = harness({ approvers: [HUMAN] });
     const proposal = await propose(service);
     if (!proposal.ok) return;
     const approved = await service.approve({
@@ -286,7 +286,7 @@ describe("approval authority is human and injected", () => {
   });
 
   it("checks authority before running the fresh audit", async () => {
-    const { service, appended } = harness();
+    const { service, appended } = harness({ approvers: [HUMAN] });
     const proposal = await propose(service);
     if (!proposal.ok) return;
     await service.approve({
@@ -305,7 +305,7 @@ describe("approval authority is human and injected", () => {
     if (!proposal.ok) return;
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "  ",
       expectedRevision: 1,
     });
@@ -318,7 +318,7 @@ describe("approval authority is human and injected", () => {
     if (!proposal.ok) return;
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 99,
     });
@@ -353,6 +353,36 @@ describe("rejection appends rather than edits", () => {
     expect(rejected.ok).toBe(false);
   });
 
+  it("refuses a rejection from an unauthorised human", async () => {
+    const { service, appended } = harness({ approvers: [HUMAN] });
+    const proposal = await propose(service);
+    if (!proposal.ok) return;
+    const rejected = await service.reject({
+      repairId: proposal.value.id,
+      rejectedBy: OTHER_HUMAN,
+      reason: "The correction drops a table row.",
+    });
+    expect(rejected.ok).toBe(false);
+    if (rejected.ok) return;
+    expect(rejected.code).toBe("APPROVER_NOT_AUTHORIZED");
+    expect(appended).not.toContain("rejection");
+  });
+
+  it("refuses a rejection from an agent even when listed as approver", async () => {
+    const { service, appended } = harness({ approvers: [HUMAN, AGENT] });
+    const proposal = await propose(service);
+    if (!proposal.ok) return;
+    const rejected = await service.reject({
+      repairId: proposal.value.id,
+      rejectedBy: AGENT,
+      reason: "Automated rejection.",
+    });
+    expect(rejected.ok).toBe(false);
+    if (rejected.ok) return;
+    expect(rejected.code).toBe("APPROVER_NOT_AUTHORIZED");
+    expect(appended).not.toContain("rejection");
+  });
+
   it("refuses to transition a proposal that is already terminal", async () => {
     const { service } = harness();
     const proposal = await propose(service);
@@ -364,7 +394,7 @@ describe("rejection appends rather than edits", () => {
     });
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Changed my mind.",
       expectedRevision: 1,
     });
@@ -394,6 +424,37 @@ describe("rejection appends rather than edits", () => {
   });
 });
 
+describe("proposer cannot approve their own repair", () => {
+  it("refuses self-approval matching the web review contract", async () => {
+    const { service, appended } = harness();
+    const proposal = await propose(service, { proposedBy: HUMAN });
+    if (!proposal.ok) return;
+    const approved = await service.approve({
+      repairId: proposal.value.id,
+      approvedBy: HUMAN,
+      reason: "I proposed it and still believe it.",
+      expectedRevision: 1,
+    });
+    expect(approved.ok).toBe(false);
+    if (approved.ok) return;
+    expect(approved.code).toBe("APPROVER_NOT_AUTHORIZED");
+    expect(appended).not.toContain("approval");
+  });
+
+  it("allows a different authorised human to approve", async () => {
+    const { service } = harness({ approvers: [HUMAN, OTHER_HUMAN] });
+    const proposal = await propose(service, { proposedBy: HUMAN });
+    if (!proposal.ok) return;
+    const approved = await service.approve({
+      repairId: proposal.value.id,
+      approvedBy: OTHER_HUMAN,
+      reason: "Verified against the original document.",
+      expectedRevision: 1,
+    });
+    expect(approved.ok).toBe(true);
+  });
+});
+
 describe("approval commits atomically and invalidates exactly", () => {
   it("emits an invalidation covering removed and drifted units", async () => {
     const { service, delivered } = harness();
@@ -401,7 +462,7 @@ describe("approval commits atomically and invalidates exactly", () => {
     if (!proposal.ok) return;
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 1,
     });
@@ -417,7 +478,7 @@ describe("approval commits atomically and invalidates exactly", () => {
     if (!proposal.ok) return;
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 1,
     });
@@ -438,7 +499,7 @@ describe("approval commits atomically and invalidates exactly", () => {
     if (!proposal.ok) return;
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 1,
     });
@@ -454,7 +515,7 @@ describe("approval commits atomically and invalidates exactly", () => {
     if (!proposal.ok) return;
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 1,
     });
@@ -474,7 +535,7 @@ describe("invalidation delivery recovers exactly once", () => {
     if (!proposal.ok) return;
     const approved = await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 1,
     });
@@ -494,7 +555,7 @@ describe("invalidation delivery recovers exactly once", () => {
     if (!proposal.ok) return;
     await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 1,
     });
@@ -511,7 +572,7 @@ describe("invalidation delivery recovers exactly once", () => {
     if (!proposal.ok) return;
     await service.approve({
       repairId: proposal.value.id,
-      approvedBy: HUMAN,
+      approvedBy: OTHER_HUMAN,
       reason: "Verified against the original document.",
       expectedRevision: 1,
     });

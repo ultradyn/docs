@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +16,7 @@ import { createRepresentationRepairRepository } from "./representation-repair-re
 const ACTOR = "alex.review-1";
 const REPAIR_ID = "rpr-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const INVALIDATION_ID = "inv-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const SOURCE_FILE_ID = `file-${"a".repeat(64)}`;
 
 let root = "";
 
@@ -264,5 +272,132 @@ describe("repair repository rejects foreign on-disk state", () => {
     await writeFile(join(root, ".ultradyn/repair/journal.json"), "{ not json");
     const result = repository().currentRevision();
     await expect(result).rejects.toBeDefined();
+  });
+});
+
+function approvalLedgerRecord(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    kind: "approval",
+    approval: {
+      schemaVersion: 1,
+      repairId: REPAIR_ID,
+      approvedBy: ACTOR,
+      reason: "Verified against the original document.",
+      approvedRevision: 1,
+    },
+    invalidation: {
+      schemaVersion: 1,
+      id: INVALIDATION_ID,
+      repairId: REPAIR_ID,
+      sourceFileId: SOURCE_FILE_ID,
+      unitIds: [],
+    },
+    ...overrides,
+  };
+}
+
+describe("approval ledger entry and invalidation outbox are one transaction", () => {
+  it("leaves no partial approval/outbox after crash between entry and outbox", async () => {
+    const crashing = repository({
+      hooks: {
+        afterApprovalEntryBeforeOutbox: () => {
+          throw new Error("crash after approval entry before outbox");
+        },
+      },
+    });
+    await expect(
+      crashing.appendLedgerRecord(approvalLedgerRecord()),
+    ).rejects.toBeDefined();
+
+    // Cold process: new repository bound only to durable root.
+    const cold = repository();
+    const entries = await cold.list();
+    const pending = await cold.pendingInvalidations();
+    const hasApproval = entries.some((entry) => entry.kind === "approval");
+    const hasOutbox = pending.includes(INVALIDATION_ID);
+    // Atomic commit: both durable or neither — never approval without outbox.
+    expect(hasApproval).toBe(hasOutbox);
+    expect(hasApproval).toBe(false);
+    expect(hasOutbox).toBe(false);
+  });
+
+  it("cold recovery finds the outbox request when approval commits", async () => {
+    const repo = repository();
+    await repo.appendLedgerRecord(approvalLedgerRecord());
+    const cold = repository();
+    expect(await cold.pendingInvalidations()).toEqual([INVALIDATION_ID]);
+    const pending = await cold.readPendingInvalidations();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.id).toBe(INVALIDATION_ID);
+  });
+
+  it("rejects a malformed repair identity that is not a canonical ULID brand", async () => {
+    const repo = repository();
+    for (const repairId of [
+      "rpr-not-a-ulid",
+      "rpr-01arz3ndektsv4rrffq69g5fav", // lowercase ULID is invalid Crockford
+      "rpr-01ARZ3NDEKTSV4RRFFQ69G5FAV-extra",
+    ]) {
+      const result = await repo.append(proposalRecord({ repairId }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("INVALID_RECORD");
+    }
+  });
+
+  it("rejects a malformed invalidation identity that is not a canonical ULID brand", async () => {
+    const repo = repository();
+    await repo.append(proposalRecord());
+    await expect(
+      repo.enqueueInvalidation({
+        id: "inv-not-a-ulid",
+        repairId: REPAIR_ID,
+        unitIds: [],
+      }),
+    ).rejects.toBeDefined();
+  });
+});
+
+describe("repair repository refuses symlink custody paths", () => {
+  it("fails closed when the journal path is a symbolic link", async () => {
+    const repairDir = join(root, ".ultradyn", "repair");
+    await mkdir(repairDir, { recursive: true });
+    const outside = join(root, "outside-journal.json");
+    await writeFile(outside, "{}\n");
+    await symlink(outside, join(repairDir, "journal.json"));
+    const repo = repository();
+    const result = await repo.append(proposalRecord());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
+  });
+
+  it("fails closed when an immutable record path is a symbolic link", async () => {
+    const recordsDir = join(root, ".ultradyn", "repair", "records");
+    await mkdir(recordsDir, { recursive: true });
+    const outside = join(root, "outside-record.json");
+    await writeFile(outside, "{}\n");
+    const targetName = `00000002-${REPAIR_ID}.json`;
+    await symlink(outside, join(recordsDir, targetName));
+    const repo = repository();
+    const result = await repo.append(proposalRecord());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Symlink at the exclusive record path fails closed; the exact code is
+      // the custody failure class (commit or invalid), never a silent write-through.
+      expect(["COMMIT_FAILED", "INVALID_RECORD"]).toContain(result.code);
+    }
+  });
+
+  it("fails closed reading a journal that became a symbolic link", async () => {
+    const repo = repository();
+    const first = await repo.append(proposalRecord());
+    expect(first.ok).toBe(true);
+    const journalPath = join(root, ".ultradyn", "repair", "journal.json");
+    const outside = join(root, "swapped-journal.json");
+    await writeFile(outside, await readFile(journalPath));
+    await rm(journalPath);
+    await symlink(outside, journalPath);
+    await expect(repository().currentRevision()).rejects.toBeDefined();
   });
 });
