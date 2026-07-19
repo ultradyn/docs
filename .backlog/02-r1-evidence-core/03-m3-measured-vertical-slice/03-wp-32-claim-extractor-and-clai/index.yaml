@@ -48,6 +48,6 @@ tasks:
       file: T004-apply-validated-claim-extracto.todo
       id: T004
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Apply validated Claim Extractor proposals via ClaimRepository.create

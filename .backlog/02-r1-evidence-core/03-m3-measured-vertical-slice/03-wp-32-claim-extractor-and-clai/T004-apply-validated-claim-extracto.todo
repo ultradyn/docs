@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-19T16:02:26Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T16:13:42Z"
 complexity: medium
 created_at: "2026-07-19T15:45:45Z"
 depends_on: []
+duration_minutes: 11.274309857883333
 estimate_hours: 3
 id: P2.M3.E3.T004
 priority: high
 started_at: "2026-07-19T16:02:26Z"
-status: in_progress
+status: done
 tags: []
 title: Apply validated Claim Extractor proposals via ClaimRepository.create
-updated_at: "2026-07-19T16:02:26Z"
+updated_at: "2026-07-19T16:13:42Z"
 ---
 Follow-up filed at T-32-01 RED, per the rule that a validator with no caller is a declared control with no enforcer.
 
