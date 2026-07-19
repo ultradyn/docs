@@ -315,6 +315,37 @@ describe("B004 index identity provenance", () => {
     expect(result.code).toBe("INDEX_IDENTITY_UNAVAILABLE");
   });
 
+  it("applies to EXACT as well as lexical (shared runSearch path)", async () => {
+    // exact and lexical both route through runSearch, so the guard is shared.
+    // Asserting it rather than relying on reading the code: if someone later
+    // gives exact its own path, this fails instead of silently losing cover.
+    const t = tools({
+      exactMap: backendWith({
+        indexVersion: "",
+        indexedRepresentationsSha256: "",
+      }),
+    });
+    const result = await t.exact({ query: "retention" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INDEX_IDENTITY_UNAVAILABLE");
+  });
+
+  it("leaves genuinely unbacked tools alone (they never reach the identity path)", async () => {
+    // maps / follow_links / vector_optional are unbacked BY DESIGN (T-30-01).
+    // The B004 fix must not convert their honest TOOL_NOT_AVAILABLE into an
+    // identity failure — that would trade one defect for a worse one.
+    const t = tools();
+    for (const name of ["maps", "follow_links", "vector_optional"] as const) {
+      const result = await t[name]({ query: "retention" });
+      expect(result.ok, `${name} should remain unavailable, not identity-failed`).toBe(
+        false,
+      );
+      if (result.ok) continue;
+      expect(result.code).toBe("TOOL_NOT_AVAILABLE");
+    }
+  });
+
   it("POSITIVE CONTROL: a properly configured backend still produces a receipt", async () => {
     // Without this the assertions above could be satisfied by a tool that
     // refuses everything, which would pass while breaking retrieval entirely.

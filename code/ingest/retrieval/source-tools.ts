@@ -329,8 +329,22 @@ export function createSourceTools(options: {
      * (maps / follow_links / vector_optional), never as a degradation from a
      * backed path.
      */
-    const indexVersion = backend.identity.indexVersion;
-    const corpusDigest = backend.identity.indexedRepresentationsSha256;
+    // A sloppy or hostile backend seam may omit identity entirely. TypeScript
+    // requires it, but a partial mock or a JS caller can violate that — and
+    // reaching through undefined would THROW, escaping the IngestResult
+    // contract exactly like the malformed-receipt path did in T-30-04. Refuse
+    // typed instead of crashing.
+    const identity = backend.identity as
+      | { indexVersion?: unknown; indexedRepresentationsSha256?: unknown }
+      | undefined;
+    if (typeof identity !== "object" || identity === null) {
+      return failure(
+        "INDEX_IDENTITY_UNAVAILABLE",
+        unbackedReceipt(snapshotId, query, ["index-identity-unavailable"]),
+      );
+    }
+    const indexVersion = identity.indexVersion as string;
+    const corpusDigest = identity.indexedRepresentationsSha256 as Sha256;
     if (
       typeof indexVersion !== "string" ||
       indexVersion.length === 0 ||
