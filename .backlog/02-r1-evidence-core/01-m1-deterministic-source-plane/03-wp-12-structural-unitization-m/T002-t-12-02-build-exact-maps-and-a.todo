@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T04:18:23Z"
 claimed_by: claude-pivot-cotton-27tq
-completed_at: null
+completed_at: "2026-07-19T05:13:58Z"
 complexity: medium
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P2.M1.E3.T001
+duration_minutes: 55.595461018916666
 estimate_hours: 5
 id: P2.M1.E3.T002
 priority: medium
 started_at: "2026-07-19T04:18:23Z"
-status: in_progress
+status: done
 tags: []
 title: T-12-02 — Build exact maps and aliases
-updated_at: "2026-07-19T04:18:23Z"
+updated_at: "2026-07-19T05:13:58Z"
 ---
 Bundle provenance: WP-12 / T-12-02
 
