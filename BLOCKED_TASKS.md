@@ -67,7 +67,8 @@ Adopted by ADR 0005/0006; execution truth lives in the backlog (phases R0–R4).
 - [ ] Wire `GitHostProvider.publish()` to approved change requests (also listed under Agents and maintenance). Gates the M6 publication epics (WP-63), which reuse the change-request manager rather than adding a publication subsystem.
 - [ ] Extend the agent runtime beyond Librarian to the ingestion lane's evaluator roles with runtime-enforced isolation and paired fixtures. Gates M3 agent epics (WP-30–32) beyond contract work and all M4 exploration epics.
 - [ ] Establish durable SSE reconnect truth, workflow crash/idempotency evidence, provider/agent receipts, and current-product recovery evidence. These existing-product items are the repo-native precursors the M7 operational epics (WP-70–72) cross-link; ingestion-specific dashboard/orchestration work stays gated on M1–M6 interfaces existing.
-- [ ] Vector/semantic retrieval remains excluded pending a dedicated ADR plus the bundle's replay-evidence threshold (DESIGN C4/D8); the optional vector benchmark task (T-12-04) is non-blocking.
+- [ ] Vector/semantic retrieval remains excluded pending a dedicated ADR plus the bundle's replay-evidence threshold (DESIGN C4/D8). The completed optional benchmark T-12-04 did not meet its predeclared material-improvement threshold, so semantic/vector retrieval remains disabled with no source migration.
+- [ ] Select and wire the production policy-attestation authority (`P2.M1.E4.T004`). T-13-01 intentionally has no permissive authority default: its deterministic issuer/verifier fake supports local R0/R1 tests only and cannot activate a production ingestion run. Production remains fail-closed until a Max-approved ADR selects the trust root and proof model, and the task implements issuer/verifier runtime wiring, revision rotation, revocation, expiry, recovery, visible unavailable state, and the exact activation checklist.
 
 ## External activation gates
 
