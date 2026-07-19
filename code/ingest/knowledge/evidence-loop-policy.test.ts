@@ -109,9 +109,14 @@ describe("canonicalNoveltyKey", () => {
 
   it("changes when search subject or missing facets change", () => {
     const base = followUp({ subject: "auth", missingFacetIds: ["a"] });
-    const otherSubject = followUp({ subject: "tokens", missingFacetIds: ["a"] });
+    const otherSubject = followUp({
+      subject: "tokens",
+      missingFacetIds: ["a"],
+    });
     const otherFacet = followUp({ subject: "auth", missingFacetIds: ["b"] });
-    expect(canonicalNoveltyKey(base)).not.toBe(canonicalNoveltyKey(otherSubject));
+    expect(canonicalNoveltyKey(base)).not.toBe(
+      canonicalNoveltyKey(otherSubject),
+    );
     expect(canonicalNoveltyKey(base)).not.toBe(canonicalNoveltyKey(otherFacet));
   });
 
@@ -218,9 +223,11 @@ describe("evaluateEvidenceLoop — non-novel and budget", () => {
     for (const decision of decisions) {
       expect(decision.ok).toBe(true);
       if (!decision.ok) continue;
-      expect(
-        ["continue", "search_incomplete", "human_action"] as const,
-      ).toContain(decision.value.route);
+      expect([
+        "continue",
+        "search_incomplete",
+        "human_action",
+      ] as const).toContain(decision.value.route);
       expect(decision.value).not.toHaveProperty("synthesizedVerdict");
       expect(decision.value).not.toHaveProperty("accepted");
     }
@@ -241,7 +248,10 @@ describe("evaluateEvidenceLoop — history receipt preserves IDs", () => {
         verdictVersion: 2,
       }),
     ];
-    const result = evaluateEvidenceLoop(history(steps), budget({ maxRefinements: 5 }));
+    const result = evaluateEvidenceLoop(
+      history(steps),
+      budget({ maxRefinements: 5 }),
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.route).toBe("human_action");
@@ -344,16 +354,14 @@ describe("evaluateEvidenceLoop — input hygiene", () => {
   it("rejects empty steps and invalid budget", () => {
     expect(evaluateEvidenceLoop(history([]), budget()).ok).toBe(false);
     expect(
-      evaluateEvidenceLoop(
-        history([refineStep(1, followUp())]),
-        { maxRefinements: 0 },
-      ).ok,
+      evaluateEvidenceLoop(history([refineStep(1, followUp())]), {
+        maxRefinements: 0,
+      }).ok,
     ).toBe(false);
     expect(
-      evaluateEvidenceLoop(
-        history([refineStep(1, followUp())]),
-        { maxRefinements: -1 },
-      ).ok,
+      evaluateEvidenceLoop(history([refineStep(1, followUp())]), {
+        maxRefinements: -1,
+      }).ok,
     ).toBe(false);
   });
 
@@ -403,7 +411,8 @@ describe("public barrel", () => {
   it("re-exports evaluateEvidenceLoop from knowledge barrel", async () => {
     const barrel = await import("./index.js");
     expect(
-      typeof (barrel as { evaluateEvidenceLoop?: unknown }).evaluateEvidenceLoop,
+      typeof (barrel as { evaluateEvidenceLoop?: unknown })
+        .evaluateEvidenceLoop,
     ).toBe("function");
   });
 });
