@@ -434,6 +434,22 @@ describe("offline semantic retrieval benchmark", () => {
         "  UnitStoreRecord,",
         '} from "./source-tool-seams.js";',
         "",
+        // T-30-04 receipt authenticity. Attestation binds a receipt to a real
+        // tool invocation; it is NOT a retrieval index and adds no vector
+        // surface. The no-vector assertion below still governs.
+        "// Receipt authenticity (T-30-04). Fakes stay in ./testing.js, never here.",
+        "export {",
+        "  attestSearchReceipt,",
+        "  verifyAttestedSearchReceipt,",
+        "  isAttestedSearchReceipt,",
+        "  receiptPayloadDigest,",
+        "  RECEIPT_ATTESTATION_LIMITS,",
+        "  type AttestedSearchReceipt,",
+        "  type SearchReceiptAttestation,",
+        "  type SearchReceiptAttestationAuthority,",
+        "  type ReceiptAttestationError,",
+        '} from "./receipt-attestation.js";',
+        "",
       ].join("\n"),
     );
     // No dense/semantic embedding/vector-index export on the production surface.
