@@ -98,8 +98,9 @@ export function reviewAnswerComposition(
   );
 
   const insufficient = composition.state === "insufficient_pack";
+  // Membership / unmapped only — do NOT embed !insufficient here (isolated
+  // promotable conjunct must be mutation-proof on its own).
   const packSupported =
-    !insufficient &&
     unsupportedSentenceIds.length === 0 &&
     membershipOk(composition, pack, packIds);
 
