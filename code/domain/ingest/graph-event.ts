@@ -22,6 +22,8 @@ export type GraphRevision = GraphRevisionBrand;
 
 export const GraphOperationTypeSchema = z.enum([
   "create_generated_branch",
+  /** T-23-03 — invalidation commits; only GraphGateway may emit (sole writer). */
+  "propagate_invalidation",
   // Closed set — unknown types → INVALID_EDGE
 ]);
 

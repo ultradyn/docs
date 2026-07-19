@@ -256,10 +256,14 @@ describe("unambiguous labeled precision (gating)", () => {
     expect(plan.staleAllIds).not.toContain(CLM_U);
   });
 
-  it("vacuous precision/recall is rejected (empty S* cannot pass)", () => {
-    // Meta-guard: our helper must not treat empty S* as perfect recall.
-    const empty = precisionRecall([PKT_A], []);
-    expect(empty.recall).toBe(0);
+  it("INVARIANT metric self-guard: empty S* / empty S cannot score 1.0", () => {
+    // Pure arithmetic over the same precisionRecall helper used by gating
+    // tests — not a service behaviour test. Guards the metric definition so
+    // a future edit cannot make empty denominators look perfect. Does NOT
+    // call plan(); the service-produced S* is guarded by L1/L3 non-vacuous
+    // length asserts above.
+    const emptyStar = precisionRecall([PKT_A], []);
+    expect(emptyStar.recall).toBe(0);
     const emptyS = precisionRecall([], [PKT_A]);
     expect(emptyS.precision).toBe(0);
   });
@@ -393,21 +397,29 @@ describe("assertPublishable (not readiness)", () => {
     expect(assertPublishable(ANS_U, { plan }).ok).toBe(true);
   });
 
-  it("rejects durable state stale even if omitted from plan", () => {
-    const r = assertPublishable(CLM_U, {
-      plan: {
-        roots: [],
-        stalePacketIds: [],
-        staleClaimIds: [],
-        staleCompositionIds: [],
-        staleDocumentIds: [],
-        staleFixtureIds: [],
-        staleCertificateIds: [],
-        staleAllIds: [],
-      },
+  it("rejects durable state stale even if omitted from plan; clean id still publishable", () => {
+    // Paired asserts: a stub that always returns STALE would fail the clean
+    // half; a stub that always returns publishable would fail the stale half.
+    const emptyPlan: InvalidationPlan = {
+      roots: [],
+      stalePacketIds: [],
+      staleClaimIds: [],
+      staleCompositionIds: [],
+      staleDocumentIds: [],
+      staleFixtureIds: [],
+      staleCertificateIds: [],
+      staleAllIds: [],
+    };
+    const stale = assertPublishable(CLM_U, {
+      plan: emptyPlan,
       durableStates: { [CLM_U]: "stale" },
     });
-    expect(r.ok).toBe(false);
+    expect(stale.ok).toBe(false);
+    const clean = assertPublishable(CLM_U, {
+      plan: emptyPlan,
+      durableStates: { [CLM_U]: "accepted" },
+    });
+    expect(clean.ok).toBe(true);
   });
 });
 
@@ -416,7 +428,7 @@ describe("assertPublishable (not readiness)", () => {
 // ---------------------------------------------------------------------------
 
 describe("hygiene", () => {
-  it("production module source has no delete/erase/purge/unlink", async () => {
+  it("INVARIANT: production module source has no delete/erase/purge/unlink", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const file = path.join(
@@ -424,13 +436,38 @@ describe("hygiene", () => {
       "invalidation-service.ts",
     );
     const src = await fs.readFile(file, "utf8");
-    // Allow the words only in comments that forbid them — still ban call shapes.
+    // Never-regress custody guard — may pass at RED. Not counted as behaviour RED.
     expect(src).not.toMatch(/\.(delete|erase|purge|unlink)\s*\(/);
   });
 
-  it("gateway barrel exports createInvalidationService and assertPublishable", async () => {
+  it("barrel createInvalidationService plans a non-empty stale set on trivial fixture", async () => {
+    // Behaviour, not typeof: empty-stub plan fails this.
     const barrel = await import("./index.js");
     expect(typeof barrel.createInvalidationService).toBe("function");
     expect(typeof barrel.assertPublishable).toBe("function");
+    const fixture = unambiguousFixture();
+    const svc = barrel.createInvalidationService!();
+    const result = svc.plan({
+      event: {
+        kind: "human_curiosity",
+        rootArtifactIds: [UNIT_A],
+        reason: "barrel smoke",
+      },
+      events: fixture.events,
+      relations: fixture.relations,
+      artifacts: fixture.artifacts,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.staleAllIds).toContain(UNIT_A);
+    expect(result.value.staleAllIds).toContain(ANS_A);
+    expect(result.value.staleAllIds.length).toBeGreaterThanOrEqual(2);
+    // assertPublishable from barrel must distinguish stale vs clean
+    expect(barrel.assertPublishable!(ANS_A, { plan: result.value }).ok).toBe(
+      false,
+    );
+    expect(barrel.assertPublishable!(ANS_U, { plan: result.value }).ok).toBe(
+      true,
+    );
   });
 });
