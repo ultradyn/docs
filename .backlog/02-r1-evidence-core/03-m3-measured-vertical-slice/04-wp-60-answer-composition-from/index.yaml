@@ -32,7 +32,7 @@ tasks:
       file: T002-t-60-02-implement-answer-compo.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: T-60-02 — Implement Answer Composer agent
     - complexity: medium
