@@ -120,16 +120,24 @@ describe("EvidencePacket domain exports", () => {
       },
     ];
     const left = canonicalPacketPayloadDigest({
+      schemaVersion: 1,
+      id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
       questionId: "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      version: 1,
+      references: refs,
       receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
       receiptDigest: "c".repeat(64),
-      references: refs,
+      limits: { maxReferences: 256, maxFacetsPerReference: 32 },
     });
     const right = canonicalPacketPayloadDigest({
+      limits: { maxReferences: 256, maxFacetsPerReference: 32 },
       receiptDigest: "c".repeat(64),
-      references: refs,
       receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      references: refs,
+      version: 1,
       questionId: "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      schemaVersion: 1,
     });
     expect(left).toBe(right);
   });

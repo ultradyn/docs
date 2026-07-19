@@ -107,6 +107,28 @@ export interface EvidencePacketStore {
   lookupIdempotency?(
     key: string,
   ): Promise<{ digest: string; packet: EvidencePacket } | undefined>;
+  /**
+   * Pre-publication operation intent: binds exact idempotency key + commandDigest
+   * + intended record id/version + payload digest. Required for same-key orphan recovery.
+   */
+  writeOperationIntent?(intent: {
+    readonly key: string;
+    readonly commandDigest: string;
+    readonly recordId: string;
+    readonly version: number;
+    readonly payloadDigest: string;
+  }): Promise<void>;
+  lookupOperationIntent?(key: string): Promise<
+    | {
+        readonly key: string;
+        readonly commandDigest: string;
+        readonly recordId: string;
+        readonly version: number;
+        readonly payloadDigest: string;
+      }
+    | undefined
+  >;
+  clearOperationIntent?(key: string): Promise<void>;
 }
 
 export interface EvidenceService {
@@ -299,6 +321,16 @@ function verifyReferenceAgainstContext(
 export function createInMemoryEvidencePacketStore(): EvidencePacketStore {
   const packets = new Map<string, EvidencePacket>();
   const idem = new Map<string, { digest: string; packet: EvidencePacket }>();
+  const intents = new Map<
+    string,
+    {
+      key: string;
+      commandDigest: string;
+      recordId: string;
+      version: number;
+      payloadDigest: string;
+    }
+  >();
   const holder = new AsyncLocalStorage<true>();
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -352,6 +384,16 @@ export function createInMemoryEvidencePacketStore(): EvidencePacketStore {
           }
         : undefined;
     },
+    async writeOperationIntent(intent) {
+      intents.set(intent.key, { ...intent });
+    },
+    async lookupOperationIntent(idKey) {
+      const intent = intents.get(idKey);
+      return intent ? { ...intent } : undefined;
+    },
+    async clearOperationIntent(idKey) {
+      intents.delete(idKey);
+    },
     locked(operation) {
       if (holder.getStore()) return operation();
       const run = () => holder.run(true, operation);
@@ -378,6 +420,56 @@ function errorCode(error: unknown): string | undefined {
 /** Test-only fault seam type — not part of the public knowledge barrel contract. */
 interface FileEvidencePacketStoreHooks {
   afterTempWriteBeforePublish?: () => void | Promise<void>;
+  /** Fires after immutable packet is published, before op/idempotency commit. */
+  afterImmutablePublishBeforeOpCommit?: () => void | Promise<void>;
+}
+
+/**
+ * Validate an idempotency operation mapping against the expected command digest
+ * and durable record identity. Fail-closed on mismatch or corrupt shape.
+ */
+export function validateIdempotencyOperation(
+  mapping: unknown,
+  expected: {
+    readonly digest: string;
+    readonly packetId?: string;
+    readonly version?: number;
+  },
+): boolean {
+  if (
+    mapping === null ||
+    typeof mapping !== "object" ||
+    Array.isArray(mapping) ||
+    Object.getPrototypeOf(mapping) !== Object.prototype
+  ) {
+    return false;
+  }
+  const record = mapping as {
+    digest?: unknown;
+    packet?: { id?: unknown; version?: unknown };
+  };
+  if (typeof record.digest !== "string" || record.digest !== expected.digest) {
+    return false;
+  }
+  if (expected.packetId !== undefined) {
+    if (
+      !record.packet ||
+      typeof record.packet !== "object" ||
+      record.packet.id !== expected.packetId
+    ) {
+      return false;
+    }
+  }
+  if (expected.version !== undefined) {
+    if (
+      !record.packet ||
+      typeof record.packet !== "object" ||
+      record.packet.version !== expected.version
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -404,6 +496,15 @@ export function createFileEvidencePacketStore(
       >,
       lookupIdempotency: unavailable as NonNullable<
         EvidencePacketStore["lookupIdempotency"]
+      >,
+      writeOperationIntent: unavailable as NonNullable<
+        EvidencePacketStore["writeOperationIntent"]
+      >,
+      lookupOperationIntent: unavailable as NonNullable<
+        EvidencePacketStore["lookupOperationIntent"]
+      >,
+      clearOperationIntent: unavailable as NonNullable<
+        EvidencePacketStore["clearOperationIntent"]
       >,
     };
   }
@@ -668,6 +769,10 @@ export function createFileEvidencePacketStore(
         } finally {
           await journal.close();
         }
+        // Immutable published — op/idempotency commit happens in rememberIdempotency.
+        if (hooks.afterImmutablePublishBeforeOpCommit) {
+          await hooks.afterImmutablePublishBeforeOpCommit();
+        }
         return "created";
       } catch (error) {
         await rm(temporary, { force: true }).catch(() => undefined);
@@ -737,6 +842,80 @@ export function createFileEvidencePacketStore(
           if (errorCode(error) === "ENOENT") return undefined;
           throw error;
         }
+      } finally {
+        await journal.close();
+      }
+    },
+    async writeOperationIntent(intent) {
+      const journal = await openBoundPath(JOURNAL_COMPONENTS);
+      try {
+        const path = journal.at(`op-intent-${sha256Hex(intent.key)}.json`);
+        const bytes = JSON.stringify({
+          key: intent.key,
+          commandDigest: intent.commandDigest,
+          recordId: intent.recordId,
+          version: intent.version,
+          payloadDigest: intent.payloadDigest,
+        });
+        const temporary = `${path}.${process.pid}.tmp`;
+        const file = await open(
+          temporary,
+          constants.O_WRONLY |
+            constants.O_CREAT |
+            constants.O_EXCL |
+            constants.O_NOFOLLOW,
+          0o600,
+        );
+        try {
+          await file.writeFile(bytes);
+          await file.sync();
+        } finally {
+          await file.close();
+        }
+        // Replace existing intent for same key (retry path).
+        await rm(path, { force: true }).catch(() => undefined);
+        await rename(temporary, path);
+      } finally {
+        await journal.close();
+      }
+    },
+    async lookupOperationIntent(idKey) {
+      const journal = await openBoundPath(JOURNAL_COMPONENTS);
+      try {
+        const path = journal.at(`op-intent-${sha256Hex(idKey)}.json`);
+        try {
+          const existing = await readFile(path, "utf8");
+          const parsed = JSON.parse(existing) as {
+            key: string;
+            commandDigest: string;
+            recordId: string;
+            version: number;
+            payloadDigest: string;
+          };
+          if (
+            typeof parsed.key !== "string" ||
+            typeof parsed.commandDigest !== "string" ||
+            typeof parsed.recordId !== "string" ||
+            typeof parsed.version !== "number" ||
+            typeof parsed.payloadDigest !== "string"
+          ) {
+            return undefined;
+          }
+          return deepFreeze(parsed);
+        } catch (error) {
+          if (errorCode(error) === "ENOENT") return undefined;
+          // Corrupt intent cannot authorize replay.
+          return undefined;
+        }
+      } finally {
+        await journal.close();
+      }
+    },
+    async clearOperationIntent(idKey) {
+      const journal = await openBoundPath(JOURNAL_COMPONENTS);
+      try {
+        const path = journal.at(`op-intent-${sha256Hex(idKey)}.json`);
+        await rm(path, { force: true });
       } finally {
         await journal.close();
       }
@@ -962,35 +1141,120 @@ export function createEvidenceService(options: {
       }
 
       const canonRefs = canonicalizeReferences(references);
-      const digest = canonicalPacketPayloadDigest({
+      const packetId = deriveEvidencePacketId(questionId);
+      // Command identity (no version) for idempotency; complete digest binds stored packet.
+      const commandDigest = canonicalPacketPayloadDigest({
+        schemaVersion: 1,
+        id: packetId,
         questionId,
+        version: 0,
+        references: canonRefs,
         receiptId: receipt.id,
         receiptDigest: digestActual,
-        references: canonRefs,
+        limits,
       });
 
       try {
         return await store.locked(async () => {
-          if (idempotencyKey !== undefined) {
-            const idKey = `${questionId}:${idempotencyKey}`;
-            if (store.lookupIdempotency) {
-              const prior = await store.lookupIdempotency(idKey);
-              if (prior) {
-                if (prior.digest !== digest) {
-                  return failure(
-                    "IDEMPOTENCY_CONFLICT",
-                    "Idempotency key reused with a different payload.",
-                  );
+          const idKey =
+            idempotencyKey !== undefined
+              ? `${questionId}:${idempotencyKey}`
+              : undefined;
+
+          if (idKey !== undefined && store.lookupIdempotency) {
+            const prior = await store.lookupIdempotency(idKey);
+            if (prior) {
+              if (
+                !validateIdempotencyOperation(prior, {
+                  digest: commandDigest,
+                  packetId: prior.packet.id,
+                  version: prior.packet.version,
+                }) ||
+                prior.digest !== commandDigest
+              ) {
+                return failure(
+                  "IDEMPOTENCY_CONFLICT",
+                  "Idempotency key reused with a different payload.",
+                );
+              }
+              return {
+                ok: true,
+                value: deepFreeze(structuredClone(prior.packet)),
+              };
+            }
+          }
+
+          // Same-key orphan recovery: durable op intent + exact record, never intent alone.
+          if (
+            idKey !== undefined &&
+            store.lookupOperationIntent &&
+            store.get
+          ) {
+            const intent = await store.lookupOperationIntent(idKey);
+            if (intent) {
+              if (intent.commandDigest !== commandDigest) {
+                return failure(
+                  "IDEMPOTENCY_CONFLICT",
+                  "Idempotency key reused with a different payload.",
+                );
+              }
+              const record = await store.get(
+                intent.recordId as EvidencePacketId,
+                intent.version,
+              );
+              // Never succeed from intent alone.
+              if (record) {
+                const recordCommand = canonicalPacketPayloadDigest({
+                  schemaVersion: record.schemaVersion,
+                  id: record.id,
+                  questionId: record.questionId,
+                  version: 0,
+                  references: record.references,
+                  receiptId: record.receiptId,
+                  receiptDigest: record.receiptDigest,
+                  limits: record.limits,
+                });
+                const recordPayload = canonicalPacketPayloadDigest(record);
+                if (
+                  record.id === intent.recordId &&
+                  record.version === intent.version &&
+                  recordCommand === intent.commandDigest &&
+                  recordPayload === intent.payloadDigest &&
+                  recordCommand === commandDigest
+                ) {
+                  if (store.rememberIdempotency) {
+                    const remembered = await store.rememberIdempotency(
+                      idKey,
+                      commandDigest,
+                      record,
+                    );
+                    if (remembered === "conflict") {
+                      return failure(
+                        "IDEMPOTENCY_CONFLICT",
+                        "Idempotency key reused with a different payload.",
+                      );
+                    }
+                  }
+                  if (store.clearOperationIntent) {
+                    await store.clearOperationIntent(idKey);
+                  }
+                  return {
+                    ok: true,
+                    value: deepFreeze(structuredClone(record)),
+                  };
                 }
-                return {
-                  ok: true,
-                  value: deepFreeze(structuredClone(prior.packet)),
-                };
+                return failure(
+                  "IDEMPOTENCY_CONFLICT",
+                  "Operation intent does not match durable record.",
+                );
+              }
+              // Intent without record: incomplete publish — clear and continue normal path.
+              if (store.clearOperationIntent) {
+                await store.clearOperationIntent(idKey);
               }
             }
           }
 
-          const packetId = deriveEvidencePacketId(questionId);
           const latest = await store.latest(packetId);
           const nextVersion = latest ? latest.version + 1 : 1;
 
@@ -1019,6 +1283,19 @@ export function createEvidenceService(options: {
             return failure("INVALID_INPUT", "Derived packet failed schema.");
           }
 
+          const payloadDigest = canonicalPacketPayloadDigest(packet);
+
+          // Pre-publication op intent binds key → exact record identity + digests.
+          if (idKey !== undefined && store.writeOperationIntent) {
+            await store.writeOperationIntent({
+              key: idKey,
+              commandDigest,
+              recordId: packet.id,
+              version: packet.version,
+              payloadDigest,
+            });
+          }
+
           const result = await store.append(packet);
           if (result === "exists_conflict") {
             return failure(
@@ -1026,10 +1303,10 @@ export function createEvidenceService(options: {
               "Append-only store refused to overwrite packet version.",
             );
           }
-          if (idempotencyKey !== undefined && store.rememberIdempotency) {
+          if (idKey !== undefined && store.rememberIdempotency) {
             const remembered = await store.rememberIdempotency(
-              `${questionId}:${idempotencyKey}`,
-              digest,
+              idKey,
+              commandDigest,
               packet,
             );
             if (remembered === "conflict") {
@@ -1039,9 +1316,19 @@ export function createEvidenceService(options: {
               );
             }
           }
+          if (idKey !== undefined && store.clearOperationIntent) {
+            await store.clearOperationIntent(idKey);
+          }
           return { ok: true, value: packet };
         });
       } catch (error) {
+        if (
+          error instanceof Error &&
+          (error.message.includes("injected-crash") ||
+            /afterTempWrite|afterImmutablePublish/i.test(error.message))
+        ) {
+          throw error;
+        }
         if (
           error instanceof Error &&
           (error.message.startsWith("Refusing") ||

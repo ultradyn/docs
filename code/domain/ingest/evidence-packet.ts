@@ -100,13 +100,22 @@ export type EvidencePacket = {
 };
 
 /**
- * Canonical fixed-field packet payload digest (key order fixed; not object insert order).
+ * Canonical fixed-field packet digest over the complete stored packet payload.
+ * Field order fixed: schemaVersion, id, questionId, version, references,
+ * receiptId, receiptDigest, limits. Set-semantic arrays sorted only.
  */
 export function canonicalPacketPayloadDigest(input: {
+  readonly schemaVersion: 1 | number;
+  readonly id: string;
   readonly questionId: string;
+  readonly version: number;
+  readonly references: readonly EvidenceReference[];
   readonly receiptId: string;
   readonly receiptDigest: string;
-  readonly references: readonly EvidenceReference[];
+  readonly limits: {
+    readonly maxReferences: number;
+    readonly maxFacetsPerReference: number;
+  };
 }): Sha256 {
   const refs = [...input.references]
     .map((reference) => ({
@@ -123,12 +132,21 @@ export function canonicalPacketPayloadDigest(input: {
     .sort((left, right) =>
       left.unitId < right.unitId ? -1 : left.unitId > right.unitId ? 1 : 0,
     );
-  // Fixed field order — never rely on object key enumeration order.
   const material = [
+    ["schemaVersion", input.schemaVersion],
+    ["id", input.id],
     ["questionId", input.questionId],
+    ["version", input.version],
+    ["references", refs],
     ["receiptId", input.receiptId],
     ["receiptDigest", input.receiptDigest],
-    ["references", refs],
+    [
+      "limits",
+      [
+        ["maxReferences", input.limits.maxReferences],
+        ["maxFacetsPerReference", input.limits.maxFacetsPerReference],
+      ],
+    ],
   ] as const;
   return createHashHex(JSON.stringify(material));
 }
