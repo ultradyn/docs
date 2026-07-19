@@ -12,7 +12,12 @@ import {
   createInMemoryQuarantineStore,
   createFileQuarantineStore,
 } from "./content-scanner.js";
-import { createSeededSecretAdapter, createEmailPiiAdapter } from "./testing.js";
+import {
+  createEmailPiiAdapter,
+  createPrivateKeySecretAdapter,
+  createDefaultScanAdapters,
+} from "./scan-adapter.js";
+import { createSeededSecretAdapter } from "./testing.js";
 
 const SEEDED_SECRET = "sk-ultradyn-seeded-test-secret-DO-NOT-LEAK";
 
@@ -249,5 +254,193 @@ describe("registry + barrel", () => {
       typeof (barrel as { ScanPolicySchema?: { safeParse: unknown } })
         .ScanPolicySchema?.safeParse,
     ).toBe("function");
+  });
+});
+
+describe("production detectors (deliverable)", () => {
+  it("createDefaultScanAdapters returns secret+pii production adapters", () => {
+    const adapters = createDefaultScanAdapters();
+    expect(adapters.length).toBeGreaterThanOrEqual(2);
+    expect(adapters.some((a) => a.detectorId.includes("secret"))).toBe(true);
+    expect(adapters.some((a) => a.detectorId.includes("pii"))).toBe(true);
+  });
+
+  it("private-key/token secret adapter fires on PEM and sk- token shapes without leaking match", async () => {
+    const pem =
+      "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANfakekeybody\n-----END PRIVATE KEY-----";
+    const token = "sk-live-abcdefghijklmnopqrstuvwxyz012345";
+    const scanner = createContentScanner({
+      adapters: [createPrivateKeySecretAdapter()],
+      policy: policy({ secret: "block" }),
+    });
+    for (const sample of [pem, token]) {
+      const result = await scanner.scanForModelExposure(sample);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("BLOCKED");
+        expect(JSON.stringify(result)).not.toContain("PRIVATE KEY");
+        expect(JSON.stringify(result)).not.toContain("sk-live");
+      }
+    }
+  });
+
+  it("production email adapter fires without matched email in output", async () => {
+    const scanner = createContentScanner({
+      adapters: [createEmailPiiAdapter()],
+      policy: policy({
+        secret: "allow",
+        pii: "redact",
+        defaultAction: "allow",
+      }),
+    });
+    const result = await scanner.scanForModelExposure(
+      "write to bob@example.org now",
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.findings.some((f) => f.kind === "pii")).toBe(true);
+    expect(JSON.stringify(result.value)).not.toContain("bob@example.org");
+  });
+});
+
+describe("fail-closed sanitize (no fail-open drop)", () => {
+  it("adapter finding with extra matchedValue still blocks and never leaks the field", async () => {
+    const { createLeakyFindingAdapter } = await import("./testing.js");
+    const secret = "sk-ultradyn-seeded-test-secret-DO-NOT-LEAK";
+    const scanner = createContentScanner({
+      adapters: [createLeakyFindingAdapter(secret)],
+      policy: policy({ secret: "block" }),
+    });
+    const result = await scanner.scanForModelExposure(`x=${secret}`);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BLOCKED");
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(JSON.stringify(result)).not.toContain("matchedValue");
+  });
+
+  it("leaky finding still drives redaction of that span", async () => {
+    const { createLeakyFindingAdapter } = await import("./testing.js");
+    const secret = "sk-ultradyn-seeded-test-secret-DO-NOT-LEAK";
+    const scanner = createContentScanner({
+      adapters: [createLeakyFindingAdapter(secret)],
+      policy: policy({ secret: "redact", defaultAction: "redact" }),
+    });
+    const text = `token=${secret};ok`;
+    const leaky = createLeakyFindingAdapter(secret).scan(text);
+    const redacted = await scanner.redactRepresentation(
+      {
+        schemaVersion: 1,
+        id: "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV" as never,
+        sourceFileId: `file-${"a".repeat(64)}` as never,
+        version: 1,
+        kind: "text",
+        normalizedText: text,
+        locatorMap: [
+          {
+            kind: "span",
+            normalized: {
+              utf16Start: 0,
+              utf16End: text.length,
+              lineStart: 1,
+              columnStart: 1,
+              lineEnd: 1,
+              columnEnd: text.length + 1,
+            },
+            original: {
+              byteStart: 0,
+              byteEnd: text.length,
+              lineStart: 1,
+              columnStart: 1,
+              lineEnd: 1,
+              columnEnd: text.length + 1,
+            },
+          },
+        ],
+        warnings: [],
+      },
+      leaky,
+    );
+    expect(redacted.ok).toBe(true);
+    if (!redacted.ok) return;
+    expect(redacted.value.normalizedText).not.toContain(secret);
+    expect(JSON.stringify(redacted.value)).not.toContain(secret);
+    expect(JSON.stringify(redacted.value)).not.toContain("matchedValue");
+  });
+});
+
+describe("locatorMap remapped onto redacted text", () => {
+  it("normalized utf16 spans stay within redactedText length", async () => {
+    const secret = "sk-ultradyn-seeded-test-secret-DO-NOT-LEAK";
+    const scanner = createContentScanner({
+      adapters: [createSeededSecretAdapter(secret)],
+      policy: policy({ secret: "redact", defaultAction: "redact" }),
+    });
+    const text = `aa${secret}bb`;
+    const start = text.indexOf(secret);
+    const end = start + secret.length;
+    const redacted = await scanner.redactRepresentation(
+      {
+        schemaVersion: 1,
+        id: "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV" as never,
+        sourceFileId: `file-${"a".repeat(64)}` as never,
+        version: 1,
+        kind: "text",
+        normalizedText: text,
+        locatorMap: [
+          {
+            kind: "span",
+            normalized: {
+              utf16Start: 0,
+              utf16End: text.length,
+              lineStart: 1,
+              columnStart: 1,
+              lineEnd: 1,
+              columnEnd: text.length + 1,
+            },
+            original: {
+              byteStart: 0,
+              byteEnd: text.length,
+              lineStart: 1,
+              columnStart: 1,
+              lineEnd: 1,
+              columnEnd: text.length + 1,
+            },
+          },
+          {
+            kind: "span",
+            normalized: {
+              utf16Start: start,
+              utf16End: end,
+              lineStart: 1,
+              columnStart: start + 1,
+              lineEnd: 1,
+              columnEnd: end + 1,
+            },
+            original: {
+              byteStart: start,
+              byteEnd: end,
+              lineStart: 1,
+              columnStart: start + 1,
+              lineEnd: 1,
+              columnEnd: end + 1,
+            },
+          },
+        ],
+        warnings: [],
+      },
+      createSeededSecretAdapter(secret).scan(text),
+    );
+    expect(redacted.ok).toBe(true);
+    if (!redacted.ok) return;
+    const len = redacted.value.normalizedText.length;
+    for (const span of redacted.value.locatorMap) {
+      expect(span.normalized.utf16Start).toBeGreaterThanOrEqual(0);
+      expect(span.normalized.utf16End).toBeLessThanOrEqual(len);
+      expect(span.normalized.utf16Start).toBeLessThanOrEqual(
+        span.normalized.utf16End,
+      );
+    }
+    const full = redacted.value.locatorMap[0]!;
+    expect(full.normalized.utf16End).toBe(len);
   });
 });

@@ -3,34 +3,11 @@
  */
 import type { ScanFinding } from "../../domain/ingest/content-scan.js";
 
-export interface ScanAdapter {
-  readonly detectorId: string;
-  scan(text: string): readonly ScanFinding[];
-}
+import { spanFor, type ScanAdapter } from "./scan-adapter.js";
 
-function spanFor(start: number, end: number): ScanFinding["span"] {
-  return {
-    kind: "span",
-    normalized: {
-      utf16Start: start,
-      utf16End: end,
-      lineStart: 1,
-      columnStart: start + 1,
-      lineEnd: 1,
-      columnEnd: end + 1,
-    },
-    original: {
-      byteStart: start,
-      byteEnd: end,
-      lineStart: 1,
-      columnStart: start + 1,
-      lineEnd: 1,
-      columnEnd: end + 1,
-    },
-  };
-}
+export type { ScanAdapter } from "./scan-adapter.js";
 
-/** Deterministic seeded-secret detector for tests. */
+/** Deterministic seeded-secret detector for tests only. */
 export function createSeededSecretAdapter(seed: string): ScanAdapter {
   if (typeof seed !== "string" || seed.length === 0) {
     throw new Error("seeded secret adapter requires a non-empty seed.");
@@ -56,28 +33,37 @@ export function createSeededSecretAdapter(seed: string): ScanAdapter {
   };
 }
 
-/** Deterministic email PII detector (local only; no network). */
-export function createEmailPiiAdapter(): ScanAdapter {
-  // Simple, bounded email shape.
-  const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+/**
+ * Hostile adapter for fail-open tests: emits a finding with an extra
+ * matchedValue field that must be sanitized (kept, stripped), not dropped.
+ */
+export function createLeakyFindingAdapter(secret: string): ScanAdapter {
   return {
-    detectorId: "email-pii",
+    detectorId: "leaky-test-adapter",
     scan(text: string) {
       if (typeof text !== "string") return [];
-      const findings: ScanFinding[] = [];
-      let match: RegExpExecArray | null;
-      const re = new RegExp(EMAIL.source, "g");
-      while ((match = re.exec(text)) !== null) {
-        const start = match.index;
-        const end = start + match[0].length;
-        findings.push({
-          kind: "pii",
-          detectorId: "email-pii",
-          span: spanFor(start, end),
-        });
-        if (match[0].length === 0) re.lastIndex += 1;
-      }
-      return findings;
+      const index = text.indexOf(secret);
+      if (index < 0) return [];
+      // Intentionally extra field — production must sanitize, not drop.
+      return [
+        {
+          kind: "secret",
+          detectorId: "leaky-test-adapter",
+          span: spanFor(index, index + secret.length),
+          matchedValue: secret,
+          surroundingText: text.slice(
+            Math.max(0, index - 4),
+            Math.min(text.length, index + secret.length + 4),
+          ),
+        } as ScanFinding & {
+          matchedValue: string;
+          surroundingText: string;
+        },
+      ];
     },
   };
 }
+
+/** Re-export production email adapter under testing path is not allowed —
+ * tests import createEmailPiiAdapter from production scan-adapter. */
+export { createEmailPiiAdapter } from "./scan-adapter.js";

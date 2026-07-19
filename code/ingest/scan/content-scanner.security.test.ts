@@ -31,17 +31,24 @@ describe("construction", () => {
     expect(typeof mod.createContentScanner).toBe("function");
   });
 
-  it("requires adapters and policy at construction", () => {
-    expect(() =>
-      createContentScanner({
-        policy: defaultPolicy(),
-      } as never),
-    ).toThrow(/adapter/i);
+  it("requires policy at construction; empty adapters fail; omit uses defaults", () => {
     expect(() =>
       createContentScanner({
         adapters: [createSeededSecretAdapter(SEEDED_SECRET)],
       } as never),
     ).toThrow(/policy/i);
+    expect(() =>
+      createContentScanner({
+        adapters: [],
+        policy: defaultPolicy(),
+      }),
+    ).toThrow(/adapter/i);
+    // Omitted adapters → production defaults (still constructs)
+    expect(() =>
+      createContentScanner({
+        policy: defaultPolicy(),
+      }),
+    ).not.toThrow();
   });
 });
 

@@ -18,7 +18,7 @@ import type {
 } from "../../domain/ingest/index.js";
 import type { SourceRepresentation } from "../../domain/ingest/representation-records.js";
 
-import type { ScanAdapter } from "./testing.js";
+import { createDefaultScanAdapters, type ScanAdapter } from "./scan-adapter.js";
 
 export type ContentScannerError =
   | "INVALID_INPUT"
@@ -103,6 +103,28 @@ function actionFor(policy: ScanPolicy, kind: ScanFinding["kind"]): ScanAction {
   return policy.actionsByKind[kind] ?? policy.defaultAction;
 }
 
+/**
+ * Sanitize adapter output to the allowed finding fields.
+ * NEVER drop a finding solely because of extra keys (fail-open) — strip extras
+ * so detection is preserved and privacy (no matchedValue) is preserved.
+ * Drop only if core kind/detectorId/span cannot be recovered.
+ */
+function sanitizeFinding(item: unknown): ScanFinding | undefined {
+  if (item === null || typeof item !== "object" || Array.isArray(item)) {
+    return undefined;
+  }
+  const raw = item as Record<string, unknown>;
+  // Project only allowed keys — extra fields (matchedValue, etc.) discarded.
+  const projected = {
+    kind: raw.kind,
+    detectorId: raw.detectorId,
+    span: raw.span,
+  };
+  const parsed = ScanFindingSchema.safeParse(projected);
+  if (!parsed.success) return undefined;
+  return parsed.data as ScanFinding;
+}
+
 function collectFindings(
   adapters: readonly ScanAdapter[],
   text: string,
@@ -111,10 +133,8 @@ function collectFindings(
   for (const adapter of adapters) {
     const found = adapter.scan(text);
     for (const item of found) {
-      const parsed = ScanFindingSchema.safeParse(item);
-      if (parsed.success) {
-        out.push(parsed.data as ScanFinding);
-      }
+      const clean = sanitizeFinding(item);
+      if (clean) out.push(clean);
     }
   }
   // Sort by span start for determinism
@@ -158,11 +178,13 @@ function newRepresentationId(
 
 const PLACEHOLDER = "[REDACTED]";
 
+type Edit = { start: number; end: number; delta: number };
+
 function applyRedaction(
   text: string,
   findings: readonly ScanFinding[],
-): string {
-  // Apply from end so earlier offsets stay valid.
+): { text: string; edits: readonly Edit[] } {
+  // Apply from end so earlier offsets stay valid; record length deltas for remap.
   const spans = [...findings]
     .map((f) => ({
       start: f.span.normalized.utf16Start,
@@ -171,10 +193,36 @@ function applyRedaction(
     .filter((s) => s.start >= 0 && s.end > s.start && s.end <= text.length)
     .sort((a, b) => b.start - a.start);
   let out = text;
+  const edits: Edit[] = [];
   for (const span of spans) {
+    const removed = span.end - span.start;
     out = `${out.slice(0, span.start)}${PLACEHOLDER}${out.slice(span.end)}`;
+    edits.push({
+      start: span.start,
+      end: span.end,
+      delta: PLACEHOLDER.length - removed,
+    });
   }
-  return out;
+  // edits recorded from end; for mapOffset we need ascending order by start
+  edits.sort((a, b) => a.start - b.start);
+  return { text: out, edits };
+}
+
+/** Map a pre-redaction utf16 offset into the redacted text coordinate. */
+function mapOffset(offset: number, edits: readonly Edit[]): number {
+  let mapped = offset;
+  for (const edit of edits) {
+    if (offset <= edit.start) break;
+    if (offset >= edit.end) {
+      mapped += edit.delta;
+    } else {
+      // Offset fell inside a redacted span — pin to placeholder start.
+      mapped = edit.start;
+      // Account for prior edits only (already applied via earlier loop).
+      break;
+    }
+  }
+  return Math.max(0, mapped);
 }
 
 export function createInMemoryQuarantineStore(): QuarantineStore {
@@ -329,14 +377,19 @@ export function createFileQuarantineStore(root: string): QuarantineStore {
 }
 
 export function createContentScanner(options: {
-  readonly adapters: readonly ScanAdapter[];
+  readonly adapters?: readonly ScanAdapter[];
   readonly policy: ScanPolicy;
   readonly quarantine?: QuarantineStore;
 }): ContentScanner {
   if (!options || typeof options !== "object") {
     throw new Error("Content scanner options are required.");
   }
-  const { adapters, policy, quarantine } = options;
+  const policy = options.policy;
+  const quarantine = options.quarantine;
+  const adapters =
+    options.adapters === undefined
+      ? createDefaultScanAdapters()
+      : options.adapters;
   if (!Array.isArray(adapters) || adapters.length === 0) {
     throw new Error("At least one scan adapter is required.");
   }
@@ -408,13 +461,59 @@ export function createContentScanner(options: {
       ) {
         return failure("INVALID_INPUT");
       }
+      // Sanitize findings (keep detection; strip leaky extras).
       const safeFindings: ScanFinding[] = [];
       for (const finding of findings ?? []) {
-        const parsed = ScanFindingSchema.safeParse(finding);
-        if (parsed.success) safeFindings.push(parsed.data as ScanFinding);
+        const clean = sanitizeFinding(finding);
+        if (clean) safeFindings.push(clean);
       }
-      const redactedText = applyRedaction(rep.normalizedText, safeFindings);
+      const { text: redactedText, edits } = applyRedaction(
+        rep.normalizedText,
+        safeFindings,
+      );
       const nextVersion = rep.version + 1;
+      // Remap locatorMap normalized offsets onto the redacted text so they stay
+      // consistent with normalizedText. original coords remain pre-redaction
+      // source anchors (authorized source mapping).
+      const remappedMap =
+        rep.locatorMap.length > 0
+          ? rep.locatorMap.map((span) => {
+              const nStart = mapOffset(span.normalized.utf16Start, edits);
+              const nEnd = mapOffset(span.normalized.utf16End, edits);
+              const start = Math.min(nStart, redactedText.length);
+              const end = Math.min(redactedText.length, Math.max(start, nEnd));
+              return {
+                ...structuredClone(span),
+                normalized: {
+                  ...span.normalized,
+                  utf16Start: start,
+                  utf16End: end,
+                  columnStart: start + 1,
+                  columnEnd: end + 1,
+                },
+              };
+            })
+          : [
+              {
+                kind: "span" as const,
+                normalized: {
+                  utf16Start: 0,
+                  utf16End: redactedText.length,
+                  lineStart: 1,
+                  columnStart: 1,
+                  lineEnd: 1,
+                  columnEnd: Math.max(1, redactedText.length + 1),
+                },
+                original: {
+                  byteStart: 0,
+                  byteEnd: rep.normalizedText.length,
+                  lineStart: 1,
+                  columnStart: 1,
+                  lineEnd: 1,
+                  columnEnd: Math.max(1, rep.normalizedText.length + 1),
+                },
+              },
+            ];
       const next: SourceRepresentation = deepFreeze({
         schemaVersion: 1 as const,
         id: newRepresentationId(rep.id, nextVersion),
@@ -423,32 +522,7 @@ export function createContentScanner(options: {
         version: nextVersion,
         kind: rep.kind,
         normalizedText: redactedText,
-        // Preserve authorized mapping structure; re-span whole text as one map entry.
-        locatorMap: Object.freeze(
-          rep.locatorMap.length > 0
-            ? structuredClone(rep.locatorMap)
-            : [
-                {
-                  kind: "span" as const,
-                  normalized: {
-                    utf16Start: 0,
-                    utf16End: redactedText.length,
-                    lineStart: 1,
-                    columnStart: 1,
-                    lineEnd: 1,
-                    columnEnd: Math.max(1, redactedText.length + 1),
-                  },
-                  original: {
-                    byteStart: 0,
-                    byteEnd: redactedText.length,
-                    lineStart: 1,
-                    columnStart: 1,
-                    lineEnd: 1,
-                    columnEnd: Math.max(1, redactedText.length + 1),
-                  },
-                },
-              ],
-        ),
+        locatorMap: Object.freeze(remappedMap),
         warnings: Object.freeze([...(rep.warnings ?? [])]),
       });
       return success(next);
