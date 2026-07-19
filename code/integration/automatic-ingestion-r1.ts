@@ -373,7 +373,9 @@ async function runAs02Tiny(hooks: {
     curiosityPlannerInvoked: curiosity.invoked,
     detail:
       "seeded critic decision (missing facet + unnecessary citation); " +
-      `packet version ${priorPacketVersion}→${packetV2.version}; ` +
+      `packet version transition ${priorPacketVersion}→${packetV2.version} is ` +
+      "SEEDED/modeled (no durable EvidencePacket store in R1 — missing component: " +
+      "EvidencePacket versioned store on the R1 path); " +
       "no curiosity before terminal acceptance",
   };
 }
@@ -500,30 +502,73 @@ async function runAs04Tiny(hooks: {
   tick();
   const seededCritic = { decision: "reject" as const };
 
-  // Terminal resolution after reject: no claims accepted for weak path
-  // (does not launder reject into curiosity before terminal)
+  // Terminal resolution after reject: empty pack (no launder into curiosity)
   const claimRows = await loadCorpusClaims("tiny", tick);
-  // After terminal reject resolution, curiosity may run (only if not already forced)
   if (!hooks.forceEarlyCuriosity) {
-    // Terminal: critic reject stands; then curiosity may propose children
-    tick(); // terminal resolution
-    // Ordered: only after terminal may we call curiosity
-    // Spec: only after terminal resolution does Curiosity Planner propose.
-    // For the happy ordered path we do NOT invoke (assert false).
+    tick(); // terminal resolution — ordered path does not invoke curiosity
   }
+
+  // promotable via real reviewAnswerComposition on empty/reject pack (not hardcoded)
+  const { service, packService } = makeService(tick);
+  tick();
+  const packResult = await packService.build(QUESTION, REVISION);
+  if (!packResult.ok) {
+    return {
+      scenario: "AS-04",
+      corpus: "tiny",
+      cacheEnabled: false,
+      status: "not_implemented",
+      counters,
+      curiosityPlannerInvoked: curiosity.invoked,
+      detail: `pack failed: ${packResult.code}`,
+    };
+  }
+  tick();
+  const composed = composeAnswerFromPack({
+    questionId: QUESTION,
+    pack: packResult.value,
+    goals: [
+      {
+        goalId: "g-quantum",
+        text: "What is the quantum entanglement protocol for payments?",
+      },
+    ],
+  });
+  if (!composed.ok) {
+    return {
+      scenario: "AS-04",
+      corpus: "tiny",
+      cacheEnabled: false,
+      status: "not_implemented",
+      counters,
+      curiosityPlannerInvoked: curiosity.invoked,
+      detail: "compose failed",
+    };
+  }
+  tick();
+  const validity = reviewAnswerComposition({
+    composition: composed.value,
+    pack: packResult.value,
+    currentGraphRevision: REVISION,
+    getClaim: () => {
+      tick();
+      return null;
+    },
+  });
 
   return {
     scenario: "AS-04",
     corpus: "tiny",
     cacheEnabled: false,
     status: "complete",
-    promotable: false,
+    promotable: validity.promotable,
     counters,
     curiosityPlannerInvoked: curiosity.invoked,
     detail: hooks.forceEarlyCuriosity
       ? "curiosity planner invoked early — ordering violation " +
         `(seeded critic ${seededCritic.decision}; spy recorded actual invocation)`
       : `seeded critic decision reject; no curiosity before terminal; ` +
+        `promotable from reviewAnswerComposition on empty pack; ` +
         `pipeline does not launder reject into curiosity (claims scanned=${claimRows.length})`,
   };
 }
