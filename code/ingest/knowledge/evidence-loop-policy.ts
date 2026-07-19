@@ -1,7 +1,39 @@
 import { createHash } from "node:crypto";
 
+import { canonicalPacketPayloadDigest } from "../../domain/ingest/evidence-packet.js";
+import type { EvidencePacket } from "../../domain/ingest/evidence-packet.js";
 import type { BoundedFollowUp } from "../../domain/ingest/evidence-verdict.js";
+import type { EvidenceVerdict } from "../../domain/ingest/evidence-verdict.js";
 import type { IngestResult, Sha256 } from "../../domain/ingest/index.js";
+
+/** Local id derivation — avoid importing services (no circular barrel deps). */
+function derivePacketId(questionId: string): string {
+  const hex = createHash("sha256")
+    .update(`evidence-packet:${questionId}`)
+    .digest("hex")
+    .toUpperCase();
+  const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  let body = "";
+  for (let index = 0; index < 26; index += 1) {
+    const nibble = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+    body += crockford[nibble % 32]!;
+  }
+  return `pkt-${body}`;
+}
+
+function deriveVerdictId(questionId: string, packetId: string): string {
+  const hex = createHash("sha256")
+    .update(`evidence-verdict:${questionId}:${packetId}`)
+    .digest("hex")
+    .toUpperCase();
+  const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  let body = "";
+  for (let index = 0; index < 26; index += 1) {
+    const nibble = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+    body += crockford[nibble % 32]!;
+  }
+  return `evv-${body}`;
+}
 
 export type EvidenceLoopRoute =
   "continue" | "search_incomplete" | "human_action";
@@ -61,6 +93,12 @@ const TERMINAL_COMPLETE = new Set([
   "source_processing_blocked",
   "ambiguous_scope",
   "conflicting_or_deprecated",
+]);
+
+/** Closed terminal set including refine — fabricated strings fail closed. */
+const TERMINAL_CLOSED = new Set([
+  ...TERMINAL_COMPLETE,
+  "needs_more_evidence",
 ]);
 
 function deepFreeze<T>(value: T): T {
@@ -432,7 +470,25 @@ export function evaluateEvidenceLoop(
     if (parsed === "invalid") {
       return failure(`steps[${index}] is invalid.`);
     }
+    if (!TERMINAL_CLOSED.has(parsed.verdict)) {
+      return failure(`steps[${index}] has fabricated terminal.`);
+    }
     steps.push(parsed);
+  }
+
+  // Independent contiguous version streams (1..N) for packets and verdicts.
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index]!;
+    if (step.packetVersion !== index + 1) {
+      return failure(
+        `packet version stream invalid at steps[${index}] (expected ${index + 1}, got ${step.packetVersion}).`,
+      );
+    }
+    if (step.verdictVersion !== index + 1) {
+      return failure(
+        `verdict version stream invalid at steps[${index}] (expected ${index + 1}, got ${step.verdictVersion}).`,
+      );
+    }
   }
 
   if (!isPlainObject(budgetInput)) {
@@ -468,20 +524,8 @@ export function evaluateEvidenceLoop(
   const latest = steps[steps.length - 1]!;
 
   // Non-refine terminals: loop complete; never rewrite to accepted/no-evidence.
+  // Fabricated terminals already rejected above via TERMINAL_CLOSED.
   if (latest.verdict !== "needs_more_evidence") {
-    if (
-      TERMINAL_COMPLETE.has(latest.verdict) ||
-      latest.verdict === "accepted"
-    ) {
-      return decision(
-        "continue",
-        `terminal_${latest.verdict}_complete`,
-        refinementCount,
-        null,
-        receipt,
-      );
-    }
-    // Unknown non-refine verdict — still do not synthesize; treat as complete continue
     return decision(
       "continue",
       `terminal_${latest.verdict}_complete`,
@@ -531,5 +575,165 @@ export function evaluateEvidenceLoop(
     refinementCount,
     noveltyKey,
     receipt,
+  );
+}
+
+/** Minimal packet store surface used by the durable history composer. */
+export interface EvidenceHistoryPacketStore {
+  get(
+    packetId: string,
+    version: number,
+  ): Promise<EvidencePacket | undefined>;
+  latest?(packetId: string): Promise<EvidencePacket | undefined>;
+}
+
+/** Minimal verdict store surface used by the durable history composer. */
+export interface EvidenceHistoryVerdictStore {
+  get(
+    verdictId: string,
+    version: number,
+  ): Promise<EvidenceVerdict | undefined>;
+  latest?(verdictId: string): Promise<EvidenceVerdict | undefined>;
+}
+
+/**
+ * Sole public routing seam: load authoritative packet+verdict history from
+ * durable stores, validate pairing/digests/question ownership, then evaluate.
+ * Caller-supplied `steps` are rejected (not routed).
+ */
+export async function composeAndEvaluateEvidenceLoop(
+  input: unknown,
+): Promise<IngestResult<EvidenceLoopDecision, EvidenceLoopServiceError>> {
+  if (!isPlainObject(input)) {
+    return failure("compose input must be a plain object.");
+  }
+  const allowed = new Set([
+    "questionId",
+    "packets",
+    "verdicts",
+    "budget",
+    // Adversarial prebuilt steps must not be accepted as authority.
+    "steps",
+  ]);
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key === "symbol" || !allowed.has(key)) {
+      return failure("Unknown or hostile compose fields.");
+    }
+    if (!ownData(input, key).ok) {
+      return failure("Hostile compose accessors are rejected.");
+    }
+  }
+
+  // Never route on caller-supplied steps — durable stores only.
+  const adversarialSteps = ownData(input, "steps");
+  if (adversarialSteps.ok && adversarialSteps.present) {
+    return failure("Caller-supplied steps are rejected; durable history only.");
+  }
+
+  const questionProp = ownData(input, "questionId");
+  if (
+    !questionProp.ok ||
+    !questionProp.present ||
+    typeof questionProp.value !== "string" ||
+    !QUESTION_ID.test(questionProp.value)
+  ) {
+    return failure("questionId is malformed.");
+  }
+  const questionId = questionProp.value;
+
+  const packetsProp = ownData(input, "packets");
+  const verdictsProp = ownData(input, "verdicts");
+  if (
+    !packetsProp.ok ||
+    !packetsProp.present ||
+    typeof packetsProp.value !== "object" ||
+    packetsProp.value === null ||
+    typeof (packetsProp.value as EvidenceHistoryPacketStore).get !== "function"
+  ) {
+    return failure("packets store is required.");
+  }
+  if (
+    !verdictsProp.ok ||
+    !verdictsProp.present ||
+    typeof verdictsProp.value !== "object" ||
+    verdictsProp.value === null ||
+    typeof (verdictsProp.value as EvidenceHistoryVerdictStore).get !==
+      "function"
+  ) {
+    return failure("verdicts store is required.");
+  }
+  const packets = packetsProp.value as EvidenceHistoryPacketStore;
+  const verdicts = verdictsProp.value as EvidenceHistoryVerdictStore;
+
+  const budgetProp = ownData(input, "budget");
+  if (!budgetProp.ok || !budgetProp.present) {
+    return failure("budget is required.");
+  }
+  const budgetInput = budgetProp.value;
+
+  const packetId = derivePacketId(questionId);
+  const verdictId = deriveVerdictId(questionId, packetId);
+
+  // Load contiguous verdict versions 1..N (stop at first gap).
+  const loadedVerdicts: EvidenceVerdict[] = [];
+  for (let version = 1; version <= 256; version += 1) {
+    const verdict = await verdicts.get(verdictId, version);
+    if (!verdict) break;
+    loadedVerdicts.push(verdict);
+  }
+
+  if (loadedVerdicts.length === 0) {
+    return failure("No durable verdict history for question.");
+  }
+
+  const steps: EvidenceLoopStep[] = [];
+  for (const verdict of loadedVerdicts) {
+    if (verdict.questionId !== questionId) {
+      return failure("Verdict questionId does not match compose questionId.");
+    }
+    if (verdict.packetId !== packetId) {
+      return failure("Verdict packetId does not match derived packet stream.");
+    }
+    const packet = await packets.get(verdict.packetId, verdict.packetVersion);
+    if (!packet) {
+      return failure("Missing durable packet for verdict pairing.");
+    }
+    if (packet.questionId !== questionId) {
+      return failure("Packet questionId does not match compose questionId.");
+    }
+    if (
+      packet.id !== verdict.packetId ||
+      packet.version !== verdict.packetVersion
+    ) {
+      return failure("Verdict packetId/version does not match loaded packet.");
+    }
+    const completeDigest = canonicalPacketPayloadDigest({
+      schemaVersion: packet.schemaVersion,
+      id: packet.id,
+      questionId: packet.questionId,
+      version: packet.version,
+      references: packet.references,
+      receiptId: packet.receiptId,
+      receiptDigest: packet.receiptDigest,
+      limits: packet.limits,
+    });
+    if (completeDigest !== verdict.packetDigest) {
+      return failure(
+        "Verdict packetDigest does not match complete recomputed packet digest.",
+      );
+    }
+    steps.push({
+      packetId: packet.id,
+      packetVersion: packet.version,
+      verdictId: verdict.id,
+      verdictVersion: verdict.version,
+      verdict: verdict.verdict,
+      followUpRequest: verdict.followUpRequest,
+    });
+  }
+
+  return evaluateEvidenceLoop(
+    { questionId, steps },
+    budgetInput,
   );
 }
