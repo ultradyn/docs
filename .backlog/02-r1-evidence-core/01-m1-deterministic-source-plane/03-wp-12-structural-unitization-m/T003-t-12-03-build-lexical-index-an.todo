@@ -26,6 +26,8 @@ Deliverables:
 Acceptance criteria:
 - Expected units are retrieved in tiny/small fixtures
 - Index outage is distinguishable from no evidence
+- Lexical build consumes canonical units, files, and representations; strictly rebinds references/text hashes and rejects duplicate or mixed representation versions through typed non-throwing failures
+- Every SearchReceipt binds a deterministic digest of the sorted indexed representation IDs so repair-induced staleness is detectable even when snapshotId is unchanged
 - A deleted index rebuilds without knowledge loss
 
 Test surfaces:
