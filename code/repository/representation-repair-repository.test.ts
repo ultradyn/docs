@@ -479,36 +479,43 @@ describe("repair repository refuses ancestor directory symbolic links", () => {
 
 describe("repair repository binds root descriptor without realpath TOCTOU", () => {
   it("fails closed on root swap before descriptor open without writing outside", async () => {
-    const outsideDir = join(root, "outside-root");
-    await mkdir(outsideDir, { recursive: true });
+    // Outside probe must NOT live under `root` — the swap renames the whole root.
+    const outsideDir = await mkdtemp(join(tmpdir(), "repair-outside-root-"));
     const marker = join(outsideDir, "PROBE");
     await writeFile(marker, "outside-before\n");
     const realRoot = `${root}.real`;
-    // Seed an empty real tree at the live root first.
     await mkdir(join(root, ".git"), { recursive: true });
 
-    const repo = createRepresentationRepairRepository({
-      root,
-      hooks: {
-        beforeRootDescriptorOpen: async () => {
-          // Race window: after caller path is known, replace the root node
-          // with a symlink to outside before the descriptor open.
-          await rename(root, realRoot);
-          await symlink(outsideDir, root);
+    try {
+      const repo = createRepresentationRepairRepository({
+        root,
+        hooks: {
+          beforeRootDescriptorOpen: async () => {
+            // Race window: after caller path is known, replace the root node
+            // with a symlink to outside before the descriptor open.
+            await rename(root, realRoot);
+            await symlink(outsideDir, root);
+          },
         },
-      },
-    });
-    const result = await repo.append(proposalRecord());
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
-    expect(await readFile(marker, "utf8")).toBe("outside-before\n");
-    const { readdir } = await import("node:fs/promises");
-    expect(
-      (await readdir(outsideDir)).filter((name) => name.endsWith(".json")),
-    ).toEqual([]);
-    // Restore so afterEach can clean the original root path.
-    await rm(root, { force: true });
-    await rename(realRoot, root);
+      });
+      const result = await repo.append(proposalRecord());
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
+      expect(await readFile(marker, "utf8")).toBe("outside-before\n");
+      const { readdir } = await import("node:fs/promises");
+      expect(
+        (await readdir(outsideDir)).filter((name) => name.endsWith(".json")),
+      ).toEqual([]);
+    } finally {
+      // Restore so afterEach can clean the original root path.
+      await rm(root, { force: true });
+      try {
+        await rename(realRoot, root);
+      } catch {
+        await mkdir(root, { recursive: true });
+      }
+      await rm(outsideDir, { recursive: true, force: true });
+    }
   });
 
   it("fails closed before any custody read when descriptor binding is unavailable", async () => {
