@@ -21,7 +21,7 @@ tasks:
       file: T001-t-31-01-implement-evidence-cri.todo
       id: T001
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-31-01 — Implement Evidence Critic contract and prompt
     - complexity: medium
