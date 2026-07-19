@@ -29,7 +29,8 @@ tasks:
       file: T002-t-22-02-implement-claim-candid.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-22-02 — Implement claim candidate search
     - complexity: medium
       depends_on:
