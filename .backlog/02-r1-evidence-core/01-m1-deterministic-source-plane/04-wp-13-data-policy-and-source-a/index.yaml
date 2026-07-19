@@ -32,7 +32,7 @@ tasks:
       file: T002-t-13-02-enforce-policy-at-retr.todo
       id: T002
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-13-02 — Enforce policy at retrieval/model boundaries
     - complexity: medium
