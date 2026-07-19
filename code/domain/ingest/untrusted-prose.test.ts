@@ -37,16 +37,21 @@ describe("UntrustedProse brand surface", () => {
     expect(isUntrustedProse("bare string")).toBe(false);
   });
 
-  it("type: public .text does not exist — hatch is the only character path", () => {
-    // IMPORTANT 1 fold: private #text means no public property access.
+  it("type: public .text / _exposeText do not exist — hatch is the only character path", () => {
+    // IMPORTANT 1 fold: private #text; no public property or _exposeText method.
     const branded = markUntrustedProse("smuggle");
     // @ts-expect-error .text must not be a public property on UntrustedProse
     const viaDot = branded.text;
     void viaDot;
+    // @ts-expect-error _exposeText must not be a public method (grep-bypass hole)
+    const viaExpose = branded._exposeText?.();
+    void viaExpose;
     // Only the hatch yields a string
     const viaHatch: string = deliberatelyExposeUntrustedProseToModel(branded);
     expect(viaHatch).toBe("smuggle");
     expect(branded instanceof UntrustedProse).toBe(true);
+    // Serialisation drops private #text (footgun + leak resistance)
+    expect(JSON.stringify(branded)).toBe("{}");
   });
 
   it("type: hypothetical sendToModel(string) rejects UntrustedProse without hatch", () => {
