@@ -31,10 +31,12 @@ import {
 import {
   createEvidenceVerdictService,
   createInMemoryEvidenceVerdictStore,
+  createInMemoryQuestionFacetReader,
   createFileEvidenceVerdictStore,
   deriveEvidenceVerdictId,
   type EvidencePacketReader,
   type PacketVerifier,
+  type QuestionFacetReader,
   type ReceiptFailureReader,
 } from "./evidence-verdict-service.js";
 
@@ -213,12 +215,19 @@ function acceptedInput(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function defaultFacets(): QuestionFacetReader {
+  return createInMemoryQuestionFacetReader(
+    new Map([[QUESTION, ["purpose", "components"]]]),
+  );
+}
+
 function service(
   overrides: {
     packets?: EvidencePacketReader;
     receipts?: ReceiptFailureReader;
     verifier?: PacketVerifier;
     store?: ReturnType<typeof createInMemoryEvidenceVerdictStore>;
+    facets?: QuestionFacetReader;
   } = {},
 ) {
   return createEvidenceVerdictService({
@@ -226,6 +235,7 @@ function service(
     packets: overrides.packets ?? packetReader(),
     receipts: overrides.receipts ?? receiptReader(),
     verifier: overrides.verifier ?? verifierOk(),
+    facets: overrides.facets ?? defaultFacets(),
   });
 }
 
@@ -236,6 +246,7 @@ describe("createEvidenceVerdictService construction", () => {
         store: createInMemoryEvidenceVerdictStore(),
         receipts: receiptReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       } as never),
     ).toThrow(/packets/i);
   });
@@ -246,6 +257,7 @@ describe("createEvidenceVerdictService construction", () => {
         store: createInMemoryEvidenceVerdictStore(),
         packets: packetReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       } as never),
     ).toThrow(/receipts/i);
   });
@@ -256,8 +268,20 @@ describe("createEvidenceVerdictService construction", () => {
         store: createInMemoryEvidenceVerdictStore(),
         packets: packetReader(),
         receipts: receiptReader(),
+        facets: defaultFacets(),
       } as never),
     ).toThrow(/verifier/i);
+  });
+
+  it("requires facets reader at construction", () => {
+    expect(() =>
+      createEvidenceVerdictService({
+        store: createInMemoryEvidenceVerdictStore(),
+        packets: packetReader(),
+        receipts: receiptReader(),
+        verifier: verifierOk(),
+      } as never),
+    ).toThrow(/facet/i);
   });
 });
 
@@ -337,20 +361,15 @@ describe("apply — accepted lifecycle (River §3.3–3.4)", () => {
   });
 
   it("rejects accepted when a required facet is omitted entirely", async () => {
+    // Authority requires purpose+components; omit components from facetStates.
     const result = await service().apply(
       acceptedInput({
-        requiredFacetIds: ["purpose", "components", "boundary"],
+        requiredFacetIds: ["purpose", "components"],
         facetStates: [
           {
             facetId: "purpose",
             state: "satisfied",
             sourceUnitIds: [UNIT_A],
-            reason: "ok",
-          },
-          {
-            facetId: "components",
-            state: "satisfied",
-            sourceUnitIds: [UNIT_B],
             reason: "ok",
           },
         ],
@@ -567,11 +586,16 @@ describe("apply — retrieval outage cannot become no_supported_answer (River §
       questionId: QUESTION,
       packetId: PACKET_ID,
       packetVersion: 1,
-      requiredFacetIds: ["purpose"],
+      requiredFacetIds: ["purpose", "components"],
       referenceReviews: [],
       facetStates: [
         {
           facetId: "purpose",
+          state: "unsupported_in_snapshot",
+          reason: "No supporting unit under healthy search.",
+        },
+        {
+          facetId: "components",
           state: "unsupported_in_snapshot",
           reason: "No supporting unit under healthy search.",
         },
@@ -1009,6 +1033,7 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         packets: packetReader(),
         receipts: receiptReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       });
       const first = await svc.apply(acceptedInput());
       expect(first.ok).toBe(true);
@@ -1027,6 +1052,7 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         packets: packetReader(),
         receipts: receiptReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       });
       const latest = await freshSvc.latest(first.value.id);
       expect(latest.ok).toBe(true);
@@ -1055,6 +1081,7 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         packets: packetReader(),
         receipts: receiptReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       });
       await expect(svc.apply(acceptedInput())).rejects.toThrow(
         /injected-crash/,
@@ -1079,6 +1106,7 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         packets: packetReader(),
         receipts: receiptReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       });
       const first = await svc.apply({
         ...acceptedInput(),
@@ -1090,6 +1118,7 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         packets: packetReader(),
         receipts: receiptReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       });
       const replay = await freshSvc.apply({
         ...acceptedInput(),
@@ -1104,6 +1133,7 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         packets: packetReader(),
         receipts: receiptReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       }).apply({
         ...acceptedInput({ criticisms: ["different"] }),
         idempotencyKey: "dur-1",
@@ -1152,6 +1182,7 @@ describe("durable store / crash / custody seams (River §3.9)", () => {
         packets: packetReader(),
         receipts: receiptReader(),
         verifier: verifierOk(),
+        facets: defaultFacets(),
       });
       const first = await svc.apply(acceptedInput());
       expect(first.ok).toBe(true);

@@ -45,6 +45,7 @@ export type EvidenceVerdictServiceError =
   | "PACKET_UNVERIFIED"
   | "FACET_UNSATISFIED"
   | "FACET_REQUIRED_NA"
+  | "FACET_AUTHORITY"
   | "REFERENCE_UNCLASSIFIED"
   | "REFERENCE_INVALID"
   | "EMPTY_PACKET"
@@ -128,6 +129,28 @@ export interface EvidenceVerdictStore {
   lookupIdempotency?(
     key: string,
   ): Promise<{ digest: string; verdict: EvidenceVerdict } | undefined>;
+  /**
+   * Pre-publication operation intent: binds exact idempotency key + commandDigest
+   * + intended record id/version + payload digest. Required for same-key orphan recovery.
+   */
+  writeOperationIntent?(intent: {
+    readonly key: string;
+    readonly commandDigest: string;
+    readonly recordId: string;
+    readonly version: number;
+    readonly payloadDigest: string;
+  }): Promise<void>;
+  lookupOperationIntent?(key: string): Promise<
+    | {
+        readonly key: string;
+        readonly commandDigest: string;
+        readonly recordId: string;
+        readonly version: number;
+        readonly payloadDigest: string;
+      }
+    | undefined
+  >;
+  clearOperationIntent?(key: string): Promise<void>;
 }
 
 export interface EvidenceVerdictService {
@@ -190,7 +213,8 @@ function mapCustodyError(
   }
   if (
     error.message.includes("injected-crash") ||
-    /afterTempWrite/i.test(error.message)
+    error.message.includes("injected-crash-op") ||
+    /afterTempWrite|afterImmutablePublish/i.test(error.message)
   ) {
     return "rethrow";
   }
@@ -306,6 +330,16 @@ function computeTransition(
 export function createInMemoryEvidenceVerdictStore(): EvidenceVerdictStore {
   const verdicts = new Map<string, EvidenceVerdict>();
   const idem = new Map<string, { digest: string; verdict: EvidenceVerdict }>();
+  const intents = new Map<
+    string,
+    {
+      key: string;
+      commandDigest: string;
+      recordId: string;
+      version: number;
+      payloadDigest: string;
+    }
+  >();
   const holder = new AsyncLocalStorage<true>();
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -359,6 +393,16 @@ export function createInMemoryEvidenceVerdictStore(): EvidenceVerdictStore {
           }
         : undefined;
     },
+    async writeOperationIntent(intent) {
+      intents.set(intent.key, { ...intent });
+    },
+    async lookupOperationIntent(idKey) {
+      const intent = intents.get(idKey);
+      return intent ? { ...intent } : undefined;
+    },
+    async clearOperationIntent(idKey) {
+      intents.delete(idKey);
+    },
     locked(operation) {
       if (holder.getStore()) return operation();
       const run = () => holder.run(true, operation);
@@ -385,6 +429,57 @@ function errorCode(error: unknown): string | undefined {
 /** Test-only fault seam — not part of the public knowledge barrel contract. */
 interface FileEvidenceVerdictStoreHooks {
   afterTempWriteBeforePublish?: () => void | Promise<void>;
+  /** Fires after immutable verdict is published, before op/idempotency commit. */
+  afterImmutablePublishBeforeOpCommit?: () => void | Promise<void>;
+}
+
+/**
+ * Validate an idempotency operation mapping against the expected command digest
+ * and durable record identity. Fail-closed on mismatch or corrupt shape.
+ * Exported for custody reconstruction tests; not a permissive replay grant.
+ */
+export function validateIdempotencyOperation(
+  mapping: unknown,
+  expected: {
+    readonly digest: string;
+    readonly verdictId?: string;
+    readonly version?: number;
+  },
+): boolean {
+  if (
+    mapping === null ||
+    typeof mapping !== "object" ||
+    Array.isArray(mapping) ||
+    Object.getPrototypeOf(mapping) !== Object.prototype
+  ) {
+    return false;
+  }
+  const record = mapping as {
+    digest?: unknown;
+    verdict?: { id?: unknown; version?: unknown };
+  };
+  if (typeof record.digest !== "string" || record.digest !== expected.digest) {
+    return false;
+  }
+  if (expected.verdictId !== undefined) {
+    if (
+      !record.verdict ||
+      typeof record.verdict !== "object" ||
+      record.verdict.id !== expected.verdictId
+    ) {
+      return false;
+    }
+  }
+  if (expected.version !== undefined) {
+    if (
+      !record.verdict ||
+      typeof record.verdict !== "object" ||
+      record.verdict.version !== expected.version
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -411,6 +506,15 @@ export function createFileEvidenceVerdictStore(
       >,
       lookupIdempotency: unavailable as NonNullable<
         EvidenceVerdictStore["lookupIdempotency"]
+      >,
+      writeOperationIntent: unavailable as NonNullable<
+        EvidenceVerdictStore["writeOperationIntent"]
+      >,
+      lookupOperationIntent: unavailable as NonNullable<
+        EvidenceVerdictStore["lookupOperationIntent"]
+      >,
+      clearOperationIntent: unavailable as NonNullable<
+        EvidenceVerdictStore["clearOperationIntent"]
       >,
     };
   }
@@ -674,6 +778,10 @@ export function createFileEvidenceVerdictStore(
         } finally {
           await journal.close();
         }
+        // Immutable published — op/idempotency commit happens in rememberIdempotency.
+        if (hooks.afterImmutablePublishBeforeOpCommit) {
+          await hooks.afterImmutablePublishBeforeOpCommit();
+        }
         return "created";
       } catch (error) {
         await rm(temporary, { force: true }).catch(() => undefined);
@@ -747,6 +855,78 @@ export function createFileEvidenceVerdictStore(
         await journal.close();
       }
     },
+    async writeOperationIntent(intent) {
+      const journal = await openBoundPath(JOURNAL_COMPONENTS);
+      try {
+        const path = journal.at(`op-intent-${sha256Hex(intent.key)}.json`);
+        const bytes = JSON.stringify({
+          key: intent.key,
+          commandDigest: intent.commandDigest,
+          recordId: intent.recordId,
+          version: intent.version,
+          payloadDigest: intent.payloadDigest,
+        });
+        const temporary = `${path}.${process.pid}.tmp`;
+        const file = await open(
+          temporary,
+          constants.O_WRONLY |
+            constants.O_CREAT |
+            constants.O_EXCL |
+            constants.O_NOFOLLOW,
+          0o600,
+        );
+        try {
+          await file.writeFile(bytes);
+          await file.sync();
+        } finally {
+          await file.close();
+        }
+        await rm(path, { force: true }).catch(() => undefined);
+        await rename(temporary, path);
+      } finally {
+        await journal.close();
+      }
+    },
+    async lookupOperationIntent(idKey) {
+      const journal = await openBoundPath(JOURNAL_COMPONENTS);
+      try {
+        const path = journal.at(`op-intent-${sha256Hex(idKey)}.json`);
+        try {
+          const existing = await readFile(path, "utf8");
+          const parsed = JSON.parse(existing) as {
+            key: string;
+            commandDigest: string;
+            recordId: string;
+            version: number;
+            payloadDigest: string;
+          };
+          if (
+            typeof parsed.key !== "string" ||
+            typeof parsed.commandDigest !== "string" ||
+            typeof parsed.recordId !== "string" ||
+            typeof parsed.version !== "number" ||
+            typeof parsed.payloadDigest !== "string"
+          ) {
+            return undefined;
+          }
+          return deepFreeze(parsed);
+        } catch (error) {
+          if (errorCode(error) === "ENOENT") return undefined;
+          return undefined;
+        }
+      } finally {
+        await journal.close();
+      }
+    },
+    async clearOperationIntent(idKey) {
+      const journal = await openBoundPath(JOURNAL_COMPONENTS);
+      try {
+        const path = journal.at(`op-intent-${sha256Hex(idKey)}.json`);
+        await rm(path, { force: true });
+      } finally {
+        await journal.close();
+      }
+    },
     locked(operation) {
       if (holder.getStore()) return operation();
       const run = () => holder.run(true, operation);
@@ -760,13 +940,36 @@ export function createFileEvidenceVerdictStore(
   };
 }
 
+export interface QuestionFacetReader {
+  getRequiredFacetIds(
+    questionId: string,
+  ): Promise<readonly string[] | undefined>;
+}
+
+/** Deterministic fake for local tests — not a permissive production default. */
+export function createInMemoryQuestionFacetReader(
+  map: Map<string, readonly string[]>,
+): QuestionFacetReader {
+  return {
+    async getRequiredFacetIds(questionId) {
+      const value = map.get(questionId);
+      return value === undefined ? undefined : [...value];
+    },
+  };
+}
+
+function sortedUniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
 export function createEvidenceVerdictService(options: {
   readonly store: EvidenceVerdictStore;
   readonly packets: EvidencePacketReader;
   readonly receipts: ReceiptFailureReader;
   readonly verifier: PacketVerifier;
+  readonly facets: QuestionFacetReader;
 }): EvidenceVerdictService {
-  const { store, packets, receipts, verifier } = options;
+  const { store, packets, receipts, verifier, facets } = options;
   if (!packets || typeof packets.get !== "function") {
     throw new Error("EvidencePacketReader (packets) is required.");
   }
@@ -775,6 +978,9 @@ export function createEvidenceVerdictService(options: {
   }
   if (!verifier || typeof verifier.verifyReferences !== "function") {
     throw new Error("PacketVerifier (verifier) is required.");
+  }
+  if (!facets || typeof facets.getRequiredFacetIds !== "function") {
+    throw new Error("QuestionFacetReader (facets) is required.");
   }
 
   return {
@@ -839,36 +1045,40 @@ export function createEvidenceVerdictService(options: {
       }
       const packetVersion = packetVersionProp.value;
 
+      // Parse caller requiredFacetIds shape early; authority equality after packet bind.
       const requiredProp = ownData(input, "requiredFacetIds");
-      if (!requiredProp.ok || !requiredProp.present) {
-        return failure("INVALID_INPUT", "requiredFacetIds is required.");
+      let callerRequiredFacetIds: string[] | undefined;
+      if (!requiredProp.ok) {
+        return failure("INVALID_INPUT", "Hostile requiredFacetIds.");
       }
-      if (
-        !Array.isArray(requiredProp.value) ||
-        Object.getPrototypeOf(requiredProp.value) !== Array.prototype
-      ) {
-        return failure(
-          "INVALID_INPUT",
-          "requiredFacetIds must be a plain array.",
-        );
-      }
-      if (requiredProp.value.length === 0) {
-        return failure("INVALID_INPUT", "requiredFacetIds must be non-empty.");
-      }
-      const requiredFacetIds: string[] = [];
-      for (let index = 0; index < requiredProp.value.length; index += 1) {
-        const item = ownData(requiredProp.value as object, String(index));
-        if (!item.ok || !item.present || typeof item.value !== "string") {
-          return failure("INVALID_INPUT", "Hostile requiredFacetIds entry.");
+      if (requiredProp.present) {
+        if (
+          !Array.isArray(requiredProp.value) ||
+          Object.getPrototypeOf(requiredProp.value) !== Array.prototype
+        ) {
+          return failure(
+            "INVALID_INPUT",
+            "requiredFacetIds must be a plain array.",
+          );
         }
-        if (item.value.length === 0 || item.value.length > 128) {
-          return failure("INVALID_INPUT", "requiredFacetId is invalid.");
+        if (requiredProp.value.length === 0) {
+          return failure("INVALID_INPUT", "requiredFacetIds must be non-empty.");
         }
-        requiredFacetIds.push(item.value);
-      }
-      const requiredSet = new Set(requiredFacetIds);
-      if (requiredSet.size !== requiredFacetIds.length) {
-        return failure("INVALID_INPUT", "requiredFacetIds must be unique.");
+        const caller: string[] = [];
+        for (let index = 0; index < requiredProp.value.length; index += 1) {
+          const item = ownData(requiredProp.value as object, String(index));
+          if (!item.ok || !item.present || typeof item.value !== "string") {
+            return failure("INVALID_INPUT", "Hostile requiredFacetIds entry.");
+          }
+          if (item.value.length === 0 || item.value.length > 128) {
+            return failure("INVALID_INPUT", "requiredFacetId is invalid.");
+          }
+          caller.push(item.value);
+        }
+        if (new Set(caller).size !== caller.length) {
+          return failure("INVALID_INPUT", "requiredFacetIds must be unique.");
+        }
+        callerRequiredFacetIds = caller;
       }
 
       const verdictProp = ownData(input, "verdict");
@@ -1054,6 +1264,43 @@ export function createEvidenceVerdictService(options: {
           "packet identity mismatch with store.",
         );
       }
+
+      // Authoritative facets — after packet bind; fail closed if unavailable.
+      const authorityFacets = await facets.getRequiredFacetIds(questionId);
+      if (
+        authorityFacets === undefined ||
+        !Array.isArray(authorityFacets) ||
+        authorityFacets.length === 0
+      ) {
+        return failure(
+          "FACET_AUTHORITY",
+          "Authoritative required facets unavailable for question.",
+        );
+      }
+      const canonicalFacets = sortedUniqueStrings(authorityFacets);
+      if (canonicalFacets.length === 0) {
+        return failure(
+          "FACET_AUTHORITY",
+          "Authoritative required facets empty.",
+        );
+      }
+      let requiredFacetIds: string[];
+      if (callerRequiredFacetIds === undefined) {
+        requiredFacetIds = canonicalFacets;
+      } else {
+        const callerSorted = sortedUniqueStrings(callerRequiredFacetIds);
+        if (
+          callerSorted.length !== canonicalFacets.length ||
+          callerSorted.some((value, index) => value !== canonicalFacets[index])
+        ) {
+          return failure(
+            "FACET_AUTHORITY",
+            "Caller requiredFacetIds must exactly match authoritative facets.",
+          );
+        }
+        requiredFacetIds = canonicalFacets;
+      }
+      const requiredSet = new Set(requiredFacetIds);
 
       const verified = await verifier.verifyReferences(packetId, packetVersion);
       if (!verified.ok) {
@@ -1246,12 +1493,7 @@ export function createEvidenceVerdictService(options: {
         }
       }
 
-      const packetDigest = canonicalPacketPayloadDigest({
-        questionId: packet.questionId,
-        receiptId: packet.receiptId,
-        receiptDigest: packet.receiptDigest,
-        references: packet.references,
-      });
+      const packetDigest = canonicalPacketPayloadDigest(packet);
 
       const frozenReviews = Object.freeze(
         reviews.map((review) =>
@@ -1321,24 +1563,98 @@ export function createEvidenceVerdictService(options: {
 
       try {
         return await store.locked(async () => {
-          if (idempotencyKey !== undefined) {
-            const idKey = `${verdictId}:${idempotencyKey}`;
-            if (store.lookupIdempotency) {
-              const prior = await store.lookupIdempotency(idKey);
-              if (prior) {
-                if (prior.digest !== digest) {
-                  return failure(
-                    "IDEMPOTENCY_CONFLICT",
-                    "Idempotency key reused with a different payload.",
+          const idKey =
+            idempotencyKey !== undefined
+              ? `${verdictId}:${idempotencyKey}`
+              : undefined;
+
+          if (idKey !== undefined && store.lookupIdempotency) {
+            const prior = await store.lookupIdempotency(idKey);
+            if (prior) {
+              if (
+                !validateIdempotencyOperation(prior, {
+                  digest,
+                  verdictId: prior.verdict.id,
+                  version: prior.verdict.version,
+                }) ||
+                prior.digest !== digest
+              ) {
+                return failure(
+                  "IDEMPOTENCY_CONFLICT",
+                  "Idempotency key reused with a different payload.",
+                );
+              }
+              return success(
+                deepFreeze(structuredClone(prior.verdict)),
+                computeTransition(
+                  prior.verdict.verdict,
+                  prior.verdict.facetStates,
+                ),
+              );
+            }
+          }
+
+          // Same-key orphan recovery: durable op intent + exact record.
+          if (idKey !== undefined && store.lookupOperationIntent) {
+            const intent = await store.lookupOperationIntent(idKey);
+            if (intent) {
+              if (intent.commandDigest !== digest) {
+                return failure(
+                  "IDEMPOTENCY_CONFLICT",
+                  "Idempotency key reused with a different payload.",
+                );
+              }
+              const record = await store.get(
+                intent.recordId as EvidenceVerdictId,
+                intent.version,
+              );
+              if (record) {
+                const recordDigest = canonicalVerdictPayloadDigest({
+                  questionId: record.questionId,
+                  packetId: record.packetId,
+                  packetVersion: record.packetVersion,
+                  packetDigest: record.packetDigest,
+                  referenceReviews: record.referenceReviews,
+                  facetStates: record.facetStates,
+                  verdict: record.verdict,
+                  criticisms: record.criticisms,
+                  followUpRequest: record.followUpRequest,
+                });
+                if (
+                  record.id === intent.recordId &&
+                  record.version === intent.version &&
+                  recordDigest === intent.payloadDigest &&
+                  recordDigest === digest &&
+                  intent.commandDigest === digest
+                ) {
+                  if (store.rememberIdempotency) {
+                    const remembered = await store.rememberIdempotency(
+                      idKey,
+                      digest,
+                      record,
+                    );
+                    if (remembered === "conflict") {
+                      return failure(
+                        "IDEMPOTENCY_CONFLICT",
+                        "Idempotency key reused with a different payload.",
+                      );
+                    }
+                  }
+                  if (store.clearOperationIntent) {
+                    await store.clearOperationIntent(idKey);
+                  }
+                  return success(
+                    deepFreeze(structuredClone(record)),
+                    computeTransition(record.verdict, record.facetStates),
                   );
                 }
-                return success(
-                  deepFreeze(structuredClone(prior.verdict)),
-                  computeTransition(
-                    prior.verdict.verdict,
-                    prior.verdict.facetStates,
-                  ),
+                return failure(
+                  "IDEMPOTENCY_CONFLICT",
+                  "Operation intent does not match durable record.",
                 );
+              }
+              if (store.clearOperationIntent) {
+                await store.clearOperationIntent(idKey);
               }
             }
           }
@@ -1382,6 +1698,16 @@ export function createEvidenceVerdictService(options: {
             return failure("INVALID_INPUT", "Derived verdict failed schema.");
           }
 
+          if (idKey !== undefined && store.writeOperationIntent) {
+            await store.writeOperationIntent({
+              key: idKey,
+              commandDigest: digest,
+              recordId: record.id,
+              version: record.version,
+              payloadDigest: digest,
+            });
+          }
+
           const appendResult = await store.append(record);
           if (appendResult === "exists_conflict") {
             return failure(
@@ -1389,9 +1715,9 @@ export function createEvidenceVerdictService(options: {
               "Append-only store refused to overwrite verdict version.",
             );
           }
-          if (idempotencyKey !== undefined && store.rememberIdempotency) {
+          if (idKey !== undefined && store.rememberIdempotency) {
             const remembered = await store.rememberIdempotency(
-              `${verdictId}:${idempotencyKey}`,
+              idKey,
               digest,
               record,
             );
@@ -1401,6 +1727,9 @@ export function createEvidenceVerdictService(options: {
                 "Idempotency key reused with a different payload.",
               );
             }
+          }
+          if (idKey !== undefined && store.clearOperationIntent) {
+            await store.clearOperationIntent(idKey);
           }
           return success(record, transition);
         });
