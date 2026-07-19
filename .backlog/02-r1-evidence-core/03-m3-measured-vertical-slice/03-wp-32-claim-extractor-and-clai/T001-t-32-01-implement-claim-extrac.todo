@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-19T15:38:37Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-18T08:10:11Z"
 depends_on:
@@ -7,13 +10,11 @@ depends_on:
 estimate_hours: 5
 id: P2.M3.E3.T001
 priority: high
-status: pending
-tags:
-    - wp-32
-    - t-32-01
-    - ingest-v3
+started_at: "2026-07-19T15:38:37Z"
+status: in_progress
+tags: []
 title: T-32-01 — Implement Claim Extractor agent
-updated_at: "2026-07-18T08:10:11Z"
+updated_at: "2026-07-19T15:38:37Z"
 ---
 Bundle provenance: WP-32 / T-32-01
 

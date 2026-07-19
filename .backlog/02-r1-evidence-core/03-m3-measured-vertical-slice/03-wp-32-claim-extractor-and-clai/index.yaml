@@ -20,7 +20,8 @@ tasks:
       file: T001-t-32-01-implement-claim-extrac.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-32-01 — Implement Claim Extractor agent
     - complexity: medium
       depends_on:
