@@ -1071,3 +1071,81 @@ describe("public seams", () => {
     ).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B001 — markStaleFromSourceChange must not report unwritten claims as staled.
+//
+// ClaimStore.append returns created | exists_identical | exists_conflict.
+// markStale previously DISCARDED that verdict and pushed the claim into its
+// success list regardless. On exists_conflict the stale write does not land,
+// yet callers were told the claim was invalidated — fail-open on an
+// invalidation path, which keeps stale evidence trusted.
+// ---------------------------------------------------------------------------
+describe("B001 markStale honours the append verdict", () => {
+  it("does NOT report a claim as staled when the append conflicts", async () => {
+    const store = createInMemoryClaimStore();
+    const real = store.append.bind(store);
+    let conflictArmed = false;
+    const conflicting: typeof store = {
+      ...store,
+      append: async (claim) => {
+        // Only sabotage the stale write, never the setup writes.
+        if (conflictArmed && claim.state === "stale") return "exists_conflict";
+        return real(claim);
+      },
+    };
+
+    const r = repo({ store: conflicting });
+    const created = await r.create(createInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const accepted = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    expect(accepted.ok).toBe(true);
+
+    conflictArmed = true;
+    const stale = await r.markStaleFromSourceChange({
+      snapshotId: SNAPSHOT,
+      unitIds: [UNIT],
+      reason: "unit content changed",
+    });
+
+    // The write did NOT land, so the claim must NOT be reported as staled.
+    if (stale.ok) {
+      expect(
+        stale.value.some((c) => c.id === created.value.id),
+        "claim was reported staled but its append returned exists_conflict",
+      ).toBe(false);
+    }
+    // And the durable state must still be 'accepted', not 'stale'.
+    const got = await r.get(created.value.id);
+    expect(got.ok).toBe(true);
+    if (!got.ok) return;
+    expect(got.value.state).toBe("accepted");
+  });
+
+  it("POSITIVE CONTROL: reports the claim as staled when the append succeeds", async () => {
+    const r = repo();
+    const created = await r.create(createInput());
+    if (!created.ok) return;
+    await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    const stale = await r.markStaleFromSourceChange({
+      snapshotId: SNAPSHOT,
+      unitIds: [UNIT],
+      reason: "unit content changed",
+    });
+    expect(stale.ok).toBe(true);
+    if (!stale.ok) return;
+    // Proves the negative test above is not passing merely by absence.
+    expect(stale.value.some((c) => c.id === created.value.id)).toBe(true);
+  });
+});

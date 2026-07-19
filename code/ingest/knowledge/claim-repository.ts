@@ -1416,8 +1416,41 @@ export function createClaimRepository(options: {
               state: "stale" as const,
               reason,
             });
-            await store.append(next);
-            updated.push(next);
+            // B001: honour the append verdict. Discarding it reported claims as
+            // staled whose write never landed — fail-open on an INVALIDATION
+            // path, which silently keeps superseded evidence trusted.
+            const outcome = await store.append(next);
+            switch (outcome) {
+              case "created":
+              case "exists_identical":
+                // The stale record is durable; safe to report it.
+                updated.push(next);
+                break;
+              case "exists_conflict":
+                // A different record already occupies this version. The stale
+                // write did NOT land, so fail closed rather than claim it did.
+                //
+                // HONEST RESIDUAL: this aborts mid-loop, so stale records
+                // appended for EARLIER claims in this call remain durable while
+                // the call reports failure. The operation is NOT atomic across
+                // claims. That is safe to retry rather than merely tolerable:
+                // re-running re-derives identical stale records, which the store
+                // reports as exists_identical, so a retry converges instead of
+                // duplicating. Callers MUST retry; treating the failure as
+                // "nothing happened" would be wrong.
+                return failure(
+                  "COMMIT_FAILED",
+                  "stale write conflicted with an existing claim version",
+                );
+              default: {
+                const _exhaustive: never = outcome;
+                void _exhaustive;
+                return failure(
+                  "COMMIT_FAILED",
+                  "unknown claim store append outcome",
+                );
+              }
+            }
           }
           return success(Object.freeze(updated));
         });
