@@ -18,7 +18,7 @@ epics:
       locked: false
       name: WP-11 — Extraction and qualified representations
       path: 02-wp-11-extraction-and-qualified
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-12. Create stable source units and the default exact/lexical retrieval projection. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-12 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
