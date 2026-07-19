@@ -127,3 +127,13 @@ export {
   type AnswerValidity,
   type ReviewAnswerCompositionInput,
 } from "./answer-validity.js";
+
+// T004 — auditable selection via application refs on sealed pack.
+export {
+  PACK_SELECTION_HONESTY,
+  deriveClaimIdsFromApplicationRefs,
+  recomputeSealedPackHash,
+  verifyPackSelection,
+  type PackApplicationRef,
+  type PackSelectionVerifyResult,
+} from "./pack-application-audit.js";

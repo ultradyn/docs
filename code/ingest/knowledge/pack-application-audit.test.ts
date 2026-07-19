@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Claim } from "../../domain/ingest/claim.js";
 import type { SealedClaimPack } from "../../domain/ingest/sealed-claim-pack.js";
+import type { ClaimReviewId } from "../../domain/ingest/claim-review.js";
 import type { ClaimId, GraphRevision, Sha256 } from "../../domain/ingest/types.js";
 
 import {
@@ -71,19 +72,19 @@ function applicationRefs(): PackApplicationRef[] {
   return [
     {
       applicationId: "app-accept-a",
-      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAA" as ClaimReviewId,
       claimId: CLM_A,
       decision: "accept",
     },
     {
       applicationId: "app-accept-b",
-      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAB",
+      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAB" as ClaimReviewId,
       claimId: CLM_B,
       decision: "accept",
     },
     {
       applicationId: "app-reject-c",
-      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAC",
+      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAC" as ClaimReviewId,
       claimId: CLM_REJECTED,
       decision: "reject",
     },
@@ -126,7 +127,10 @@ describe("pack application audit (T004)", () => {
   it("NAIL 4: honesty header does not claim decision correctness", () => {
     expect(PACK_SELECTION_HONESTY).toMatch(/selection matches the recorded decisions/i);
     expect(PACK_SELECTION_HONESTY).toMatch(/does not prove the decisions were correct/i);
-    expect(PACK_SELECTION_HONESTY).not.toMatch(/decisions were correct(?!)/i);
+    // Must not over-claim that recorded decisions are correct.
+    expect(PACK_SELECTION_HONESTY.toLowerCase()).not.toContain(
+      "proves the decisions were correct",
+    );
   });
 
   it("NAIL 1a: recomputeSealedPackHash equals pack.hash when refs are a field", () => {

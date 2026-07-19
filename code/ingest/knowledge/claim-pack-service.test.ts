@@ -179,7 +179,7 @@ describe("happy path + seal purity", () => {
     const result = await pack.build(QUESTION, REVISION);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.schemaVersion).toBe(1);
+    expect(result.value.schemaVersion).toBe(2);
     expect(result.value.questionId).toBe(QUESTION);
     expect(result.value.graphRevision).toBe(REVISION);
     expect(result.value.claimIds).toHaveLength(2);
@@ -414,5 +414,64 @@ describe("qualifier closure + launder", () => {
         (e) => e.from === subject.id && e.to === qual.id,
       ),
     ).toBe(true);
+  });
+});
+
+describe("T004 applicationRefs on built pack (Condition B)", () => {
+  it("build populates applicationRefs from store with accept AND reject (not claimIds-only)", async () => {
+    const { service, pack, applicationStore } = makeHarness();
+    const a = await seedProposed(service, {
+      statement: "Atlas stores knowledge in Git.",
+    });
+    const b = await seedProposed(service, {
+      statement: "Settings apply via documented procedure.",
+      evidenceRefs: [evidence(UNIT_Q, true)],
+    });
+    const rejected = await seedProposed(service, {
+      statement: "Rejected claim must not enter claimIds.",
+    });
+    await acceptClaim(service, a, "t004-accept-a");
+    await acceptClaim(service, b, "t004-accept-b");
+    // Independent reject decision in the store (witness for re-derive)
+    const rejectApp = await service.apply(
+      reviewDraft(rejected.id, {
+        id: nextCrv(),
+        decision: "reject",
+        reason: "Not entailed by evidence.",
+      }),
+      "t004-reject-c",
+    );
+    expect(rejectApp.ok).toBe(true);
+
+    const result = await pack.build(QUESTION, REVISION);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Field present, includes reject decision even though claimIds exclude it
+    expect(result.value.schemaVersion).toBe(2);
+    expect(result.value.applicationRefs.length).toBeGreaterThanOrEqual(3);
+    expect(
+      result.value.applicationRefs.some(
+        (r) => r.decision === "reject" && r.claimId === rejected.id,
+      ),
+    ).toBe(true);
+    expect(result.value.claimIds).toContain(a.id);
+    expect(result.value.claimIds).toContain(b.id);
+    expect(result.value.claimIds).not.toContain(rejected.id);
+
+    // Non-circular: refs count from store applications for this question
+    const apps = await applicationStore.listApplications();
+    const questionApps = apps.filter((app) =>
+      [a.id, b.id, rejected.id].includes(app.claimId),
+    );
+    expect(result.value.applicationRefs.length).toBe(questionApps.length);
+
+    // Seal recomputable; selection verifies
+    const {
+      recomputeSealedPackHash,
+      verifyPackSelection,
+    } = await import("./pack-application-audit.js");
+    expect(recomputeSealedPackHash(result.value)).toBe(result.value.hash);
+    expect(verifyPackSelection(result.value).ok).toBe(true);
   });
 });

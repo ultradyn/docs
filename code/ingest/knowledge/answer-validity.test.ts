@@ -89,7 +89,7 @@ function pack(
   graphRevision: GraphRevision = REVISION,
 ): SealedClaimPack {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     hash,
     questionId: QUESTION,
     graphRevision,
@@ -104,6 +104,7 @@ function pack(
       snapshotId: c.evidenceRefs[0]!.snapshotId,
     })),
     gaps: [],
+    applicationRefs: [],
   };
 }
 

@@ -7,7 +7,7 @@ const CLM_A = "clm-01ARZ3NDEKTSV4RRFFQ69G5FAA";
 const CLM_B = "clm-01ARZ3NDEKTSV4RRFFQ69G5FAB";
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const claim = (id: string, statement: string) => ({
-  schemaVersion: 1 as const,
+  schemaVersion: 2 as const,
   id,
   version: 1,
   statement,
@@ -40,7 +40,7 @@ const claims = [
   claim(CLM_B, "Settings apply through the documented procedure."),
 ];
 const pack = {
-  schemaVersion: 1 as const,
+  schemaVersion: 2 as const,
   hash: "a".repeat(64),
   questionId: QUESTION,
   graphRevision: 1,
@@ -55,6 +55,7 @@ const pack = {
     snapshotId: c.evidenceRefs[0]!.snapshotId,
   })),
   gaps: [] as string[],
+  applicationRefs: [] as [],
 };
 
 // 001 — proposed: goal tokens overlap pack statements

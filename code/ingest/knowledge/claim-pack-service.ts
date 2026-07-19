@@ -1,5 +1,5 @@
 /**
- * T-60-01 — Sealed claim-pack builder (on-demand, no durable pack store).
+ * T-60-01 / T004 — Sealed claim-pack builder (on-demand, no durable pack store).
  *
  * HONESTY (binding):
  * - Membership ONLY via ClaimReviewApplicationStore.listAcceptedClaimIds()
@@ -11,19 +11,22 @@
  * - Question-scoped: createdFrom.questionId must match pack questionId.
  * - Evidence refs COPIED from durable claims (inherited). Seal proves snapshot
  *   fidelity of selected claim versions — NOT that refs were packet-mapped at
- *   write time (T004). A sealed pack is the most authoritative-looking artifact
- *   in the system; it must not imply more than snapshot fidelity.
- * - Application refs NOT in v1 seal (P2.M3.E4.T004 follow-up).
+ *   write time.
+ * - T004: applicationRefs are populated INDEPENDENTLY from
+ *   ClaimReviewApplicationStore.listApplications() (accept AND reject
+ *   decisions for the question). They are NOT synthesized from claimIds —
+ *   that would make the selection audit circular/hollow.
+ * - Application refs prove selection matches RECORDED decisions; they do NOT
+ *   prove those decisions were correct.
  * - Required unaccepted qualifier → MISSING_QUALIFIER (not pull-in).
  * - Reject-then-qualify cannot launder into pack (qualify never writes
  *   acceptedClaimIds; store accepted−rejected excludes).
  * - Pure build: no Date.now / random / pid in hash material.
  * - Empty accepted set → empty pack ok:true (valid).
  */
-import { createHash } from "node:crypto";
-
 import type { Claim } from "../../domain/ingest/claim.js";
 import type {
+  PackApplicationRef,
   PackCitation,
   QualifierEdge,
   SealedClaimPack,
@@ -36,6 +39,7 @@ import type {
 } from "../../domain/ingest/types.js";
 import type { ClaimRepository } from "./claim-repository.js";
 import type { ClaimReviewApplicationStore } from "./claim-review-service.js";
+import { recomputeSealedPackHash } from "./pack-application-audit.js";
 
 export type ClaimPackError =
   | "INVALID_INPUT"
@@ -94,74 +98,8 @@ function cmpId(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function sha256Hex(material: string): Sha256 {
-  return createHash("sha256").update(material).digest("hex") as Sha256;
-}
-
-/**
- * Canonical JSON for hashing — key order fixed by construction (arrays only +
- * explicit field order in objects). No Date/random/pid.
- */
-function canonicalPackBody(input: {
-  questionId: string;
-  graphRevision: number;
-  claims: readonly Claim[];
-  qualifierEdges: readonly QualifierEdge[];
-  citations: readonly PackCitation[];
-  gaps: readonly string[];
-}): string {
-  const claims = [...input.claims]
-    .sort((a, b) => cmpId(a.id, b.id))
-    .map((c) => ({
-      id: c.id,
-      version: c.version,
-      statement: c.statement,
-      claimType: c.claimType,
-      scope: c.scope,
-      authority: c.authority,
-      lifecycle: c.lifecycle,
-      state: c.state,
-      evidenceRefs: [...c.evidenceRefs]
-        .sort((a, b) => cmpId(a.unitId, b.unitId))
-        .map((r) => ({
-          snapshotId: r.snapshotId,
-          fileId: r.fileId,
-          unitId: r.unitId,
-          fileSha256: r.fileSha256,
-          unitSha256: r.unitSha256,
-          ...(r.verified !== undefined ? { verified: r.verified } : {}),
-        })),
-      relationships: {
-        qualifierClaimIds: [...c.relationships.qualifierClaimIds].sort(cmpId),
-        contradictsClaimIds: [...c.relationships.contradictsClaimIds].sort(
-          cmpId,
-        ),
-        supersedesClaimIds: [...c.relationships.supersedesClaimIds].sort(cmpId),
-      },
-      createdFrom: c.createdFrom,
-    }));
-  const claimIds = claims.map((c) => c.id);
-  const qualifierEdges = [...input.qualifierEdges].sort((a, b) => {
-    const f = cmpId(a.from, b.from);
-    return f !== 0 ? f : cmpId(a.to, b.to);
-  });
-  const citations = [...input.citations].sort((a, b) => {
-    const c = cmpId(a.claimId, b.claimId);
-    return c !== 0 ? c : cmpId(a.unitId, b.unitId);
-  });
-  const gaps = [...input.gaps].sort(cmpId);
-  // Explicit field order — application refs intentionally omitted (v1).
-  return JSON.stringify({
-    schemaVersion: 1,
-    questionId: input.questionId,
-    graphRevision: input.graphRevision,
-    claimIds,
-    claims,
-    qualifierEdges,
-    citations,
-    gaps,
-  });
-}
+// Hash material is owned by recomputeSealedPackHash (pack-application-audit)
+// so builder and auditor cannot diverge.
 
 export function createClaimPackService(
   options: CreateClaimPackServiceOptions,
@@ -251,19 +189,31 @@ export function createClaimPackService(
       });
 
       const gaps: string[] = [];
-      const body = canonicalPackBody({
-        questionId,
-        graphRevision: expectedRevision,
-        claims: selected,
-        qualifierEdges,
-        citations,
-        gaps,
-      });
-      const hash = sha256Hex(body);
 
-      const pack: SealedClaimPack = deepFreeze({
-        schemaVersion: 1 as const,
-        hash,
+      // T004 Condition B: applicationRefs from store applications INDEPENDENTLY
+      // of claimIds (accept + reject for this question). Never synthesize from
+      // selected claim ids — that would make the audit circular.
+      const allApps = await applicationStore.listApplications();
+      const appRefById = new Map<string, PackApplicationRef>();
+      for (const app of allApps) {
+        const got = await claimRepo.get(app.claimId);
+        if (!got.ok) continue;
+        if (got.value.createdFrom.questionId !== questionId) continue;
+        if (app.decision !== "accept" && app.decision !== "reject") continue;
+        appRefById.set(app.applicationId, {
+          applicationId: app.applicationId,
+          reviewId: app.reviewId,
+          claimId: app.claimId,
+          decision: app.decision,
+        });
+      }
+      const applicationRefs = [...appRefById.values()].sort((a, b) =>
+        cmpId(a.applicationId, b.applicationId),
+      );
+
+      const packDraft: SealedClaimPack = {
+        schemaVersion: 2 as const,
+        hash: "0".repeat(64) as Sha256, // placeholder; overwritten from body
         questionId,
         graphRevision: expectedRevision as GraphRevision,
         claimIds: Object.freeze(selected.map((c) => c.id)),
@@ -271,6 +221,12 @@ export function createClaimPackService(
         qualifierEdges: Object.freeze(qualifierEdges),
         citations: Object.freeze(citations),
         gaps: Object.freeze(gaps),
+        applicationRefs: Object.freeze(applicationRefs),
+      };
+      const hash = recomputeSealedPackHash(packDraft);
+      const pack: SealedClaimPack = deepFreeze({
+        ...packDraft,
+        hash,
       });
       return ok(pack);
     },

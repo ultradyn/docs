@@ -1,7 +1,7 @@
 {
   "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "pack": {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "graphRevision": 1,
@@ -90,7 +90,8 @@
         "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
     ],
-    "gaps": []
+    "gaps": [],
+    "applicationRefs": []
   },
   "goals": [
     {

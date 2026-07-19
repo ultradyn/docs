@@ -65,7 +65,7 @@ function pack(
   hash: Sha256 = PACK_HASH,
 ): SealedClaimPack {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     hash,
     questionId: QUESTION,
     graphRevision: 1 as GraphRevision,
@@ -80,6 +80,7 @@ function pack(
       snapshotId: c.evidenceRefs[0]!.snapshotId,
     })),
     gaps: [],
+    applicationRefs: [],
   };
 }
 

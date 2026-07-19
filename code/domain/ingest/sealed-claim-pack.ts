@@ -1,10 +1,14 @@
 /**
- * T-60-01 — SealedClaimPack domain shape (content-addressed snapshot).
+ * T-60-01 / T004 — SealedClaimPack domain shape (content-addressed snapshot).
  *
  * HONESTY: evidence refs on sealed claims are INHERITED from durable claim
  * records. The seal proves snapshot fidelity of selected claim versions — it
  * does NOT re-verify that those refs were packet-mapped at write time (T004).
- * Application refs are NOT in v1 (follow-up P2.M3.E4.T004).
+ *
+ * T004: applicationRefs are a FIELD on the pack and in the seal hash so
+ * selection is auditable (re-derive accept−reject) as well as reproducible.
+ * Application refs prove selection matches RECORDED decisions; they do NOT
+ * prove those decisions were correct.
  */
 import { z } from "zod";
 
@@ -13,6 +17,10 @@ import {
   ClaimSchema,
   type Claim,
 } from "./claim.js";
+import {
+  ClaimReviewDecisionSchema,
+  ClaimReviewIdSchema,
+} from "./claim-review.js";
 import { QuestionIdSchema } from "./id-schemas.js";
 import type { ClaimId, GraphRevision, Sha256 } from "./types.js";
 
@@ -45,9 +53,21 @@ export const PackCitationSchema = z
 
 export type PackCitation = z.infer<typeof PackCitationSchema>;
 
+/** T004 — durable review application witness on the pack (audit material). */
+export const PackApplicationRefSchema = z
+  .object({
+    applicationId: z.string().min(1).max(128),
+    reviewId: ClaimReviewIdSchema,
+    claimId: ClaimIdSchema,
+    decision: ClaimReviewDecisionSchema,
+  })
+  .strict();
+
+export type PackApplicationRef = z.infer<typeof PackApplicationRefSchema>;
+
 export const SealedClaimPackSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     hash: Sha256Schema,
     questionId: QuestionIdSchema,
     graphRevision: z.number().int().nonnegative(),
@@ -56,11 +76,12 @@ export const SealedClaimPackSchema = z
     qualifierEdges: z.array(QualifierEdgeSchema).max(50_000),
     citations: z.array(PackCitationSchema).max(50_000),
     gaps: z.array(z.string().min(1).max(512)).max(1_024),
+    applicationRefs: z.array(PackApplicationRefSchema).max(50_000),
   })
   .strict();
 
 export type SealedClaimPack = {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly hash: Sha256;
   readonly questionId: string;
   readonly graphRevision: GraphRevision;
@@ -69,4 +90,5 @@ export type SealedClaimPack = {
   readonly qualifierEdges: readonly QualifierEdge[];
   readonly citations: readonly PackCitation[];
   readonly gaps: readonly string[];
+  readonly applicationRefs: readonly PackApplicationRef[];
 };
