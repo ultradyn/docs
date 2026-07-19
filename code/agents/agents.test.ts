@@ -205,4 +205,16 @@ describe("agent runtime public seam", () => {
       (await loadAgentDefinition(shippedAgentsRoot, "critic")).prompt,
     ).toMatch(/contradiction/i);
   });
+
+  it("ships behavioural golden coverage for every non-legacy agent (B008)", async () => {
+    const { validateAgentBehaviouralGoldens } = await import(
+      "./golden-behaviour.js"
+    );
+    const behavioural = await validateAgentBehaviouralGoldens(shippedAgentsRoot);
+    const failed = behavioural.filter((r) => !r.valid);
+    expect(
+      failed,
+      failed.map((f) => `${f.name}: ${f.errors.join("; ")}`).join(" | "),
+    ).toEqual([]);
+  });
 });
