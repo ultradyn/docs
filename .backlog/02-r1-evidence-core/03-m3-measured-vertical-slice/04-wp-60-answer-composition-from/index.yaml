@@ -22,7 +22,7 @@ tasks:
       file: T001-t-60-01-implement-sealed-claim.todo
       id: T001
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-60-01 — Implement sealed claim-pack builder
     - complexity: medium

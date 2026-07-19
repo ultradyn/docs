@@ -1,7 +1,7 @@
 ---
 claimed_at: "2026-07-19T17:50:48Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T18:05:08Z"
 complexity: medium
 created_at: "2026-07-18T08:10:11Z"
 depends_on:
@@ -9,14 +9,15 @@ depends_on:
     - P2.M2.E4.T003
     - P2.M3.E2.T002
     - P2.M3.E3.T002
+duration_minutes: 14.341252053883334
 estimate_hours: 5
 id: P2.M3.E4.T001
 priority: critical
 started_at: "2026-07-19T17:50:48Z"
-status: in_progress
+status: done
 tags: []
 title: T-60-01 — Implement sealed claim-pack builder
-updated_at: "2026-07-19T17:50:48Z"
+updated_at: "2026-07-19T18:05:08Z"
 ---
 Bundle provenance: WP-60 / T-60-01
 
