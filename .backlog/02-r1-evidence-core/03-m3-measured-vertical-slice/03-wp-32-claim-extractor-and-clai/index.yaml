@@ -40,7 +40,8 @@ tasks:
       file: T003-t-32-03-calibrate-claim-granul.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-32-03 — Calibrate claim granularity and relationships
     - complexity: medium
       depends_on: []
