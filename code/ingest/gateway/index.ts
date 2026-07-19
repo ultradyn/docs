@@ -21,3 +21,15 @@ export {
   type DependencyRelation,
   type StrongComponent,
 } from "./dependency-graph.js";
+
+// T-23-03 — invalidation propagation (plan + publishable gate).
+export {
+  assertPublishable,
+  createInvalidationService,
+  type ArtifactClass,
+  type ClassifiedArtifact,
+  type InvalidationError,
+  type InvalidationEvent,
+  type InvalidationPlan,
+  type InvalidationService,
+} from "./invalidation-service.js";
