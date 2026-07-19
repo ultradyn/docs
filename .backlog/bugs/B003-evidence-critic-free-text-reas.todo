@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-19T15:26:58Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T16:05:41Z"
 complexity: medium
 created_at: "2026-07-19T14:34:29Z"
 depends_on: []
+duration_minutes: 38.72739721825
 estimate_hours: 2
 id: B003
 priority: medium
 started_at: "2026-07-19T15:26:58Z"
-status: in_progress
+status: done
 tags: []
 title: Evidence Critic free-text reason can carry child-question prose; must never become a model input
-updated_at: "2026-07-19T15:26:58Z"
+updated_at: "2026-07-19T16:05:41Z"
 ---
 Residual from T-31-01 (River dual-axis, Important, accepted for v1 by coordinator).
 
