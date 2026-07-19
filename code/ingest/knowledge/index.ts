@@ -14,13 +14,29 @@ export {
   type EvidenceHistoryPacketStore,
   type EvidenceHistoryVerdictStore,
 } from "./evidence-loop-policy.js";
-export * from "./evidence-service.js";
+// Explicit re-exports (was `export *`), so a testing-only store cannot reach the
+// public barrel by accident. createInMemoryEvidencePacketStore is testing-only —
+// import from the module path (same discipline as createInMemoryClaimStore).
+export {
+  createEvidenceService,
+  createFileEvidencePacketStore,
+  deriveEvidencePacketId,
+  receiptDigestOf,
+  validateIdempotencyOperation,
+  type EvidenceServiceError,
+  type SourceHashContext,
+  type QuestionLinkReader,
+  type ReceiptReader,
+  type EvidencePacketStore,
+  type EvidenceService,
+} from "./evidence-service.js";
 // Explicit re-exports: avoid validateIdempotencyOperation name clash with evidence-service.
 // Module paths still export validateIdempotencyOperation for custody tests.
 // createInMemoryQuestionFacetReader is testing-only — import from module path, not barrel.
+// createInMemoryEvidenceVerdictStore is testing-only — import from the module
+// path, not this barrel (same discipline as createInMemoryClaimStore).
 export {
   createEvidenceVerdictService,
-  createInMemoryEvidenceVerdictStore,
   createFileEvidenceVerdictStore,
   deriveEvidenceVerdictId,
   type EvidenceVerdictServiceError,
