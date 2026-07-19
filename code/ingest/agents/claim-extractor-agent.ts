@@ -16,6 +16,9 @@
  *   do not feed proposal text into a model path without an explicit expose.
  * - Agent supplies unit IDs only; full evidenceRefs (snapshot/hash/locator)
  *   would be mapped from the packet at apply time (follow-up).
+ * - candidateRelationships ids are free-string CANDIDATES only — not verified
+ *   against the packet here. Apply (P2.M3.E3.T004) must re-resolve or drop
+ *   unknown relationship targets; do not treat them as authority.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
