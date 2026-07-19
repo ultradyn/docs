@@ -1,0 +1,29 @@
+---
+complexity: medium
+created_at: "2026-07-19T12:59:07Z"
+depends_on:
+    - P2.M3.E1.T002
+estimate_hours: 3
+id: P2.M3.E1.T004
+priority: high
+status: pending
+tags:
+    - agents
+    - retrieval
+    - security
+title: Bind Researcher receipts to real tool invocations (authenticity)
+updated_at: "2026-07-19T12:59:07Z"
+---
+Follow-up from T-30-02 independent review (River, Tier B PASS, Important finding #2).
+
+PROBLEM — trust boundary. T-30-02's acceptance criterion 'no-evidence includes a sufficient receipt' exists so the Researcher cannot claim it found nothing WITHOUT HAVING ACTUALLY LOOKED. As shipped, runResearcher validates receipts that the CALLER supplies. The guarantee is therefore only as strong as the caller: a fabricated receipt that is structurally well-formed satisfies the check. T-30-02 strengthens the structural validation and documents this limitation honestly in-code, but does not close it.
+
+This is the same shape as T-13-01's finding: structural validity (a digest / a well-formed record) is NOT authenticity. Authenticity requires binding to the thing that actually produced it.
+
+Scope:
+- Ensure receipts reaching the Researcher are EMITTED BY REAL TOOL INVOCATIONS via the T-30-01 source-tools layer (code/ingest/retrieval/source-tools.ts), not accepted from a caller-controlled input field.
+- Options to evaluate: (a) the Researcher run loop holds the tool handles and collects receipts itself, so receiptIds are never caller-provided; (b) receipts are looked up/verified against a receipt store or the emitting tool layer; (c) receipts carry an integrity/authenticity binding the Researcher can verify. Prefer (a) — remove the caller-supplied path entirely — if the runtime shape allows.
+- Adversarial tests: a fabricated but structurally-valid receipt must NOT satisfy no_evidence; a receipt from a DIFFERENT question/snapshot must not be reusable; a replayed receipt must not pass.
+- Update the in-code trust-boundary comment once authenticity is genuinely established, so the comment never overstates the guarantee.
+
+Non-goals: changing AC1 schema-impossibility of answer prose / child questions, or the researcher input-policy whitelist — both settled and independently reviewed in T-30-02.

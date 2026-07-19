@@ -44,3 +44,12 @@ tasks:
       priority: high
       status: pending
       title: T-30-03 — Calibrate Researcher retrieval policy
+    - complexity: medium
+      depends_on:
+        - P2.M3.E1.T002
+      estimate_hours: 3
+      file: T004-bind-researcher-receipts-to-re.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Bind Researcher receipts to real tool invocations (authenticity)
