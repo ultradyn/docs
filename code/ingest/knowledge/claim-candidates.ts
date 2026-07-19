@@ -34,7 +34,15 @@ import { normalizeAlias } from "../retrieval/exact-map.js";
 export const MATCHER_VERSION = "claim-candidates-v1" as const;
 
 /** Absolute generation-recall floor (labeled pairs surfaced / labeled total). */
-export const CLAIM_CANDIDATE_RECALL_FLOOR = 0.8 as const;
+/**
+ * Product minimum for candidate-generation recall.
+ *
+ * T-22-04 raised this from 0.8 to 0.9 after replacing the n=5 single-query
+ * fixture with a 5-group, 22-pair labeled corpus (measured recall: 1.0).
+ * The floor is a MINIMUM, not the target — the test additionally pins the
+ * exact measured count so a small loss cannot pass under the floor.
+ */
+export const CLAIM_CANDIDATE_RECALL_FLOOR = 0.9 as const;
 
 export const CLAIM_CANDIDATE_LIMITS = Object.freeze({
   maxCorpusClaims: 5_000,

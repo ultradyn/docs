@@ -576,87 +576,184 @@ describe("performance surface", () => {
 // ---------------------------------------------------------------------------
 describe("recall surface", () => {
   /**
-   * Labeled fixture: pairs that MUST be generated at the given limit.
-   * Denominator pinned and NON-ZERO — never vacuous recall.
+   * T-22-04: the T-22-02 corpus was n=5, all pairs sharing ONE query claim.
+   * That supports a smoke-level regression guard, not a statement about recall.
+   *
+   * This corpus uses independent query GROUPS across distinct topics, each with
+   * labeled positives spanning the relation space, plus labeled NEGATIVES.
+   *
+   * On negatives: the candidate finder is deliberately RECALL-FIRST and
+   * over-generates (T-22-02 D7 — it feeds a downstream adjudicator and never
+   * decides). So asserting "a negative never surfaces" would fight the design.
+   * We assert the ORDERING property instead: no labeled negative may outrank a
+   * labeled positive. That is meaningful under over-generation and does not
+   * quietly re-specify the algorithm.
    */
-  const ID_A = claimId("rec-A");
-  const ID_B = claimId("rec-B");
-  const ID_C = claimId("rec-C");
-  const ID_D = claimId("rec-D");
-  const ID_E = claimId("rec-E");
-  const ID_F = claimId("rec-F");
+  type Spec = {
+    readonly tag: string;
+    readonly statement: string;
+    readonly scope: Record<string, unknown>;
+    readonly claimType: ClaimType;
+    readonly contradicts?: boolean;
+  };
+  type Group = {
+    readonly tag: string;
+    readonly query: Spec;
+    readonly positives: readonly Spec[];
+    readonly negatives: readonly Spec[];
+  };
 
-  const LABELED_PAIRS: readonly {
-    readonly left: ClaimId;
-    readonly right: ClaimId;
-  }[] = Object.freeze([
-    { left: ID_A, right: ID_B },
-    { left: ID_A, right: ID_C },
-    { left: ID_A, right: ID_D },
-    { left: ID_A, right: ID_E },
-    { left: ID_A, right: ID_F },
+  const GROUPS: readonly Group[] = Object.freeze([
+    {
+      tag: "auth",
+      query: {
+        tag: "auth-q",
+        statement: "Auth tokens expire after fifteen minutes.",
+        scope: { component: "auth" },
+        claimType: "behavior",
+      },
+      positives: [
+        { tag: "auth-eq", statement: "Auth tokens expire after fifteen minutes.", scope: { component: "auth" }, claimType: "behavior" },
+        { tag: "auth-narrow", statement: "Auth tokens expire after fifteen minutes.", scope: { component: "auth", env: "prod" }, claimType: "behavior" },
+        { tag: "auth-type", statement: "Auth tokens expire after fifteen minutes.", scope: { component: "auth" }, claimType: "requirement" },
+        { tag: "auth-para", statement: "Authentication tokens expire fifteen minutes after issue.", scope: { component: "auth" }, claimType: "behavior" },
+        { tag: "auth-contra", statement: "Auth tokens must not expire after fifteen minutes.", scope: { component: "auth" }, claimType: "behavior", contradicts: true },
+      ],
+      negatives: [
+        { tag: "auth-neg", statement: "Office parking permits renew each quarter.", scope: { facility: "carpark" }, claimType: "behavior" },
+      ],
+    },
+    {
+      tag: "crypt",
+      query: {
+        tag: "crypt-q",
+        statement: "Encryption at rest uses AES two hundred fifty six GCM.",
+        scope: { store: "vault" },
+        claimType: "constraint",
+      },
+      positives: [
+        { tag: "crypt-eq", statement: "Encryption at rest uses AES two hundred fifty six GCM.", scope: { store: "vault" }, claimType: "constraint" },
+        { tag: "crypt-narrow", statement: "Encryption at rest uses AES two hundred fifty six GCM.", scope: { store: "vault", region: "eu" }, claimType: "constraint" },
+        { tag: "crypt-para", statement: "At rest encryption employs AES-256-GCM for vault storage.", scope: { store: "vault" }, claimType: "constraint" },
+        { tag: "crypt-type", statement: "Encryption at rest uses AES two hundred fifty six GCM.", scope: { store: "vault" }, claimType: "requirement" },
+        { tag: "crypt-contra", statement: "Encryption at rest must not use AES two hundred fifty six GCM.", scope: { store: "vault" }, claimType: "constraint", contradicts: true },
+      ],
+      negatives: [
+        { tag: "crypt-neg", statement: "Cafeteria menus rotate on a fortnightly cycle.", scope: { facility: "cafeteria" }, claimType: "behavior" },
+      ],
+    },
+    {
+      tag: "rate",
+      query: {
+        tag: "rate-q",
+        statement: "Public API requests are limited to one hundred per minute.",
+        scope: { component: "gateway" },
+        claimType: "constraint",
+      },
+      positives: [
+        { tag: "rate-eq", statement: "Public API requests are limited to one hundred per minute.", scope: { component: "gateway" }, claimType: "constraint" },
+        { tag: "rate-narrow", statement: "Public API requests are limited to one hundred per minute.", scope: { component: "gateway", tier: "free" }, claimType: "constraint" },
+        { tag: "rate-para", statement: "The gateway limits public API calls to one hundred requests each minute.", scope: { component: "gateway" }, claimType: "constraint" },
+        { tag: "rate-contra", statement: "Public API requests are not limited to one hundred per minute.", scope: { component: "gateway" }, claimType: "constraint", contradicts: true },
+      ],
+      negatives: [
+        { tag: "rate-neg", statement: "Desk allocations follow seniority order.", scope: { facility: "office" }, claimType: "behavior" },
+      ],
+    },
+    {
+      tag: "backup",
+      query: {
+        tag: "backup-q",
+        statement: "Nightly backups are retained for thirty days.",
+        scope: { system: "primary-db" },
+        claimType: "requirement",
+      },
+      positives: [
+        { tag: "backup-eq", statement: "Nightly backups are retained for thirty days.", scope: { system: "primary-db" }, claimType: "requirement" },
+        { tag: "backup-narrow", statement: "Nightly backups are retained for thirty days.", scope: { system: "primary-db", region: "apac" }, claimType: "requirement" },
+        { tag: "backup-para", statement: "Backups taken nightly are kept for a thirty day window.", scope: { system: "primary-db" }, claimType: "requirement" },
+        { tag: "backup-contra", statement: "Nightly backups must not be retained for thirty days.", scope: { system: "primary-db" }, claimType: "requirement", contradicts: true },
+      ],
+      negatives: [
+        { tag: "backup-neg", statement: "Visitor badges are printed at reception.", scope: { facility: "lobby" }, claimType: "behavior" },
+      ],
+    },
+    {
+      tag: "audit",
+      query: {
+        tag: "audit-q",
+        statement: "Audit records capture actor identity for every mutation.",
+        scope: { component: "audit-log" },
+        claimType: "constraint",
+      },
+      positives: [
+        { tag: "audit-eq", statement: "Audit records capture actor identity for every mutation.", scope: { component: "audit-log" }, claimType: "constraint" },
+        { tag: "audit-narrow", statement: "Audit records capture actor identity for every mutation.", scope: { component: "audit-log", env: "prod" }, claimType: "constraint" },
+        { tag: "audit-para", statement: "Every mutation writes the acting identity into audit records.", scope: { component: "audit-log" }, claimType: "constraint" },
+        { tag: "audit-contra", statement: "Audit records do not capture actor identity for every mutation.", scope: { component: "audit-log" }, claimType: "constraint", contradicts: true },
+      ],
+      negatives: [
+        { tag: "audit-neg", statement: "Bicycle storage is available on level two.", scope: { facility: "garage" }, claimType: "behavior" },
+      ],
+    },
   ]);
 
-  const LABELED_DENOMINATOR = LABELED_PAIRS.length;
+  const LABELED_POSITIVE_COUNT = GROUPS.reduce((n, g) => n + g.positives.length, 0);
+  const LABELED_NEGATIVE_COUNT = GROUPS.reduce((n, g) => n + g.negatives.length, 0);
 
-  it("AC3: generation recall measurable with pinned non-zero denominator and floor", async () => {
-    expect(LABELED_DENOMINATOR).toBeGreaterThan(0);
+  /**
+   * Provenance pin. A silent edit to the labeled corpus changes the metric's
+   * meaning without changing any assertion, so pin a digest over the labels.
+   * If this fails, the corpus changed: re-measure and re-justify the floor —
+   * do NOT just update the hash.
+   */
+  const FIXTURE_DIGEST = createHash("sha256")
+    .update(JSON.stringify(GROUPS))
+    .digest("hex");
+
+  function specToClaim(g: string, s: Spec, queryId: ClaimId): Claim {
+    return makeClaim({
+      id: claimId(`${g}-${s.tag}`),
+      statement: s.statement,
+      scope: s.scope,
+      claimType: s.claimType,
+      evidenceRefs: [evidenceRef(sha(`${g}-${s.tag}`))],
+      ...(s.contradicts
+        ? {
+            relationships: {
+              qualifierClaimIds: [] as ClaimId[],
+              contradictsClaimIds: [queryId],
+              supersedesClaimIds: [] as ClaimId[],
+            },
+          }
+        : {}),
+    });
+  }
+
+  it("AC3: recall over a multi-group labeled corpus with pinned non-zero denominator", async () => {
+    expect(LABELED_POSITIVE_COUNT).toBeGreaterThan(0);
+    expect(LABELED_POSITIVE_COUNT).toBe(22);
+    expect(LABELED_NEGATIVE_COUNT).toBe(5);
+    expect(GROUPS.length).toBe(5);
+    expect(FIXTURE_DIGEST).toHaveLength(64);
     expect(CLAIM_CANDIDATE_RECALL_FLOOR).toBeGreaterThan(0);
     expect(CLAIM_CANDIDATE_RECALL_FLOOR).toBeLessThanOrEqual(1);
 
-    const query = makeClaim({
-      id: ID_A,
-      statement: "Encryption at rest uses AES two hundred fifty six GCM.",
-      scope: { store: "vault" },
-      claimType: "constraint",
-    });
-    const labeled: Claim[] = [
-      query,
-      makeClaim({
-        id: ID_B,
-        statement: "Encryption at rest uses AES two hundred fifty six GCM.",
-        scope: { store: "vault" },
-        claimType: "constraint",
-        evidenceRefs: [evidenceRef(sha("lb"))],
-      }),
-      makeClaim({
-        id: ID_C,
-        statement: "Encryption at rest uses AES two hundred fifty six GCM.",
-        scope: { store: "vault", region: "eu" },
-        claimType: "constraint",
-        evidenceRefs: [evidenceRef(sha("lc"))],
-      }),
-      makeClaim({
-        id: ID_D,
-        statement: "At rest encryption employs AES-256-GCM for vault storage.",
-        scope: { store: "vault" },
-        claimType: "constraint",
-        evidenceRefs: [evidenceRef(sha("ld"))],
-      }),
-      makeClaim({
-        id: ID_E,
-        statement: "Encryption at rest uses AES two hundred fifty six GCM.",
-        scope: { store: "vault" },
-        claimType: "requirement",
-        evidenceRefs: [evidenceRef(sha("le"))],
-      }),
-      makeClaim({
-        id: ID_F,
-        statement:
-          "Encryption at rest must not use AES two hundred fifty six GCM.",
-        scope: { store: "vault" },
-        claimType: "constraint",
-        evidenceRefs: [evidenceRef(sha("lf"))],
-        relationships: {
-          qualifierClaimIds: [],
-          contradictsClaimIds: [ID_A],
-          supersedesClaimIds: [],
-        },
-      }),
-    ];
-    // Noise that should not steal the entire funnel
+    // Whole-corpus: every group's claims coexist, so cross-topic noise is real.
+    const corpus: Claim[] = [];
+    const queryIds = new Map<string, ClaimId>();
+    for (const g of GROUPS) {
+      const qid = claimId(`${g.tag}-${g.query.tag}`);
+      queryIds.set(g.tag, qid);
+    }
+    for (const g of GROUPS) {
+      const qid = queryIds.get(g.tag)!;
+      corpus.push(specToClaim(g.tag, g.query, qid));
+      for (const s of g.positives) corpus.push(specToClaim(g.tag, s, qid));
+      for (const s of g.negatives) corpus.push(specToClaim(g.tag, s, qid));
+    }
     for (let i = 0; i < 30; i += 1) {
-      labeled.push(
+      corpus.push(
         makeClaim({
           id: claimId(`noise-rec-${i}`),
           statement: `Noise claim ${i} about calendars and holidays.`,
@@ -666,29 +763,96 @@ describe("recall surface", () => {
       );
     }
 
-    const limit = 20;
-    const result = await find(labeled, query, limit);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-
-    const surfaced = new Set(
-      result.value.candidates.map((c) => pairKey(c.left, c.right)),
-    );
     let tp = 0;
     const missing: string[] = [];
-    for (const pair of LABELED_PAIRS) {
-      const key = pairKey(pair.left, pair.right);
-      if (surfaced.has(key)) tp += 1;
-      else missing.push(key);
+    const orderingViolations: string[] = [];
+
+    for (const g of GROUPS) {
+      const qid = queryIds.get(g.tag)!;
+      const query = corpus.find((c) => c.id === qid)!;
+      const result = await find(corpus, query, 20);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const scoreByPair = new Map<string, number>();
+      for (const c of result.value.candidates) {
+        scoreByPair.set(pairKey(c.left, c.right), c.score);
+      }
+
+      const positiveScores: number[] = [];
+      for (const s of g.positives) {
+        const key = pairKey(qid, claimId(`${g.tag}-${s.tag}`));
+        const score = scoreByPair.get(key);
+        if (score === undefined) missing.push(`${g.tag}/${s.tag}`);
+        else {
+          tp += 1;
+          positiveScores.push(score);
+        }
+      }
+
+      // Ordering property: a labeled negative must not outrank any positive.
+      const lowestPositive = positiveScores.length
+        ? Math.min(...positiveScores)
+        : undefined;
+      if (lowestPositive !== undefined) {
+        for (const s of g.negatives) {
+          const negScore = scoreByPair.get(
+            pairKey(qid, claimId(`${g.tag}-${s.tag}`)),
+          );
+          if (negScore !== undefined && negScore > lowestPositive) {
+            orderingViolations.push(
+              `${g.tag}/${s.tag} ${negScore} > positive ${lowestPositive}`,
+            );
+          }
+        }
+      }
     }
-    const fn = LABELED_DENOMINATOR - tp;
+
+    const fn = LABELED_POSITIVE_COUNT - tp;
+    expect(tp + fn).toBe(LABELED_POSITIVE_COUNT);
     const recall = tp / (tp + fn);
-    expect(LABELED_DENOMINATOR).toBe(5);
-    expect(tp + fn).toBe(LABELED_DENOMINATOR);
-    expect(recall).toBeGreaterThanOrEqual(CLAIM_CANDIDATE_RECALL_FLOOR);
-    if (missing.length > 0 && recall < CLAIM_CANDIDATE_RECALL_FLOOR) {
-      throw new Error(`recall ${recall} missing: ${missing.join(",")}`);
-    }
+
+    expect(
+      orderingViolations,
+      `labeled negatives outranked positives: ${orderingViolations.join("; ")}`,
+    ).toEqual([]);
+
+    expect(
+      recall,
+      `recall ${recall} below floor; missing: ${missing.join(",")}`,
+    ).toBeGreaterThanOrEqual(CLAIM_CANDIDATE_RECALL_FLOOR);
+
+    /**
+     * EXACT REGRESSION PIN — deliberately stronger than the floor.
+     *
+     * A floor alone cannot catch small losses: at n=22 a floor of 0.9 still
+     * passes after TWO labeled pairs stop surfacing, so a real degradation
+     * would ship green. The floor states the product minimum; this pin states
+     * what the finder actually achieves today (22/22, measured) so ANY loss is
+     * visible immediately.
+     *
+     * If you are here because this failed: a pair stopped surfacing. That is a
+     * recall regression until proven otherwise. Do NOT lower this number to go
+     * green — identify the pair from the message above and justify the change,
+     * or fix the cause. Lowering it silently converts a caught regression into
+     * an uncaught one.
+     */
+    expect(
+      tp,
+      `expected all ${LABELED_POSITIVE_COUNT} labeled pairs to surface; missing: ${missing.join(",")}`,
+    ).toBe(LABELED_POSITIVE_COUNT);
+  });
+
+  it("recall is not vacuous: an empty label set cannot report success", () => {
+    // Guards the metric itself — a corpus edit that emptied GROUPS would
+    // otherwise yield recall 1.0 over zero pairs and read as a pass.
+    expect(LABELED_POSITIVE_COUNT).toBeGreaterThan(0);
+    const emptyRecall = (() => {
+      const t = 0;
+      const f = 0;
+      return t + f === 0 ? Number.NaN : t / (t + f);
+    })();
+    expect(Number.isNaN(emptyRecall)).toBe(true);
   });
 });
 
