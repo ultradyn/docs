@@ -17,3 +17,4 @@ export * from "./search-receipt.js";
 export * from "./source-records.js";
 export * from "./source-unit.js";
 export * from "./types.js";
+export * from "./untrusted-prose.js";

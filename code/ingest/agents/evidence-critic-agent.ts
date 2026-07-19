@@ -15,6 +15,12 @@
  * child questions. Reasons on classifications/states are length-bounded
  * justifications only; this validator never interprets them as instructions
  * or questions (downstream consumers may surface them to humans/agents).
+ *
+ * B003: free-text reason / whyCurrentPacketFails become UntrustedProse after
+ * successful validation so consumers cannot silently pass them into model
+ * paths. See domain/ingest/untrusted-prose.ts — brand is COMPILE-TIME only.
+ * Consumers that need to feed prose to a model must call
+ * deliberatelyExposeUntrustedProseToModel (grep-auditable).
  */
 import { z } from "zod";
 
@@ -35,6 +41,10 @@ import {
   SourceUnitIdSchema,
 } from "../../domain/ingest/id-schemas.js";
 import type { IngestResult, SourceUnitId } from "../../domain/ingest/types.js";
+import {
+  markUntrustedProse,
+  type UntrustedProse,
+} from "../../domain/ingest/untrusted-prose.js";
 
 // ---------------------------------------------------------------------------
 // Limits
@@ -142,18 +152,18 @@ export type EvidenceCriticProposal = {
   readonly referenceClassifications: readonly {
     readonly unitId: SourceUnitId;
     readonly classification: ReferenceClassification;
-    readonly reason: string;
+    readonly reason: UntrustedProse;
   }[];
   readonly facetStates: readonly {
     readonly facetId: string;
     readonly state: FacetStateValue;
-    readonly reason: string;
+    readonly reason: UntrustedProse;
     readonly sourceUnitIds?: readonly SourceUnitId[];
   }[];
   readonly verdict: TerminalVerdict;
   readonly refinement?: {
     readonly missingFacetIds: readonly string[];
-    readonly whyCurrentPacketFails: string;
+    readonly whyCurrentPacketFails: UntrustedProse;
   } | null;
 };
 
@@ -290,11 +300,12 @@ export function validateEvidenceCriticProposal(
 
   const parsed = EvidenceCriticProposalSchema.safeParse(input);
   if (!parsed.success) return failure("INVALID_PROPOSAL");
-  const proposal = parsed.data as EvidenceCriticProposal;
+  // Zod output keeps plain strings; brand only on the success path return type.
+  const raw = parsed.data;
 
   // Every material packet reference must be classified
   const classified = new Set(
-    proposal.referenceClassifications.map((c) => c.unitId as string),
+    raw.referenceClassifications.map((c) => c.unitId as string),
   );
   for (const ref of packet.references) {
     if (!classified.has(ref.unitId as string)) {
@@ -303,16 +314,16 @@ export function validateEvidenceCriticProposal(
   }
 
   // Every required facet must have a state
-  const stated = new Set(proposal.facetStates.map((f) => f.facetId));
+  const stated = new Set(raw.facetStates.map((f) => f.facetId));
   for (const facetId of options.requiredFacetIds) {
     if (!stated.has(facetId)) return failure("UNEVALUATED_FACET");
   }
 
   // accepted is narrowest
-  if (proposal.verdict === "accepted") {
-    for (const facet of proposal.facetStates) {
+  if (raw.verdict === "accepted") {
+    for (const facet of raw.facetStates) {
       if (options.requiredFacetIds.includes(facet.facetId)) {
-        if (!facetStateAllowsAccepted(facet.state)) {
+        if (!facetStateAllowsAccepted(facet.state as FacetStateValue)) {
           return failure("FACET_NOT_SATISFIED");
         }
       }
@@ -322,7 +333,7 @@ export function validateEvidenceCriticProposal(
     const packetUnits = new Set(
       packet.references.map((r) => r.unitId as string),
     );
-    for (const c of proposal.referenceClassifications) {
+    for (const c of raw.referenceClassifications) {
       if (c.classification === "necessary_qualifying") {
         if (!packetUnits.has(c.unitId as string)) {
           return failure("QUALIFIER_DROPPED");
@@ -331,7 +342,44 @@ export function validateEvidenceCriticProposal(
     }
   }
 
-  return success(proposal);
+  // B003: free-text justification fields travel branded (compile-time control).
+  const branded: EvidenceCriticProposal = {
+    schemaVersion: 1,
+    questionId: raw.questionId,
+    packetId: raw.packetId,
+    referenceClassifications: raw.referenceClassifications.map((c) => ({
+      unitId: c.unitId as SourceUnitId,
+      classification: c.classification as ReferenceClassification,
+      reason: markUntrustedProse(c.reason),
+    })),
+    facetStates: raw.facetStates.map((f) => {
+      const state: {
+        facetId: string;
+        state: FacetStateValue;
+        reason: UntrustedProse;
+        sourceUnitIds?: readonly SourceUnitId[];
+      } = {
+        facetId: f.facetId,
+        state: f.state as FacetStateValue,
+        reason: markUntrustedProse(f.reason),
+      };
+      if (f.sourceUnitIds !== undefined) {
+        state.sourceUnitIds = f.sourceUnitIds as readonly SourceUnitId[];
+      }
+      return state;
+    }),
+    verdict: raw.verdict as TerminalVerdict,
+    refinement:
+      raw.refinement === undefined || raw.refinement === null
+        ? null
+        : {
+            missingFacetIds: raw.refinement.missingFacetIds,
+            whyCurrentPacketFails: markUntrustedProse(
+              raw.refinement.whyCurrentPacketFails,
+            ),
+          },
+  };
+  return success(branded);
 }
 
 // ---------------------------------------------------------------------------
