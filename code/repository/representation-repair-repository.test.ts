@@ -2,6 +2,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -473,5 +474,69 @@ describe("repair repository refuses ancestor directory symbolic links", () => {
     await expect(repository().pendingInvalidations()).rejects.toBeDefined();
     // Outside marker untouched by read attempts.
     expect(await readFile(outside.marker, "utf8")).toBe(outside.before);
+  });
+});
+
+describe("repair repository binds root descriptor without realpath TOCTOU", () => {
+  it("fails closed on root swap before descriptor open without writing outside", async () => {
+    const outsideDir = join(root, "outside-root");
+    await mkdir(outsideDir, { recursive: true });
+    const marker = join(outsideDir, "PROBE");
+    await writeFile(marker, "outside-before\n");
+    const realRoot = `${root}.real`;
+    // Seed an empty real tree at the live root first.
+    await mkdir(join(root, ".git"), { recursive: true });
+
+    const repo = createRepresentationRepairRepository({
+      root,
+      hooks: {
+        beforeRootDescriptorOpen: async () => {
+          // Race window: after caller path is known, replace the root node
+          // with a symlink to outside before the descriptor open.
+          await rename(root, realRoot);
+          await symlink(outsideDir, root);
+        },
+      },
+    });
+    const result = await repo.append(proposalRecord());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
+    expect(await readFile(marker, "utf8")).toBe("outside-before\n");
+    const { readdir } = await import("node:fs/promises");
+    expect(
+      (await readdir(outsideDir)).filter((name) => name.endsWith(".json")),
+    ).toEqual([]);
+    // Restore so afterEach can clean the original root path.
+    await rm(root, { force: true });
+    await rename(realRoot, root);
+  });
+
+  it("fails closed before any custody read when descriptor binding is unavailable", async () => {
+    const outsideDir = join(root, "outside-unavailable");
+    await mkdir(outsideDir, { recursive: true });
+    const marker = join(outsideDir, "PROBE");
+    await writeFile(marker, "outside-before\n");
+
+    const repo = createRepresentationRepairRepository({
+      root,
+      testing: { descriptorBinding: "unavailable" },
+    });
+    const append = await repo.append(proposalRecord());
+    expect(append.ok).toBe(false);
+    if (!append.ok) expect(append.code).toBe("COMMIT_FAILED");
+    await expect(repo.currentRevision()).rejects.toThrow(
+      /Descriptor-bound custody is unavailable/,
+    );
+    await expect(repo.list()).rejects.toThrow(
+      /Descriptor-bound custody is unavailable/,
+    );
+    await expect(repo.pendingInvalidations()).rejects.toThrow(
+      /Descriptor-bound custody is unavailable/,
+    );
+    expect(await readFile(marker, "utf8")).toBe("outside-before\n");
+    // No custody tree created under the repository root.
+    await expect(
+      readFile(join(root, ".ultradyn", "repair", "journal.json")),
+    ).rejects.toBeDefined();
   });
 });

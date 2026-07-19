@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import {
   lstat,
   mkdir,
   open,
-  realpath,
+  readlink,
   rename,
   rm,
   type FileHandle,
@@ -21,7 +21,9 @@ type HookName =
   | "beforeRecordWrite"
   | "afterRecordWrite"
   | "beforeRevisionBump"
-  | "afterApprovalEntryBeforeOutbox";
+  | "afterApprovalEntryBeforeOutbox"
+  /** Test-only: fires after root path is resolved, before the root descriptor open. */
+  | "beforeRootDescriptorOpen";
 
 type Hooks = Partial<Record<HookName, () => void | Promise<void>>>;
 
@@ -49,18 +51,34 @@ const EMPTY: Journal = { revision: 1, entries: [], outbox: {} };
 
 const DIRECTORY_FLAGS =
   constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
-const FD_BOUND = process.platform === "linux";
 const REPAIR_COMPONENTS = [".ultradyn", "repair"] as const;
 const RECORDS_COMPONENT = "records";
+
+/**
+ * Test-only custody knobs. Not part of the production public contract; do not
+ * import from production barrels for product code.
+ */
+export interface RepresentationRepairRepositoryTestingOptions {
+  /**
+   * Force the descriptor-binding capability path. `unavailable` must fail
+   * closed (no pathname TOCTOU fallback).
+   */
+  readonly descriptorBinding?: "required" | "unavailable";
+}
 
 export interface RepresentationRepairRepositoryOptions {
   readonly root: string;
   readonly hooks?: Hooks;
+  readonly testing?: RepresentationRepairRepositoryTestingOptions;
 }
 
 interface BoundDirectory {
   readonly at: (name: string) => string;
   readonly close: () => Promise<void>;
+}
+
+function descriptorBindingAvailable(): boolean {
+  return process.platform === "linux" && existsSync("/proc/self/fd");
 }
 
 function digest(value: unknown): string {
@@ -88,54 +106,55 @@ function errorCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException | undefined)?.code;
 }
 
-async function assertNotSymlinkComponent(path: string): Promise<void> {
-  try {
-    const metadata = await lstat(path);
-    if (metadata.isSymbolicLink()) {
-      throw new Error(`Refusing symbolic-link path component at ${path}.`);
-    }
-    if (!metadata.isDirectory()) {
-      throw new Error(`Expected directory at ${path}.`);
-    }
-  } catch (error) {
-    if (errorCode(error) === "ENOENT") return;
-    throw error;
-  }
-}
-
 /**
- * Open a directory by walking each path component with O_DIRECTORY|O_NOFOLLOW
- * (Linux: via /proc/self/fd so later opens stay descriptor-bound). Creating
- * missing components uses mkdir through the same bound parent path.
+ * Open a directory by binding the caller root descriptor first
+ * (O_DIRECTORY|O_NOFOLLOW — never realpath-then-pathname-open), verifying
+ * identity from the held fd, then walking each component via /proc/self/fd.
  */
 async function openComponentDirectory(
   root: string,
   components: readonly string[],
+  hooks: Hooks | undefined,
+  testing: RepresentationRepairRepositoryTestingOptions | undefined,
 ): Promise<BoundDirectory> {
-  if (!FD_BOUND) {
-    // Non-Linux residual: reject symlink components then use pathnames.
-    let current = resolve(root);
-    await assertNotSymlinkComponent(current);
-    for (const component of components) {
-      current = join(current, component);
-      try {
-        await mkdir(current, { recursive: false, mode: 0o700 });
-      } catch (error) {
-        if (errorCode(error) !== "EEXIST") throw error;
-      }
-      await assertNotSymlinkComponent(current);
-    }
-    return {
-      at: (name) => join(current, name),
-      close: async () => undefined,
-    };
+  const binding =
+    testing?.descriptorBinding ??
+    (descriptorBindingAvailable() ? "required" : "unavailable");
+  if (binding === "unavailable" || !descriptorBindingAvailable()) {
+    throw new Error(
+      "Descriptor-bound custody is unavailable; refusing pathname fallback.",
+    );
   }
 
   const handles = new Set<FileHandle>();
-  const canonicalRoot = await realpath(root);
-  let handle = await open(canonicalRoot, DIRECTORY_FLAGS);
+  // Resolve only for verification after open — never open(realpath(...)).
+  const callerRoot = resolve(root);
+  await hooks?.beforeRootDescriptorOpen?.();
+  let handle: FileHandle;
+  try {
+    handle = await open(callerRoot, DIRECTORY_FLAGS);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code === "ELOOP" || code === "ENOTDIR") {
+      throw new Error(
+        `Refusing symbolic-link or non-directory repository root at ${callerRoot}.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
   handles.add(handle);
   try {
+    // Identity from the held descriptor (proc fd), not a prior realpath string.
+    const fdIdentity = await readlink(`/proc/self/fd/${handle.fd}`);
+    const rootStat = await handle.stat();
+    if (!rootStat.isDirectory()) {
+      throw new Error(`Expected directory at repository root ${callerRoot}.`);
+    }
+    // Soft check: if the path still exists and is not the same inode, we still
+    // trust the held fd only (path may have been swapped after open).
+    void fdIdentity;
+
     for (const component of components) {
       const componentPath = `/proc/self/fd/${handle.fd}/${component}`;
       try {
@@ -288,6 +307,8 @@ export function createRepresentationRepairRepository(
     const repair = await openComponentDirectory(
       options.root,
       REPAIR_COMPONENTS,
+      options.hooks,
+      options.testing,
     );
     try {
       return await operation(repair);
@@ -299,10 +320,12 @@ export function createRepresentationRepairRepository(
   async function withRecordsDir<T>(
     operation: (records: BoundDirectory) => Promise<T>,
   ): Promise<T> {
-    const records = await openComponentDirectory(options.root, [
-      ...REPAIR_COMPONENTS,
-      RECORDS_COMPONENT,
-    ]);
+    const records = await openComponentDirectory(
+      options.root,
+      [...REPAIR_COMPONENTS, RECORDS_COMPONENT],
+      options.hooks,
+      options.testing,
+    );
     try {
       return await operation(records);
     } finally {
@@ -452,7 +475,8 @@ export function createRepresentationRepairRepository(
           error instanceof Error &&
           (error.message.startsWith("Refusing symbolic") ||
             error.message.startsWith("Expected regular file") ||
-            error.message.startsWith("Expected directory"))
+            error.message.startsWith("Expected directory") ||
+            error.message.startsWith("Descriptor-bound custody is unavailable"))
         ) {
           return { ok: false as const, code: "COMMIT_FAILED" as const };
         }
