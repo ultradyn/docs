@@ -5,7 +5,7 @@ completed_at: null
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
-    - P2.M2.E2.T003
+    - P2.M2.E2.T004
 estimate_hours: 8
 id: P2.M2.E3.T001
 priority: critical
