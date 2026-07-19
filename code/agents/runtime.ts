@@ -24,6 +24,7 @@ export const AgentInputPolicySchema = z.enum([
   "researcher",
   "evidence-critic",
   "claim-extractor",
+  "claim-reviewer",
 ]);
 export type AgentInputPolicy = z.infer<typeof AgentInputPolicySchema>;
 
@@ -140,6 +141,18 @@ const policyFields: Record<
       "documentation",
     ],
     required: ["questionId", "packet", "verdictAccepted"],
+  },
+  // Claim Reviewer: proposed claims + packet as DATA; never extractor chat.
+  "claim-reviewer": {
+    allowed: [
+      "packet",
+      "claims",
+      "reviewerRunId",
+      "extractorRunId",
+      "goals",
+      "documentation",
+    ],
+    required: ["packet", "claims", "reviewerRunId", "extractorRunId"],
   },
 };
 

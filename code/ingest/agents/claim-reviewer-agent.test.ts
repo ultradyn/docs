@@ -1,9 +1,11 @@
 /**
  * T-32-02 — Claim Reviewer (fresh-context, proposal-only).
  *
- * RED checkpoint: behavioral expectations before GREEN implementation.
+ * Negative tests include a positive control (near-identical valid proposal
+ * accepted) so refuse-everything stubs cannot vacuous-pass.
  */
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +23,7 @@ import { normaliseRunIdentity } from "../knowledge/claim-review-service.js";
 
 import {
   CLAIM_REVIEWER_LIMITS,
+  ClaimReviewerOutputSchema,
   createClaimReviewerAgent,
   loadClaimReviewerOutputSchema,
   validateClaimReviewerProposal,
@@ -32,6 +35,7 @@ const scaffoldRoot = join(
   dirname(fileURLToPath(import.meta.url)),
   "../../../scaffold/agents/claim-reviewer",
 );
+const fixturesRoot = join(scaffoldRoot, "fixtures");
 
 const QUESTION = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const PACKET = "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -161,14 +165,36 @@ function validateOpts(
 }
 
 describe("claim reviewer surface + limits", () => {
-  it("exports positive limits and validate/create helpers", () => {
+  it("validates a trivial fixture end-to-end (limits + schema + UntrustedProse)", () => {
     expect(CLAIM_REVIEWER_LIMITS.maxReviews).toBeGreaterThan(0);
-    expect(typeof validateClaimReviewerProposal).toBe("function");
-    expect(typeof createClaimReviewerAgent).toBe("function");
+    expect(ClaimReviewerOutputSchema.safeParse(validOutput()).success).toBe(
+      true,
+    );
+    const result = validateClaimReviewerProposal(
+      validOutput(),
+      validateOpts(),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.reviews).toHaveLength(1);
+    const reason = (result.value.reviews[0] as { reason?: UntrustedProse })
+      .reason;
+    expect(reason).toBeDefined();
+    expect(isUntrustedProse(reason!)).toBe(true);
   });
 
-  it("public agents barrel exports createClaimReviewerAgent", () => {
+  it("public agents barrel createClaimReviewerAgent runs validate path", async () => {
     expect(typeof agentsBarrel.createClaimReviewerAgent).toBe("function");
+    const agent = agentsBarrel.createClaimReviewerAgent({
+      propose: async () => validOutput(),
+    });
+    const result = await agent.runClaimReviewer({
+      packet: packet(),
+      claims: [proposedClaim(CLAIM_A)],
+      reviewerRunId: REVIEWER,
+      extractorRunId: EXTRACTOR,
+    });
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -176,6 +202,15 @@ describe("scaffold schema", () => {
   it("loads claim-reviewer output schema from scaffold", async () => {
     const schema = await loadClaimReviewerOutputSchema(scaffoldRoot);
     expect(schema).toMatchObject({ type: "object" });
+  });
+
+  it("scaffold valid / reject-overbroad / split fixtures are schema-shaped", async () => {
+    for (const name of ["valid.json", "reject-overbroad.json", "split.json"]) {
+      const raw = JSON.parse(
+        await readFile(join(fixturesRoot, name), "utf8"),
+      ) as unknown;
+      expect(ClaimReviewerOutputSchema.safeParse(raw).success).toBe(true);
+    }
   });
 });
 
@@ -202,6 +237,13 @@ describe("happy path accept", () => {
 
 describe("UNEVALUATED_CLAIM fail closed", () => {
   it("refuses when a subject claim has no review row (silence ≠ approve)", () => {
+    // Positive control: same two claims with both rows accepted
+    const bothOk = validateClaimReviewerProposal(
+      validOutput([reviewRow(CLAIM_A), reviewRow(CLAIM_B)]),
+      validateOpts([proposedClaim(CLAIM_A), proposedClaim(CLAIM_B)]),
+    );
+    expect(bothOk.ok).toBe(true);
+
     const result = validateClaimReviewerProposal(
       validOutput([reviewRow(CLAIM_A)]),
       validateOpts([proposedClaim(CLAIM_A), proposedClaim(CLAIM_B)]),
@@ -212,15 +254,12 @@ describe("UNEVALUATED_CLAIM fail closed", () => {
   });
 
   it("mutation certifying: defaulting missing claims to accept must not pass", () => {
-    // If GREEN accidentally treats missing reviews as accept, this batch of two
-    // claims with one review must still fail closed.
     const result = validateClaimReviewerProposal(
       validOutput([reviewRow(CLAIM_A)]),
       validateOpts([proposedClaim(CLAIM_A), proposedClaim(CLAIM_B)]),
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.code).not.toBeUndefined();
     expect(result.code).toBe("UNEVALUATED_CLAIM");
   });
 });
@@ -231,6 +270,13 @@ describe("overgeneralisation / reject", () => {
       statement: "All systems always retry forever under every condition.",
       claimType: "behavior",
     });
+    // Positive control: non-universal statement accepts
+    const ok = validateClaimReviewerProposal(
+      validOutput([reviewRow(CLAIM_A)]),
+      validateOpts([proposedClaim(CLAIM_A)]),
+    );
+    expect(ok.ok).toBe(true);
+
     const result = validateClaimReviewerProposal(
       validOutput([
         reviewRow(CLAIM_A, {
@@ -242,11 +288,7 @@ describe("overgeneralisation / reject", () => {
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(["INVALID_PROPOSAL", "UNEVALUATED_CLAIM"]).not.toContain(
-      "accept",
-    );
-    // Accept of overgeneralisation is refused
-    expect(result.code).toMatch(/INVALID_PROPOSAL|UNSUPPORTED|UNEVALUATED/);
+    expect(result.code).toBe("INVALID_PROPOSAL");
   });
 
   it("reject-overbroad path: decision reject with adverse axes is valid", () => {
@@ -299,17 +341,32 @@ describe("split with provenance", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const row = result.value.reviews[0] as {
-      decision: string;
-      claimId: string;
-      splits: unknown[];
-    };
+    const row = result.value.reviews[0]!;
     expect(row.decision).toBe("split");
     expect(row.claimId).toBe(CLAIM_A);
-    expect(row.splits.length).toBeGreaterThanOrEqual(2);
+    expect(row.splits?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   it("split without splits array is INVALID_PROPOSAL", () => {
+    // Positive control: same split with splits present
+    const withSplits = validateClaimReviewerProposal(
+      validOutput([
+        reviewRow(CLAIM_A, {
+          decision: "split",
+          atomicity: "overbroad",
+          splits: [
+            {
+              statement: "A",
+              claimType: "definition",
+              scope: {},
+            },
+          ],
+        }),
+      ]),
+      validateOpts(),
+    );
+    expect(withSplits.ok).toBe(true);
+
     const result = validateClaimReviewerProposal(
       validOutput([
         reviewRow(CLAIM_A, {
@@ -328,6 +385,16 @@ describe("split with provenance", () => {
 
 describe("evidence fabrication gate", () => {
   it("UNSUPPORTED_EVIDENCE when evidenceUnitIds not in packet (whole batch)", () => {
+    // Positive control: in-packet unit accepts both claims
+    const ok = validateClaimReviewerProposal(
+      validOutput([
+        reviewRow(CLAIM_A, { evidenceUnitIds: [UNIT_A] }),
+        reviewRow(CLAIM_B, { evidenceUnitIds: [UNIT_A] }),
+      ]),
+      validateOpts([proposedClaim(CLAIM_A), proposedClaim(CLAIM_B)]),
+    );
+    expect(ok.ok).toBe(true);
+
     const result = validateClaimReviewerProposal(
       validOutput([
         reviewRow(CLAIM_A, { evidenceUnitIds: [UNIT_OUT] }),
@@ -343,6 +410,11 @@ describe("evidence fabrication gate", () => {
 
 describe("agent-layer SoD pin (caller-trusted)", () => {
   it("SEPARATION_OF_DUTIES when reviewerRunId ≡ extractorRunId after normalise", () => {
+    // Positive control: distinct runs accept
+    expect(
+      validateClaimReviewerProposal(validOutput(), validateOpts()).ok,
+    ).toBe(true);
+
     const same = "run-same-01ARZ3NDEKTSV4RRFFQ69G5F";
     const result = validateClaimReviewerProposal(
       validOutput([reviewRow(CLAIM_A)], {
@@ -383,6 +455,11 @@ describe("agent-layer SoD pin (caller-trusted)", () => {
 
 describe("axis / decision consistency", () => {
   it("accept without entailed/atomic/compatible/authorityEligible is INVALID_PROPOSAL", () => {
+    // Positive control: accept-ready axes
+    expect(
+      validateClaimReviewerProposal(validOutput(), validateOpts()).ok,
+    ).toBe(true);
+
     const result = validateClaimReviewerProposal(
       validOutput([
         reviewRow(CLAIM_A, {
@@ -410,12 +487,18 @@ describe("fresh context is structural", () => {
     expect("extractorMessages" in context).toBe(false);
     expect("chat" in context).toBe(false);
     expect("transcript" in context).toBe(false);
-    // @ts-expect-error propose context must not accept extractor transcript
-    const bad: ClaimReviewerProposeContext = {
-      ...context,
+    function requireContext(c: ClaimReviewerProposeContext): void {
+      void c;
+    }
+    // Object-literal excess property check: extractorMessages is not allowed.
+    requireContext({
+      packet: context.packet,
+      claims: context.claims,
+      reviewerRunId: context.reviewerRunId,
+      extractorRunId: context.extractorRunId,
+      // @ts-expect-error extractorMessages is not on ClaimReviewerProposeContext
       extractorMessages: [{ role: "assistant", content: "extractor private" }],
-    };
-    void bad;
+    });
   });
 
   it("runClaimReviewer propose spy never receives extractor message keys", async () => {
@@ -426,14 +509,14 @@ describe("fresh context is structural", () => {
         return validOutput();
       },
     });
-    await agent.runClaimReviewer({
+    const result = await agent.runClaimReviewer({
       packet: packet(),
       claims: [proposedClaim(CLAIM_A)],
       reviewerRunId: REVIEWER,
       extractorRunId: EXTRACTOR,
     });
-    // After GREEN, propose is called and must not include extractor messages.
-    // RED stub may not call propose — either way, no extractor message key.
+    expect(result.ok).toBe(true);
+    expect(seen).toHaveLength(1);
     for (const ctx of seen) {
       expect(ctx).not.toHaveProperty("extractorMessages");
       expect(ctx).not.toHaveProperty("transcript");
@@ -443,6 +526,11 @@ describe("fresh context is structural", () => {
 
 describe("schema forbids child / accept-path smuggling", () => {
   it("rejects unknown keys and childQuestions on output", () => {
+    // Positive control
+    expect(
+      validateClaimReviewerProposal(validOutput(), validateOpts()).ok,
+    ).toBe(true);
+
     const result = validateClaimReviewerProposal(
       {
         ...validOutput(),

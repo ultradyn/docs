@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "reviewerRunId": "run-reviewer-01ARZ3NDEKTSV4RRFFQ69G5F",
+  "extractorRunId": "run-extractor-01ARZ3NDEKTSV4RRFFQ69G5F",
+  "reviews": [
+    {
+      "claimId": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "expectedVersion": 1,
+      "decision": "reject",
+      "entailment": "not_entailed",
+      "atomicity": "overbroad",
+      "scope": "compatible",
+      "qualifiers": "complete",
+      "authorityEligible": false,
+      "reason": "Unsupported generalization from limited evidence."
+    }
+  ]
+}

@@ -56,6 +56,8 @@ export {
 // T-32-02 — Claim Reviewer (proposal-only; apply via ClaimReviewService)
 export {
   CLAIM_REVIEWER_LIMITS,
+  ClaimReviewerOutputSchema,
+  compileClaimReviewerOutputSchema,
   createClaimReviewerAgent,
   loadClaimReviewerOutputSchema,
   validateClaimReviewerProposal,
@@ -64,5 +66,7 @@ export {
   type ClaimReviewerProposal,
   type ClaimReviewerPropose,
   type ClaimReviewerProposeContext,
+  type ClaimReviewerReviewRow,
   type CreateClaimReviewerAgentOptions,
+  type ValidateClaimReviewerOptions,
 } from "./claim-reviewer-agent.js";

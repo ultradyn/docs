@@ -1,0 +1,31 @@
+{
+  "packet": {
+    "schemaVersion": 1,
+    "id": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "version": 1,
+    "references": [
+      {
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "fileId": "file-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "role": "primary",
+        "facetIds": ["facet-definition"]
+      }
+    ],
+    "receiptId": "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "receiptDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "limits": { "maxReferences": 256, "maxFacetsPerReference": 32 }
+  },
+  "claims": [
+    {
+      "id": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "statement": "All systems always retry forever under every condition.",
+      "claimType": "behavior"
+    }
+  ],
+  "reviewerRunId": "run-reviewer-01ARZ3NDEKTSV4RRFFQ69G5F",
+  "extractorRunId": "run-extractor-01ARZ3NDEKTSV4RRFFQ69G5F"
+}

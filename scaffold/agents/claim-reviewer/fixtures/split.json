@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "reviewerRunId": "run-reviewer-01ARZ3NDEKTSV4RRFFQ69G5F",
+  "extractorRunId": "run-extractor-01ARZ3NDEKTSV4RRFFQ69G5F",
+  "reviews": [
+    {
+      "claimId": "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "expectedVersion": 1,
+      "decision": "split",
+      "entailment": "entailed",
+      "atomicity": "overbroad",
+      "scope": "compatible",
+      "qualifiers": "complete",
+      "authorityEligible": true,
+      "splits": [
+        {
+          "statement": "Atlas stores knowledge in Git.",
+          "claimType": "definition",
+          "scope": { "product": "atlas" }
+        },
+        {
+          "statement": "Portable project state is repository-backed.",
+          "claimType": "definition",
+          "scope": { "product": "atlas" }
+        }
+      ]
+    }
+  ]
+}
