@@ -318,15 +318,39 @@ describe("evidence surface", () => {
       scope: { b: 2 },
       evidenceRefs: [shared],
     });
+    // Zero-overlap twin: same statements/scopes/types, disjoint evidence only.
+    const leftZero = makeClaim({
+      id: claimId("E0z"),
+      statement: left.statement,
+      scope: { a: 1 },
+      evidenceRefs: [evidenceRef(sha("zero-left"))],
+    });
+    const rightZero = makeClaim({
+      id: claimId("E1z"),
+      statement: right.statement,
+      scope: { b: 2 },
+      evidenceRefs: [evidenceRef(sha("zero-right"))],
+    });
+
     const result = await find([left, right], left, 10);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const pair = findPair(result.value.candidates, left.id, right.id);
-    // May or may not surface depending on funnel; if surfaced:
-    if (pair) {
-      expect(pair.signals.evidenceOverlap).toBe(1);
-      expect(pair.relation).not.toBe("equivalent");
-    }
+    // AC2 must not pass by absence — pair is required.
+    expect(pair, "full-overlap low-text pair must be generated").toBeDefined();
+    expect(pair!.signals.evidenceOverlap).toBe(1);
+    expect(pair!.relation).not.toBe("equivalent");
+
+    const twin = await find([leftZero, rightZero], leftZero, 10);
+    expect(twin.ok).toBe(true);
+    if (!twin.ok) return;
+    const twinPair = findPair(twin.value.candidates, leftZero.id, rightZero.id);
+    expect(twinPair, "zero-overlap twin pair must be generated").toBeDefined();
+    expect(twinPair!.signals.evidenceOverlap).toBe(0);
+    expect(twinPair!.relation).not.toBe("equivalent");
+    // Score ignores evidence: full-overlap and zero-overlap twins match.
+    expect(pair!.score).toBe(twinPair!.score);
+    expect(pair!.relation).toBe(twinPair!.relation);
   });
 
   it("evidenceOverlap === 0 still allows equivalent when text+scope+type match", async () => {
