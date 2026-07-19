@@ -532,21 +532,213 @@ describe("split preserves provenance", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Qualify fail-closed (never silent no-op)
+// T-22-06 — qualify decision (qualifierClaimIds linking)
 // ---------------------------------------------------------------------------
-describe("qualify decision", () => {
-  it("qualify is refused with QUALIFY_UNSUPPORTED (not accepted-and-ignored)", async () => {
+describe("T-22-06 qualify decision", () => {
+  async function seedSecondProposed(
+    service: ClaimReviewService,
+    statement: string,
+  ): Promise<Claim> {
+    return seedProposed(service, { statement });
+  }
+
+  it("qualify links qualifierClaimIds append-only without changing ClaimState", async () => {
     const { service, repo } = makeService();
-    const claim = await seedProposed(service);
-    const result = await service.apply(
-      reviewDraft(claim.id, { decision: "qualify" }),
-      "idem-qualify-1",
+    const subject = await seedProposed(service);
+    const qualifier = await seedSecondProposed(
+      service,
+      "Qualifier: retries only apply after 429 responses.",
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("QUALIFY_UNSUPPORTED");
-    const latest = await repo.get(claim.id);
+    const result = await service.apply(
+      reviewDraft(subject.id, {
+        decision: "qualify",
+        expectedVersion: subject.version,
+        qualifierClaimIds: [qualifier.id],
+      }),
+      "idem-qualify-link",
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Not an accept path
+    expect(result.value.acceptedClaimIds).toHaveLength(0);
+    expect(result.value.rejectedClaimIds).toHaveLength(0);
+    expect(
+      result.value.provenanceLinks.some(
+        (l) =>
+          l.relation === "qualified_by" &&
+          l.fromClaimId === subject.id &&
+          l.toClaimId === qualifier.id,
+      ),
+    ).toBe(true);
+    const latest = await repo.get(subject.id);
+    expect(latest.ok).toBe(true);
+    if (!latest.ok) return;
+    expect(latest.value.state).toBe("proposed");
+    expect(latest.value.version).toBe(subject.version + 1);
+    expect(latest.value.relationships.qualifierClaimIds).toContain(
+      qualifier.id,
+    );
+  });
+
+  it("qualify does not launder a rejected claim into pack-accepted ids", async () => {
+    const applicationStore = createInMemoryClaimReviewApplicationStore();
+    const { service } = makeService({ applicationStore });
+    const subject = await seedProposed(service);
+    const qualifier = await seedSecondProposed(
+      service,
+      "Qualifier claim for pack-exclusion after reject.",
+    );
+    const rejected = await service.apply(
+      reviewDraft(subject.id, { decision: "reject", reason: "Not entailed." }),
+      "idem-qualify-reject-first",
+    );
+    expect(rejected.ok).toBe(true);
+    const qualified = await service.apply(
+      reviewDraft(subject.id, {
+        decision: "qualify",
+        expectedVersion: subject.version,
+        qualifierClaimIds: [qualifier.id],
+      }),
+      "idem-qualify-after-reject",
+    );
+    expect(qualified.ok).toBe(true);
+    if (!qualified.ok) return;
+    expect(qualified.value.acceptedClaimIds).not.toContain(subject.id);
+    // T-22-05 store path still excludes the rejected id
+    expect(await applicationStore.listAcceptedClaimIds()).not.toContain(
+      subject.id,
+    );
+    expect(await applicationStore.isEligibleForAcceptedPack(subject.id)).toBe(
+      false,
+    );
+  });
+
+  it("qualify cannot transition claim to accepted or bypass acceptance authority", async () => {
+    const { service, repo } = makeService();
+    const subject = await seedProposed(service);
+    const qualifier = await seedSecondProposed(
+      service,
+      "Qualifier that must not accept the subject.",
+    );
+    const result = await service.apply(
+      reviewDraft(subject.id, {
+        decision: "qualify",
+        expectedVersion: subject.version,
+        qualifierClaimIds: [qualifier.id],
+      }),
+      "idem-qualify-no-accept",
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const latest = await repo.get(subject.id);
     expect(latest.ok && latest.value.state).toBe("proposed");
-    expect(await service.listApplications()).toHaveLength(0);
+    expect(result.value.acceptedClaimIds).toHaveLength(0);
+  });
+
+  it("self-qualification and qualifier cycles fail typed", async () => {
+    const { service } = makeService();
+    const subject = await seedProposed(service);
+    const self = await service.apply(
+      reviewDraft(subject.id, {
+        decision: "qualify",
+        expectedVersion: subject.version,
+        qualifierClaimIds: [subject.id],
+      }),
+      "idem-qualify-self",
+    );
+    expect(self.ok).toBe(false);
+    if (!self.ok) {
+      expect(["CYCLE_DETECTED", "INVALID_INPUT", "QUALIFY_INVALID"]).toContain(
+        self.code,
+      );
+    }
+
+    const a = await seedSecondProposed(service, "Cycle A statement unique.");
+    const b = await seedSecondProposed(service, "Cycle B statement unique.");
+    // A qualified_by B
+    const linkAb = await service.apply(
+      reviewDraft(a.id, {
+        decision: "qualify",
+        expectedVersion: a.version,
+        qualifierClaimIds: [b.id],
+      }),
+      "idem-qualify-ab",
+    );
+    expect(linkAb.ok).toBe(true);
+    // B qualified_by A would cycle
+    const cycle = await service.apply(
+      reviewDraft(b.id, {
+        decision: "qualify",
+        expectedVersion: b.version,
+        qualifierClaimIds: [a.id],
+      }),
+      "idem-qualify-ba-cycle",
+    );
+    expect(cycle.ok).toBe(false);
+    if (!cycle.ok) {
+      expect(["CYCLE_DETECTED", "QUALIFY_INVALID"]).toContain(cycle.code);
+    }
+  });
+
+  it("qualify is SoD-bound and idempotent (durable shared store)", async () => {
+    const applicationStore = createInMemoryClaimReviewApplicationStore();
+    const claimStore = createInMemoryClaimStore();
+    const s1 = createClaimReviewService({
+      store: claimStore,
+      evidence: verifierOk(),
+      packetIdentity: packetIdentity(),
+      applicationStore,
+    });
+    const subject = await seedProposed(s1);
+    const qualifier = await seedSecondProposed(
+      s1,
+      "Idempotent qualify qualifier statement.",
+    );
+    // SoD: extractor reviewing own claim fails
+    const sod = await s1.apply(
+      {
+        ...reviewDraft(subject.id, {
+          decision: "qualify",
+          expectedVersion: subject.version,
+          qualifierClaimIds: [qualifier.id],
+          reviewerRunId: EXTRACTOR_RUN,
+        }),
+      },
+      "idem-qualify-sod",
+    );
+    expect(sod.ok).toBe(false);
+    if (!sod.ok) expect(sod.code).toBe("SEPARATION_OF_DUTIES");
+
+    const body = reviewDraft(subject.id, {
+      decision: "qualify",
+      expectedVersion: subject.version,
+      qualifierClaimIds: [qualifier.id],
+    });
+    const first = await s1.apply(body, "idem-qualify-dur");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const s2 = createClaimReviewService({
+      store: claimStore,
+      evidence: verifierOk(),
+      packetIdentity: packetIdentity(),
+      applicationStore,
+    });
+    const second = await s2.apply(body, "idem-qualify-dur");
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.value.applicationId).toBe(first.value.applicationId);
+    // conflict different payload
+    const conflict = await s2.apply(
+      reviewDraft(subject.id, {
+        decision: "qualify",
+        expectedVersion: subject.version,
+        qualifierClaimIds: [qualifier.id],
+        reason: "Different reason text for conflict.",
+      }),
+      "idem-qualify-dur",
+    );
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
   });
 });
 

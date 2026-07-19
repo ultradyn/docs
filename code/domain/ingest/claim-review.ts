@@ -61,6 +61,8 @@ export const ClaimReviewSchema = z
     extractorRunId: z.string().min(1).max(128),
     reason: z.string().min(1).max(2_000).optional(),
     splits: z.array(ClaimSplitSpecSchema).min(1).max(32).optional(),
+    /** Qualifier claim ids for decision=qualify only (T-22-06). */
+    qualifierClaimIds: z.array(ClaimIdSchema).min(1).max(32).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -79,6 +81,21 @@ export const ClaimReviewSchema = z
         message: "splits only allowed for split decision",
       });
     }
+    if (value.decision === "qualify") {
+      if (!value.qualifierClaimIds || value.qualifierClaimIds.length < 1) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["qualifierClaimIds"],
+          message: "qualify decision requires qualifierClaimIds",
+        });
+      }
+    } else if (value.qualifierClaimIds !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["qualifierClaimIds"],
+        message: "qualifierClaimIds only allowed for qualify decision",
+      });
+    }
   });
 
 export type ClaimReview = {
@@ -91,6 +108,7 @@ export type ClaimReview = {
   readonly extractorRunId: string;
   readonly reason?: string;
   readonly splits?: readonly ClaimSplitSpec[];
+  readonly qualifierClaimIds?: readonly ClaimId[];
 };
 
 export const ClaimReviewProvenanceLinkSchema = z
