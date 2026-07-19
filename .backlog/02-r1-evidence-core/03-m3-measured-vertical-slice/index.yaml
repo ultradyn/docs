@@ -27,7 +27,7 @@ epics:
       locked: false
       name: WP-32 — Claim Extractor and Claim Reviewer agents
       path: 03-wp-32-claim-extractor-and-clai
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-60. Generate question-specific answers without direct source research. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-60 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
