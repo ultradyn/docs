@@ -212,6 +212,199 @@ function textDrafts(representation: SourceRepresentation): UnitDraft[] {
   return drafts;
 }
 
+function lineText(
+  representation: SourceRepresentation,
+  locatorIndex: number,
+): string {
+  const locator = representation.locatorMap[locatorIndex]!;
+  return representation.normalizedText.slice(
+    locator.normalized.utf16Start,
+    locator.normalized.utf16End,
+  );
+}
+
+interface SectionState {
+  readonly depth: number;
+  readonly draftIndex: number;
+  readonly headingPath: readonly string[];
+  readonly anchor: readonly {
+    readonly heading: string;
+    readonly occurrence: number;
+  }[];
+}
+
+function markdownHeading(
+  text: string,
+): { readonly depth: number; readonly heading: string } | undefined {
+  const match = /^(#{1,6})[\t ]+(.+?)\s*$/u.exec(text);
+  if (!match) return undefined;
+  const heading = match[2]!.replace(/[\t ]+#+[\t ]*$/u, "").trim();
+  return heading === "" ? undefined : { depth: match[1]!.length, heading };
+}
+
+function listLine(text: string): boolean {
+  return /^ {0,3}(?:[-+*]|\d+[.)])[\t ]+\S/u.test(text);
+}
+
+function tableDelimiter(text: string): boolean {
+  const cells = text.trim().replace(/^\|/u, "").replace(/\|$/u, "").split("|");
+  return (
+    cells.length > 0 && cells.every((cell) => /^\s*:?-{3,}:?\s*$/u.test(cell))
+  );
+}
+
+function tableStart(
+  representation: SourceRepresentation,
+  index: number,
+): boolean {
+  return (
+    lineText(representation, index).includes("|") &&
+    index + 1 < representation.locatorMap.length &&
+    tableDelimiter(lineText(representation, index + 1))
+  );
+}
+
+function markdownDrafts(
+  representation: SourceRepresentation,
+): IngestResult<readonly UnitDraft[], "TEXT_DROPPED"> {
+  const drafts: UnitDraft[] = [];
+  const sections: SectionState[] = [];
+  const headingOccurrences = new Map<string, number>();
+  let index = 0;
+
+  const append = (
+    kind: SourceUnitKind,
+    firstLocator: number,
+    lastLocator: number,
+  ): void => {
+    const section = sections.at(-1);
+    drafts.push({
+      kind,
+      headingPath: section?.headingPath ?? [],
+      anchor: section?.anchor ?? [],
+      firstLocator,
+      lastLocator,
+      parentDraft: section?.draftIndex ?? 0,
+    });
+  };
+
+  while (index < representation.locatorMap.length) {
+    const text = lineText(representation, index);
+    if (text.trim() === "") {
+      index += 1;
+      continue;
+    }
+
+    const fence = /^ {0,3}(`{3,}|~{3,})/u.exec(text)?.[1];
+    if (fence) {
+      const marker = fence[0]!;
+      const minimum = fence.length;
+      let closing = index + 1;
+      while (closing < representation.locatorMap.length) {
+        const candidate = lineText(representation, closing);
+        const closingMatch = /^ {0,3}(`+|~+)\s*$/u.exec(candidate)?.[1];
+        if (
+          closingMatch &&
+          closingMatch[0] === marker &&
+          closingMatch.length >= minimum
+        ) {
+          break;
+        }
+        closing += 1;
+      }
+      if (closing >= representation.locatorMap.length) {
+        return textDropped("Markdown fenced code block is not closed.");
+      }
+      append("code", index, closing);
+      index = closing + 1;
+      continue;
+    }
+
+    const heading = markdownHeading(text);
+    if (heading) {
+      while (
+        sections.at(-1)?.depth !== undefined &&
+        sections.at(-1)!.depth >= heading.depth
+      ) {
+        sections.pop();
+      }
+      const parent = sections.at(-1);
+      const parentDraft = parent?.draftIndex ?? 0;
+      const occurrenceKey = JSON.stringify([parentDraft, heading.heading]);
+      const occurrence = (headingOccurrences.get(occurrenceKey) ?? 0) + 1;
+      headingOccurrences.set(occurrenceKey, occurrence);
+      const headingPath = [...(parent?.headingPath ?? []), heading.heading];
+      const anchor = [
+        ...(parent?.anchor ?? []),
+        { heading: heading.heading, occurrence },
+      ];
+      const draftIndex = drafts.length + 1;
+      drafts.push({
+        kind: "section",
+        headingPath,
+        anchor,
+        firstLocator: index,
+        lastLocator: index,
+        parentDraft,
+      });
+      sections.push({
+        depth: heading.depth,
+        draftIndex,
+        headingPath,
+        anchor,
+      });
+      index += 1;
+      continue;
+    }
+
+    if (tableStart(representation, index)) {
+      let end = index + 1;
+      while (
+        end + 1 < representation.locatorMap.length &&
+        lineText(representation, end + 1).includes("|") &&
+        lineText(representation, end + 1).trim() !== ""
+      ) {
+        end += 1;
+      }
+      append("table", index, end);
+      index = end + 1;
+      continue;
+    }
+
+    if (listLine(text)) {
+      let end = index;
+      while (end + 1 < representation.locatorMap.length) {
+        const next = lineText(representation, end + 1);
+        if (listLine(next) || /^\s{2,}\S/u.test(next)) end += 1;
+        else break;
+      }
+      append("list", index, end);
+      index = end + 1;
+      continue;
+    }
+
+    let end = index;
+    while (end + 1 < representation.locatorMap.length) {
+      const nextIndex = end + 1;
+      const next = lineText(representation, nextIndex);
+      if (
+        next.trim() === "" ||
+        markdownHeading(next) ||
+        /^ {0,3}(`{3,}|~{3,})/u.test(next) ||
+        listLine(next) ||
+        tableStart(representation, nextIndex)
+      ) {
+        break;
+      }
+      end += 1;
+    }
+    append("paragraph", index, end);
+    index = end + 1;
+  }
+
+  return { ok: true, value: drafts };
+}
+
 function wholeRepresentationDraft(kind: "code" | "table"): UnitDraft[] {
   return [
     {
@@ -393,14 +586,20 @@ export function unitizeRepresentation(
         "Structural units cannot account for text without locators.",
       );
     }
+    const markdown =
+      representation.kind === "markdown"
+        ? markdownDrafts(representation)
+        : undefined;
+    if (markdown && !markdown.ok) return markdown;
     const drafts =
-      representation.kind === "text"
+      markdown?.value ??
+      (representation.kind === "text"
         ? textDrafts(representation)
         : representation.kind === "csv"
           ? wholeRepresentationDraft("table")
           : ["code", "json", "yaml"].includes(representation.kind)
             ? wholeRepresentationDraft("code")
-            : undefined;
+            : undefined);
     if (!drafts) {
       return textDropped(
         "Structural adapter is not available for this qualified kind.",

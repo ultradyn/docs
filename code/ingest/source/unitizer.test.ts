@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
@@ -353,6 +354,122 @@ describe("unitizeRepresentation", () => {
         }),
       ],
     });
+  });
+
+  it("parses Markdown headings, paragraphs, lists, tables, and fenced code", async () => {
+    const text = await readFile(
+      new URL("./fixtures/unitization/markdown-structure.md", import.meta.url),
+      "utf8",
+    );
+    const result = unitizeRepresentation(textInput(text, "markdown"));
+
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(result.value.map((unit) => unit.kind)).toEqual([
+      "document",
+      "paragraph",
+      "section",
+      "paragraph",
+      "list",
+      "table",
+      "code",
+      "section",
+      "paragraph",
+    ]);
+    const [
+      document,
+      preamble,
+      install,
+      paragraph,
+      list,
+      table,
+      code,
+      linux,
+      details,
+    ] = result.value;
+    expect(preamble?.parentId).toBe(document?.id);
+    expect(install).toMatchObject({
+      parentId: document?.id,
+      headingPath: ["Install"],
+    });
+    for (const unit of [paragraph, list, table, code]) {
+      expect(unit).toMatchObject({
+        parentId: install?.id,
+        headingPath: ["Install"],
+      });
+    }
+    expect(linux).toMatchObject({
+      parentId: install?.id,
+      headingPath: ["Install", "Linux"],
+    });
+    expect(details).toMatchObject({
+      parentId: linux?.id,
+      headingPath: ["Install", "Linux"],
+    });
+  });
+
+  it("distinguishes duplicate headings and their identical children", () => {
+    const result = unitizeRepresentation(
+      textInput("# Root\n\n## Same\n\nText\n\n## Same\n\nText\n", "markdown"),
+    );
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    const sameSections = result.value.filter(
+      (unit) => unit.kind === "section" && unit.headingPath.at(-1) === "Same",
+    );
+    const textParagraphs = result.value.filter(
+      (unit) => unit.kind === "paragraph" && unit.textSha256 === sha256("Text"),
+    );
+    expect(sameSections).toHaveLength(2);
+    expect(textParagraphs).toHaveLength(2);
+    expect(sameSections[0]!.id).not.toBe(sameSections[1]!.id);
+    expect(textParagraphs[0]!.id).not.toBe(textParagraphs[1]!.id);
+    expect(textParagraphs.map((unit) => unit.parentId)).toEqual(
+      sameSections.map((unit) => unit.id),
+    );
+  });
+
+  it("keeps Markdown-looking fenced content inside one code unit", () => {
+    const result = unitizeRepresentation(
+      textInput(
+        "# Root\n\n```md\n## Not heading\n- not list\n```\n",
+        "markdown",
+      ),
+    );
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(result.value.map((unit) => unit.kind)).toEqual([
+      "document",
+      "section",
+      "code",
+    ]);
+  });
+
+  it("keeps thematic breaks and separates list continuation at a blank line", () => {
+    const result = unitizeRepresentation(
+      textInput(
+        "# Root\n\n---\n\n- item\n  continuation\n\n  indented paragraph\n",
+        "markdown",
+      ),
+    );
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(result.value.map((unit) => unit.kind)).toEqual([
+      "document",
+      "section",
+      "paragraph",
+      "list",
+      "paragraph",
+    ]);
+  });
+
+  it("fails an unclosed Markdown fence without echoing source text", () => {
+    const secret = "PRIVATE_SOURCE_VALUE";
+    const result = unitizeRepresentation(
+      textInput(`# Root\n\n\`\`\`\n${secret}\n`, "markdown"),
+    );
+    expect(result).toMatchObject({ ok: false, code: "TEXT_DROPPED" });
+    if (!result.ok) expect(result.message).not.toContain(secret);
   });
 
   it("requires exact canonical provenance and a fresh matching built-in audit", () => {
