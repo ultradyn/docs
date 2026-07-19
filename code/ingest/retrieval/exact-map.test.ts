@@ -13,7 +13,12 @@ import type {
 } from "../../domain/ingest/index.js";
 import { auditRepresentation, unitizeRepresentation } from "../source/index.js";
 
-import { ALIAS_CLASS_ORDER, buildExactMap, normalizeAlias } from "./index.js";
+import {
+  ALIAS_CLASS_ORDER,
+  EXACT_MAP_LIMITS,
+  buildExactMap,
+  normalizeAlias,
+} from "./index.js";
 
 function sha256(text: string): Sha256 {
   return createHash("sha256").update(text).digest("hex") as Sha256;
@@ -364,6 +369,156 @@ describe("buildExactMap input validation", () => {
     if (result.ok) return;
     expect(result.code).toBe("INVALID_INPUT");
   });
+
+  it("rejects hostile array descriptors and traps without reading an element", () => {
+    const corpus = guide();
+    let reads = 0;
+    const accessorUnits = [...corpus.units];
+    Object.defineProperty(accessorUnits, "0", {
+      enumerable: true,
+      configurable: true,
+      get() {
+        reads += 1;
+        throw new Error("indexed accessor executed");
+      },
+    });
+    const symbolUnits = [...corpus.units];
+    Object.defineProperty(symbolUnits, Symbol("unexpected"), { value: true });
+    const hiddenUnits = [...corpus.units];
+    Object.defineProperty(hiddenUnits, "hidden", { value: true });
+    const trappedUnits = new Proxy([...corpus.units], {
+      ownKeys() {
+        throw new Error("ownKeys trap");
+      },
+    });
+
+    for (const units of [
+      accessorUnits,
+      symbolUnits,
+      hiddenUnits,
+      trappedUnits,
+    ]) {
+      const result = buildExactMap({ ...corpus, units });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("INVALID_INPUT");
+    }
+    expect(reads).toBe(0);
+  });
+
+  it("rejects a corpus exceeding the shared total record budget", () => {
+    const corpus = guide();
+    const repeated = Array.from(
+      { length: EXACT_MAP_LIMITS.maxTotalRecords + 1 },
+      () => corpus.units[0]!,
+    );
+    const result = buildExactMap({
+      units: repeated,
+      files: [],
+      representations: [],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // The budget must be enforced before duplicate detection, otherwise a
+    // hostile corpus pays for the whole identity scan first.
+    expect(result.code).toBe("INVALID_INPUT");
+  });
+
+  it("counts the record budget across all three arrays, not per array", () => {
+    // A per-array counter that resets would let three arrays each sit just
+    // under the limit and together blow the shared budget.
+    const corpus = guide();
+    const share = Math.ceil((EXACT_MAP_LIMITS.maxTotalRecords + 1) / 3);
+    const result = buildExactMap({
+      units: Array.from({ length: share }, () => corpus.units[0]!),
+      files: Array.from({ length: share }, () => corpus.files[0]!),
+      representations: Array.from(
+        { length: share },
+        () => corpus.representations[0]!,
+      ),
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_INPUT");
+  });
+
+  it("rejects a corpus exceeding the aggregate string budget", () => {
+    const corpus = guide();
+    const representation = corpus.representations[0]!;
+    const result = buildExactMap({
+      ...corpus,
+      representations: [
+        {
+          ...representation,
+          normalizedText:
+            representation.normalizedText +
+            "x".repeat(EXACT_MAP_LIMITS.maxAggregateStringUnits),
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // Must reject on budget before the digest comparison, so an oversized
+    // corpus never gets hashed.
+    expect(result.code).toBe("INVALID_INPUT");
+  });
+
+  it("rejects a corpus exceeding the aggregate graph node budget", () => {
+    // Uses a schema-VALID vehicle: a long locatorMap. An inherited draft hung
+    // a deeply nested object off an unknown unit field, which strict parsing
+    // already rejects, so it would have passed without any node budget at all.
+    const corpus = guide();
+    const representation = corpus.representations[0]!;
+    const span = representation.locatorMap[0]!;
+    const result = buildExactMap({
+      ...corpus,
+      representations: [
+        {
+          ...representation,
+          locatorMap: Array.from(
+            { length: EXACT_MAP_LIMITS.maxAggregateGraphNodes },
+            () => span,
+          ),
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_INPUT");
+  });
+
+  it("rejects a single alias exceeding the per-alias string budget", () => {
+    const corpus = guide();
+    const index = corpus.units.findIndex((unit) => unit.kind === "section");
+    const units = [...corpus.units];
+    units[index] = {
+      ...corpus.units[index]!,
+      headingPath: ["h".repeat(EXACT_MAP_LIMITS.maxAliasStringUnits + 1)],
+    };
+    const result = buildExactMap({ ...corpus, units });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_INPUT");
+  });
+
+  it("accepts an alias exactly at the per-alias string budget", () => {
+    const corpus = guide();
+    const index = corpus.units.findIndex((unit) => unit.kind === "section");
+    const heading = "h".repeat(EXACT_MAP_LIMITS.maxAliasStringUnits);
+    const units = [...corpus.units];
+    units[index] = { ...corpus.units[index]!, headingPath: [heading] };
+    const result = buildExactMap({ ...corpus, units });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.lookup(heading).kind).not.toBe("missing");
+  });
+
+  it("returns missing for a lookup exceeding the lookup string budget", () => {
+    // Overlong lookups must not be normalized or scanned; they simply miss.
+    const projection = built(guide());
+    expect(
+      projection.lookup("q".repeat(EXACT_MAP_LIMITS.maxLookupStringUnits + 1)),
+    ).toEqual({ kind: "missing" });
+  });
 });
 
 describe("exact map alias vocabulary", () => {
@@ -443,6 +598,57 @@ describe("exact map alias vocabulary", () => {
     expect(projection.lookup("HTTP-404")).toEqual({
       kind: "unique",
       unit: codes.id,
+    });
+  });
+
+  it("does not extract error codes embedded in larger tokens", () => {
+    // The embedded and standalone occurrences deliberately live under
+    // DIFFERENT sections. If boundary detection is wrong and `fooE123bar`
+    // mints an inner `E123`, the lookup becomes ambiguous across two units
+    // rather than merely resolving to the same one, so this discriminates.
+    // An inherited draft of this test put both in one section and asserted
+    // against the wrong paragraph, which could not have failed correctly.
+    const text = [
+      "# Embedded",
+      "",
+      "fooE123bar éE123 E123٣ _E123_ x-HTTP-404-y zAUDIT_REQUIREDz.",
+      "",
+      "# Standalone",
+      "",
+      "Standalone AUDIT_REQUIRED E123 HTTP-404 here.",
+      "",
+    ].join("\n");
+    const corpus = markdownFile(
+      "docs/tokens.md",
+      "d",
+      "repr-01ARZ3NDEKTSV4RRFFQ69G5FCX",
+      text,
+    );
+    const projection = built(corpus);
+    const standalone = paragraphUnder(corpus, "Standalone");
+    for (const code of ["AUDIT_REQUIRED", "E123", "HTTP-404"]) {
+      expect(projection.lookup(code)).toEqual({
+        kind: "unique",
+        unit: standalone.id,
+      });
+    }
+    for (const token of [
+      "fooE123bar",
+      "éE123",
+      "E123٣",
+      "x-HTTP-404-y",
+      "zAUDIT_REQUIREDz",
+    ]) {
+      expect(projection.lookup(token)).toEqual({ kind: "missing" });
+    }
+    // `_E123_` is deliberately NOT in that list. The single normalization rule
+    // trims leading and trailing separators, so the QUERY `_E123_` reduces to
+    // `e123` and legitimately resolves. What must not happen is the embedded
+    // occurrence minting an alias — proven above by `E123` staying unique to
+    // the standalone paragraph rather than becoming ambiguous.
+    expect(projection.lookup("_E123_")).toEqual({
+      kind: "unique",
+      unit: standalone.id,
     });
   });
 
