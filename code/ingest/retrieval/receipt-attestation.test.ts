@@ -186,6 +186,88 @@ describe("authenticity surface", () => {
 });
 
 // ---------------------------------------------------------------------------
+// malformed input must REFUSE, never throw
+// ---------------------------------------------------------------------------
+describe("malformed input", () => {
+  /**
+   * Found by adversarial review: attest previously threw a TypeError from
+   * inside receiptPayloadDigest on garbage input, because the digest spreads
+   * candidateIds/selectedIds/failures. A throw escapes the IngestResult
+   * contract — a caller written against {ok:false, code} never sees it, so a
+   * fail-closed API becomes a crash and RECEIPT_INVALID was dead code.
+   */
+  const garbage: unknown[] = [
+    { foo: 1 },
+    {},
+    null,
+    "not-a-receipt",
+    42,
+    [],
+    { ...{ schemaVersion: 1 }, candidateIds: "not-an-array" },
+  ];
+
+  it("attest refuses malformed receipts with RECEIPT_INVALID and never throws", async () => {
+    const authority = createFakeReceiptAttestationAuthority();
+    for (const bad of garbage) {
+      const result = await attestSearchReceipt(
+        authority,
+        bad as unknown as SearchReceipt,
+      );
+      expect(result.ok, `expected refusal for ${JSON.stringify(bad)}`).toBe(
+        false,
+      );
+      if (result.ok) continue;
+      expect(result.code).toBe("RECEIPT_INVALID");
+    }
+    // Positive control: a well-formed receipt still attests, so the assertions
+    // above cannot be satisfied by a function that refuses everything.
+    const good = await attestSearchReceipt(authority, receipt());
+    expect(good.ok).toBe(true);
+  });
+
+  it("verify refuses a shape-valid attestation on a malformed receipt", async () => {
+    const authority = createFakeReceiptAttestationAuthority();
+    const attested = await attestSearchReceipt(authority, receipt());
+    expect(attested.ok).toBe(true);
+    if (!attested.ok) return;
+    // Attestation looks fine; the receipt half is wrecked. Digest would throw.
+    const broken = {
+      ...attested.value,
+      candidateIds: "not-an-array",
+    } as unknown as AttestedSearchReceipt;
+    const verified = await verifyAttestedSearchReceipt(authority, broken);
+    expect(verified.ok).toBe(false);
+    if (verified.ok) return;
+    expect(verified.code).toBe("RECEIPT_INVALID");
+  });
+
+  it("shape guard rejects non-hex digests and non-positive revisions", () => {
+    const base = receipt();
+    const mk = (attestation: Record<string, unknown>) =>
+      ({ ...base, attestation }) as unknown;
+    const valid = {
+      version: 1,
+      authorityId: "a",
+      authorityRevision: 1,
+      payloadSha256: "a".repeat(64),
+      proof: "p",
+    };
+    // Positive control first: the guard accepts a well-formed attestation, so
+    // the rejections below are not a guard that always says no.
+    expect(isAttestedSearchReceipt(mk(valid))).toBe(true);
+    expect(
+      isAttestedSearchReceipt(mk({ ...valid, payloadSha256: "Z".repeat(64) })),
+    ).toBe(false);
+    expect(
+      isAttestedSearchReceipt(mk({ ...valid, authorityRevision: 0 })),
+    ).toBe(false);
+    expect(
+      isAttestedSearchReceipt(mk({ ...valid, authorityRevision: -1 })),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // hygiene
 // ---------------------------------------------------------------------------
 describe("hygiene", () => {

@@ -10,6 +10,14 @@
  * pass. Raising the forgery bar is not the same as closing the hole.
  *
  * WHAT THIS PROVIDES.
+ * SCOPE OF THE CLAIM. "Bound to a real tool invocation" holds only as strongly
+ * as the injected authority and the wiring around it. This module makes the
+ * binding CHECKABLE and makes bypass a type error; it cannot by itself prove an
+ * invocation happened, and under the deterministic test fake it proves nothing
+ * about the world. Enforcement at the product boundary is a separate wiring
+ * step, tracked with the FR proposal — do not read this file as closing the
+ * Researcher forgery path end to end.
+ *
  * - AttestedSearchReceipt: structurally distinct from SearchReceipt, so a
  *   hand-written receipt CANNOT be passed where an attested one is required.
  *   The distinction is a type-level brand plus a runtime guard, not a comment.
@@ -23,6 +31,14 @@
  * never widen trust: verification of a genuine attestation ALSO refuses while
  * the authority cannot be consulted, because "we cannot check" is not "it is
  * fine". This matches policy-gate's re-verify-on-every-call discipline.
+ *
+ * DIVISION OF RESPONSIBILITY. This module guarantees: shape validation,
+ * payload binding (anti-transplant, checked here before delegating), and
+ * faithful propagation of the authority's verdict including unavailability.
+ * It does NOT independently adjudicate trust roots — refusing a foreign
+ * authorityId is the injected authority's obligation, matching the policy
+ * layer's split. A production authority MUST reject unknown roots; this module
+ * cannot do it for them and does not pretend to.
  *
  * THE ATTESTATION COMMITS TO THIS PAYLOAD. payloadSha256 is a canonical digest
  * over the receipt's own fields, so an attestation cannot be transplanted onto
@@ -44,7 +60,10 @@
  */
 import { createHash } from "node:crypto";
 
-import type { SearchReceipt } from "../../domain/ingest/search-receipt.js";
+import {
+  canonicalizeSearchFilters,
+  type SearchReceipt,
+} from "../../domain/ingest/search-receipt.js";
 import type { IngestResult, Sha256 } from "../../domain/ingest/types.js";
 
 // ---------------------------------------------------------------------------
@@ -158,9 +177,12 @@ export function receiptPayloadDigest(receipt: SearchReceipt): Sha256 {
     receipt.indexVersion,
     receipt.indexedRepresentationsSha256,
     receipt.query,
-    Object.keys(receipt.filters ?? {})
-      .sort()
-      .map((key) => [key, (receipt.filters as Record<string, unknown>)[key]]),
+    // Use the DOMAIN canonicaliser, not a local key sort. A local sort only
+    // orders top-level keys and leaves nested arrays in caller order, so two
+    // semantically identical filter sets could digest differently — the
+    // binding would be incomplete rather than wrong. The canonicaliser already
+    // exists for exactly this; reimplementing it badly is how the two drift.
+    canonicalizeSearchFilters(receipt.filters),
     [...receipt.candidateIds].sort(),
     [...receipt.selectedIds].sort(),
     [...receipt.failures].sort(),
@@ -172,6 +194,18 @@ export function receiptPayloadDigest(receipt: SearchReceipt): Sha256 {
 // Guard
 // ---------------------------------------------------------------------------
 
+/**
+ * SHAPE PRECHECK — NOT A TRUST GATE. Read this before using it as one.
+ *
+ * The unique-symbol brand is erased at runtime, so this can only inspect the
+ * attestation's shape. A hand-forged object with a plausible attestation field
+ * WILL pass this check (verified adversarially). It exists to reject obviously
+ * unattested input cheaply and to give the type guard a runtime counterpart.
+ *
+ * The ONLY authenticity gate is verifyAttestedSearchReceipt, which binds the
+ * attestation to the payload and consults the authority. Anything that admits
+ * evidence MUST call that, never this.
+ */
 export function isAttestedSearchReceipt(
   value: unknown,
 ): value is AttestedSearchReceipt {
@@ -186,8 +220,9 @@ export function isAttestedSearchReceipt(
     a.authorityId.length <= RECEIPT_ATTESTATION_LIMITS.maxAuthorityIdChars &&
     typeof a.authorityRevision === "number" &&
     Number.isInteger(a.authorityRevision) &&
+    a.authorityRevision > 0 &&
     typeof a.payloadSha256 === "string" &&
-    a.payloadSha256.length === 64 &&
+    /^[0-9a-f]{64}$/u.test(a.payloadSha256) &&
     typeof a.proof === "string" &&
     a.proof.length > 0 &&
     a.proof.length <= RECEIPT_ATTESTATION_LIMITS.maxProofChars
@@ -198,19 +233,57 @@ export function isAttestedSearchReceipt(
 // Attest / verify
 // ---------------------------------------------------------------------------
 
+/**
+ * Minimal structural validation BEFORE digesting.
+ *
+ * receiptPayloadDigest spreads candidateIds/selectedIds/failures, so a
+ * malformed input previously THREW a TypeError from inside the digest instead
+ * of returning RECEIPT_INVALID. A throw escapes the IngestResult contract
+ * entirely: callers written against {ok:false, code} never see it, so a
+ * fail-closed API became a crash. RECEIPT_INVALID was effectively dead code.
+ */
+function isWellFormedReceipt(value: unknown): value is SearchReceipt {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Partial<SearchReceipt>;
+  return (
+    r.schemaVersion === 1 &&
+    typeof r.id === "string" &&
+    typeof r.snapshotId === "string" &&
+    typeof r.indexVersion === "string" &&
+    typeof r.indexedRepresentationsSha256 === "string" &&
+    typeof r.query === "string" &&
+    typeof r.filters === "object" &&
+    r.filters !== null &&
+    Array.isArray(r.candidateIds) &&
+    Array.isArray(r.selectedIds) &&
+    Array.isArray(r.failures)
+  );
+}
+
 export async function attestSearchReceipt(
   authority: SearchReceiptAttestationAuthority,
   receipt: SearchReceipt,
 ): Promise<IngestResult<AttestedSearchReceipt, ReceiptAttestationError>> {
-  if (typeof receipt !== "object" || receipt === null) {
+  if (!isWellFormedReceipt(receipt)) {
     return failure("RECEIPT_INVALID");
   }
   const payloadSha256 = receiptPayloadDigest(receipt);
   const issued = await authority.attest(payloadSha256);
   if (!issued.ok) return failure("AUTHORITY_UNAVAILABLE");
 
-  // Bind the issued attestation to the payload we actually digested. An
-  // authority returning a mismatched commitment is not trusted on its word.
+  // Do not trust the authority's output on its word. Two separate checks:
+  //
+  // (a) SHAPE. A buggy or hostile authority can return ok:true with an empty
+  //     proof or a blank authorityId. Validating only the payload binding
+  //     would let that through and produce an "attested" receipt carrying a
+  //     meaningless attestation — which later verifies as garbage rather than
+  //     failing here, where the cause is still visible.
+  // (b) BINDING. The commitment must be to the payload WE digested, not one
+  //     the authority chose.
+  const candidateShape = { ...receipt, attestation: issued.attestation };
+  if (!isAttestedSearchReceipt(candidateShape)) {
+    return failure("RECEIPT_NOT_AUTHENTIC");
+  }
   if (issued.attestation.payloadSha256 !== payloadSha256) {
     return failure("RECEIPT_NOT_AUTHENTIC");
   }
@@ -230,6 +303,11 @@ export async function verifyAttestedSearchReceipt(
   // the authority is consulted at all.
   if (!isAttestedSearchReceipt(candidate)) {
     return failure("RECEIPT_NOT_AUTHENTIC");
+  }
+  // Shape-valid attestation is not enough to digest safely: the RECEIPT half
+  // must also be well formed or the digest throws. Refuse rather than crash.
+  if (!isWellFormedReceipt(candidate)) {
+    return failure("RECEIPT_INVALID");
   }
   const payloadSha256 = receiptPayloadDigest(candidate);
 
