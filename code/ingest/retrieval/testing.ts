@@ -2,7 +2,12 @@
  * Testing-only fakes for T-30-01 source tools.
  * Never re-export from the retrieval package barrel.
  */
-import type { SnapshotId, SourceUnitId } from "../../domain/ingest/index.js";
+import type {
+  Sha256,
+  SnapshotId,
+  SourceUnitId,
+} from "../../domain/ingest/index.js";
+import type { SearchReceipt } from "../../domain/ingest/search-receipt.js";
 import type {
   DeniedUnit,
   FilteredSearchResponse,
@@ -13,26 +18,17 @@ import type {
   UnitPreview,
 } from "../policy/policy-gate.js";
 import type { SearchHit, SearchResponse } from "./lexical-index.js";
-import type { SearchReceipt } from "../../domain/ingest/search-receipt.js";
+import type {
+  SearchBackend,
+  SearchBackendIdentity,
+  UnitStore,
+  UnitStoreRecord,
+} from "./source-tool-seams.js";
 
-export interface FakeUnitRecord {
-  readonly unitId: SourceUnitId;
-  readonly textSha256: string;
-  readonly text: string;
-}
-
-export interface UnitStore {
-  get(
-    unitId: string,
-    expectedHash: string,
-  ): Promise<
-    | { ok: true; value: FakeUnitRecord }
-    | { ok: false; code: "UNIT_NOT_FOUND" | "HASH_MISMATCH" }
-  >;
-}
+export type { UnitStore, SearchBackend } from "./source-tool-seams.js";
 
 export function createFakeUnitStore(
-  units: Record<string, FakeUnitRecord> = {},
+  units: Record<string, UnitStoreRecord> = {},
 ): UnitStore {
   return {
     async get(unitId, expectedHash) {
@@ -67,17 +63,16 @@ export function createFakeUnitAccessResolver(
   };
 }
 
-export interface FakeSearchBackend {
-  search(query: string): Promise<SearchResponse>;
-}
-
-function emptyReceipt(snapshotId: SnapshotId): SearchReceipt {
+function emptyReceipt(
+  snapshotId: SnapshotId,
+  identity: SearchBackendIdentity,
+): SearchReceipt {
   return {
     schemaVersion: 1,
     id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV" as SearchReceipt["id"],
     snapshotId,
-    indexVersion: "fake-v1",
-    indexedRepresentationsSha256: "0".repeat(64) as never,
+    indexVersion: identity.indexVersion,
+    indexedRepresentationsSha256: identity.indexedRepresentationsSha256,
     query: "",
     filters: {},
     candidateIds: [],
@@ -88,9 +83,15 @@ function emptyReceipt(snapshotId: SnapshotId): SearchReceipt {
 
 export function createFakeExactMap(options: {
   hits: Array<{ unitId: SourceUnitId; score: number }>;
-}): FakeSearchBackend {
+  identity?: SearchBackendIdentity;
+}): SearchBackend {
   const snapshotId = `snap-${"a".repeat(64)}` as SnapshotId;
+  const identity: SearchBackendIdentity = options.identity ?? {
+    indexVersion: "exact-map-v1",
+    indexedRepresentationsSha256: "a".repeat(64) as Sha256,
+  };
   return {
+    identity,
     async search(query: string) {
       void query;
       const hits: SearchHit[] = options.hits.map((h) => ({
@@ -98,20 +99,28 @@ export function createFakeExactMap(options: {
         score: h.score,
       }));
       const ids = options.hits.map((h) => h.unitId);
-      return {
+      const response: SearchResponse = {
         hits,
         candidateIds: ids,
         selectedIds: ids,
-        receipt: emptyReceipt(snapshotId),
+        receipt: emptyReceipt(snapshotId, identity),
       };
+      return response;
     },
   };
 }
 
 export function createFakeLexicalIndex(options: {
   hits: Array<{ unitId: SourceUnitId; score: number }>;
-}): FakeSearchBackend {
-  return createFakeExactMap(options);
+  identity?: SearchBackendIdentity;
+}): SearchBackend {
+  return createFakeExactMap({
+    hits: options.hits,
+    identity: options.identity ?? {
+      indexVersion: "lexical-v1",
+      indexedRepresentationsSha256: "b".repeat(64) as Sha256,
+    },
+  });
 }
 
 export function createFakePolicyGate(

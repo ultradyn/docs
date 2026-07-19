@@ -207,4 +207,50 @@ describe("contract — researcher allowlist surface", () => {
       ["source.follow_links", "source.maps", "source.vector_optional"].sort(),
     );
   });
+
+  it("receipt index identity comes from the SearchBackend (not a hardcoded constant)", async () => {
+    const { createFakeExactMap, createFakeLexicalIndex } =
+      await import("./testing.js");
+    const exactA = createFakeExactMap({
+      hits: [],
+      identity: {
+        indexVersion: "exact-map-test-A",
+        indexedRepresentationsSha256: "1".repeat(64) as never,
+      },
+    });
+    const exactB = createFakeExactMap({
+      hits: [],
+      identity: {
+        indexVersion: "exact-map-test-B",
+        indexedRepresentationsSha256: "2".repeat(64) as never,
+      },
+    });
+    const apiA = createSourceTools({
+      profileId: "policy-docs",
+      principalId: "session:researcher-1",
+      snapshotId: SNAPSHOT,
+      policyGate: createFakePolicyGate(),
+      units: createFakeUnitAccessResolver(),
+      unitStore: createFakeUnitStore(),
+      exactMap: exactA,
+      lexicalIndex: createFakeLexicalIndex({ hits: [] }),
+    });
+    const apiB = createSourceTools({
+      profileId: "policy-docs",
+      principalId: "session:researcher-1",
+      snapshotId: SNAPSHOT,
+      policyGate: createFakePolicyGate(),
+      units: createFakeUnitAccessResolver(),
+      unitStore: createFakeUnitStore(),
+      exactMap: exactB,
+      lexicalIndex: createFakeLexicalIndex({ hits: [] }),
+    });
+    const a = await apiA.exact({ query: "q" });
+    const b = await apiB.exact({ query: "q" });
+    expect(a.receipt.indexVersion).toBe("exact-map-test-A");
+    expect(b.receipt.indexVersion).toBe("exact-map-test-B");
+    expect(a.receipt.indexedRepresentationsSha256).toBe("1".repeat(64));
+    expect(b.receipt.indexedRepresentationsSha256).toBe("2".repeat(64));
+    expect(a.receipt.indexVersion).not.toBe(b.receipt.indexVersion);
+  });
 });

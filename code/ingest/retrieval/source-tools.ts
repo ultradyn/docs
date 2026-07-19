@@ -1,5 +1,6 @@
 import type {
   IngestResult,
+  Sha256,
   SnapshotId,
   SourceUnitId,
 } from "../../domain/ingest/index.js";
@@ -12,7 +13,14 @@ import type { PolicyGate } from "../policy/policy-gate.js";
 
 import { receiptIdFor } from "./lexical-index.js";
 import type { SearchResponse } from "./lexical-index.js";
-import type { FakeSearchBackend, UnitStore } from "./testing.js";
+import type { SearchBackend, UnitStore } from "./source-tool-seams.js";
+
+export type {
+  SearchBackend,
+  SearchBackendIdentity,
+  UnitStore,
+  UnitStoreRecord,
+} from "./source-tool-seams.js";
 
 export type SourceToolError =
   | "INVALID_INPUT"
@@ -20,7 +28,8 @@ export type SourceToolError =
   | "HASH_MISMATCH"
   | "UNIT_NOT_FOUND"
   | "ACCESS_DENIED"
-  | "COMMIT_FAILED";
+  | "COMMIT_FAILED"
+  | "RECEIPT_INVALID";
 
 const FIXED_MESSAGES: Record<SourceToolError, string> = {
   INVALID_INPUT: "Tool input is invalid.",
@@ -29,10 +38,12 @@ const FIXED_MESSAGES: Record<SourceToolError, string> = {
   UNIT_NOT_FOUND: "Requested unit was not found.",
   ACCESS_DENIED: "Unit access denied by policy.",
   COMMIT_FAILED: "Source tool operation failed.",
+  RECEIPT_INVALID: "Source tool could not construct a valid receipt.",
 };
 
-const INDEX_VERSION = "source-tools-v1";
-const EMPTY_CORPUS = "0".repeat(64);
+/** Explicit marker for unbacked tools (not a real index identity). */
+const UNBACKED_INDEX_VERSION = "source-tools-unbacked";
+const UNBACKED_CORPUS = "0".repeat(64) as Sha256;
 
 export interface SourceTools {
   exact(input: unknown): Promise<SourceToolResult>;
@@ -66,6 +77,18 @@ export type SourceToolResult = IngestResult<
   readonly receipt: SearchReceipt;
 };
 
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    if (Array.isArray(value)) {
+      for (const item of value) deepFreeze(item);
+    } else {
+      for (const child of Object.values(value as object)) deepFreeze(child);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
 function failure(
   code: SourceToolError,
   receipt: SearchReceipt,
@@ -84,18 +107,6 @@ function success(value: SourceToolSuccess): SourceToolResult {
     value: deepFreeze(value),
     receipt: deepFreeze(value.receipt),
   }) as SourceToolResult;
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    if (Array.isArray(value)) {
-      for (const item of value) deepFreeze(item);
-    } else {
-      for (const child of Object.values(value as object)) deepFreeze(child);
-    }
-    Object.freeze(value);
-  }
-  return value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -128,6 +139,10 @@ function sortIds(ids: readonly string[]): SourceUnitId[] {
   return [...new Set(ids)].sort() as SourceUnitId[];
 }
 
+/**
+ * Build a schema-valid receipt. Fail-closed if validation fails — tools must
+ * never emit a non-schema-valid receipt.
+ */
 function makeToolReceipt(parts: {
   snapshotId: SnapshotId;
   query: string;
@@ -135,16 +150,19 @@ function makeToolReceipt(parts: {
   candidateIds: readonly SourceUnitId[];
   selectedIds: readonly SourceUnitId[];
   failures?: readonly string[];
-}): SearchReceipt {
+  indexVersion: string;
+  indexedRepresentationsSha256: Sha256;
+}): { ok: true; receipt: SearchReceipt } | { ok: false } {
   const candidateIds = sortIds(parts.candidateIds);
   const selectedIds = sortIds(parts.selectedIds);
   const failures = [...(parts.failures ?? [])];
-  const receipt = {
+  const corpusDigest = parts.indexedRepresentationsSha256;
+  const material = {
     schemaVersion: 1 as const,
     id: receiptIdFor({
       snapshotId: parts.snapshotId,
-      indexVersion: INDEX_VERSION,
-      corpusDigest: EMPTY_CORPUS,
+      indexVersion: parts.indexVersion,
+      corpusDigest,
       query: parts.query,
       filters: parts.filters,
       limit: 100,
@@ -153,20 +171,38 @@ function makeToolReceipt(parts: {
       selectedIds,
     }),
     snapshotId: parts.snapshotId,
-    indexVersion: INDEX_VERSION,
-    indexedRepresentationsSha256: EMPTY_CORPUS as never,
+    indexVersion: parts.indexVersion,
+    indexedRepresentationsSha256: corpusDigest,
     query: parts.query,
     filters: parts.filters,
     candidateIds,
     selectedIds,
     failures,
   };
-  const parsed = SearchReceiptSchema.safeParse(receipt);
-  if (!parsed.success) {
-    // Fall back to a minimal valid shape if brands differ in tests
-    return deepFreeze(receipt as SearchReceipt);
+  const parsed = SearchReceiptSchema.safeParse(material);
+  if (!parsed.success) return { ok: false };
+  return { ok: true, receipt: deepFreeze(parsed.data as SearchReceipt) };
+}
+
+function unbackedReceipt(
+  snapshotId: SnapshotId,
+  query: string,
+  failures: readonly string[],
+): SearchReceipt {
+  const built = makeToolReceipt({
+    snapshotId,
+    query,
+    filters: { snapshotId },
+    candidateIds: [],
+    selectedIds: [],
+    failures,
+    indexVersion: UNBACKED_INDEX_VERSION,
+    indexedRepresentationsSha256: UNBACKED_CORPUS,
+  });
+  if (!built.ok) {
+    throw new Error("RECEIPT_INVALID: unbacked marker receipt failed schema.");
   }
-  return deepFreeze(parsed.data as SearchReceipt);
+  return built.receipt;
 }
 
 function parseQueryInput(
@@ -212,8 +248,8 @@ export function createSourceTools(options: {
   readonly policyGate: PolicyGate;
   readonly units?: unknown;
   readonly unitStore?: UnitStore;
-  readonly exactMap?: FakeSearchBackend;
-  readonly lexicalIndex?: FakeSearchBackend;
+  readonly exactMap?: SearchBackend;
+  readonly lexicalIndex?: SearchBackend;
 }): SourceTools {
   if (!options || typeof options !== "object") {
     throw new Error("Source tools options are required.");
@@ -250,20 +286,15 @@ export function createSourceTools(options: {
   const lexicalIndex = options.lexicalIndex;
 
   async function runSearch(
-    backend: FakeSearchBackend | undefined,
+    backend: SearchBackend | undefined,
     query: string,
     mode: string,
   ): Promise<SourceToolResult> {
     if (!backend) {
-      const receipt = makeToolReceipt({
-        snapshotId,
-        query,
-        filters: { snapshotId },
-        candidateIds: [],
-        selectedIds: [],
-        failures: [`${mode}:not-configured`],
-      });
-      return failure("TOOL_NOT_AVAILABLE", receipt);
+      return failure(
+        "TOOL_NOT_AVAILABLE",
+        unbackedReceipt(snapshotId, query, [`${mode}:not-configured`]),
+      );
     }
     const raw = await backend.search(query);
     const candidateIds = sortIds(
@@ -278,32 +309,57 @@ export function createSourceTools(options: {
       selectedIds: sortIds(raw.selectedIds ?? candidateIds),
       hits: raw.hits ?? [],
     };
+    // Prefer backend identity; fall back to response.receipt identity if present.
+    const indexVersion =
+      backend.identity.indexVersion ||
+      raw.receipt?.indexVersion ||
+      UNBACKED_INDEX_VERSION;
+    const corpusDigest = (backend.identity.indexedRepresentationsSha256 ||
+      raw.receipt?.indexedRepresentationsSha256 ||
+      UNBACKED_CORPUS) as Sha256;
+
     const filtered = await policyGate.filterRetrieval({
       response,
       profileId,
       principalId,
     });
     if (!filtered.ok) {
-      const receipt = makeToolReceipt({
+      const built = makeToolReceipt({
         snapshotId,
         query,
         filters: { snapshotId },
         candidateIds,
         selectedIds: [],
         failures: [filtered.code],
+        indexVersion,
+        indexedRepresentationsSha256: corpusDigest,
       });
-      return failure("ACCESS_DENIED", receipt);
+      if (!built.ok) {
+        return failure(
+          "RECEIPT_INVALID",
+          unbackedReceipt(snapshotId, query, ["receipt-invalid"]),
+        );
+      }
+      return failure("ACCESS_DENIED", built.receipt);
     }
-    const receipt = makeToolReceipt({
+    const built = makeToolReceipt({
       snapshotId,
       query,
       filters: { snapshotId },
       candidateIds,
       selectedIds: filtered.value.selectedIds,
+      indexVersion,
+      indexedRepresentationsSha256: corpusDigest,
     });
+    if (!built.ok) {
+      return failure(
+        "RECEIPT_INVALID",
+        unbackedReceipt(snapshotId, query, ["receipt-invalid"]),
+      );
+    }
     return success({
       filtered: filtered.value,
-      receipt,
+      receipt: built.receipt,
     });
   }
 
@@ -311,20 +367,21 @@ export function createSourceTools(options: {
     query: string,
     mode: string,
   ): Promise<SourceToolResult> {
-    const receipt = makeToolReceipt({
-      snapshotId,
-      query,
-      filters: { snapshotId },
-      candidateIds: [],
-      selectedIds: [],
-      failures: [`${mode}:unbacked`],
-    });
-    return failure("TOOL_NOT_AVAILABLE", receipt);
+    return failure(
+      "TOOL_NOT_AVAILABLE",
+      unbackedReceipt(snapshotId, query, [`${mode}:unbacked`]),
+    );
+  }
+
+  function invalidInput(): SourceToolResult {
+    return failure(
+      "INVALID_INPUT",
+      unbackedReceipt(snapshotId, "", ["invalid-input"]),
+    );
   }
 
   return {
     async exact(input) {
-      // profileId/principalId may be present as smuggled keys — ignored.
       const parsed = parseQueryInput(
         input,
         new Set([
@@ -335,19 +392,7 @@ export function createSourceTools(options: {
           "principalId",
         ]),
       );
-      if (!parsed.ok) {
-        return failure(
-          "INVALID_INPUT",
-          makeToolReceipt({
-            snapshotId,
-            query: "",
-            filters: { snapshotId },
-            candidateIds: [],
-            selectedIds: [],
-            failures: ["invalid-input"],
-          }),
-        );
-      }
+      if (!parsed.ok) return invalidInput();
       return runSearch(exactMap, parsed.query, "exact");
     },
 
@@ -362,83 +407,42 @@ export function createSourceTools(options: {
           "principalId",
         ]),
       );
-      if (!parsed.ok) {
-        return failure(
-          "INVALID_INPUT",
-          makeToolReceipt({
-            snapshotId,
-            query: "",
-            filters: { snapshotId },
-            candidateIds: [],
-            selectedIds: [],
-            failures: ["invalid-input"],
-          }),
-        );
-      }
+      if (!parsed.ok) return invalidInput();
       return runSearch(lexicalIndex, parsed.query, "lexical");
     },
 
     async maps(input) {
       const parsed = parseQueryInput(input, new Set(["query", "unitId"]));
-      const query = parsed.ok ? parsed.query : "";
-      return notAvailable(query, "maps");
+      return notAvailable(parsed.ok ? parsed.query : "", "maps");
     },
 
     async follow_links(input) {
       const parsed = parseQueryInput(input, new Set(["query", "unitId"]));
-      const query = parsed.ok ? parsed.query : "";
-      return notAvailable(query, "follow_links");
+      return notAvailable(parsed.ok ? parsed.query : "", "follow_links");
     },
 
     async vector_optional(input) {
       const parsed = parseQueryInput(input, new Set(["query", "unitId"]));
-      const query = parsed.ok ? parsed.query : "";
-      return notAvailable(query, "vector_optional");
+      return notAvailable(parsed.ok ? parsed.query : "", "vector_optional");
     },
 
     async open_unit(input) {
-      const parsed = parseQueryInput(
-        input,
-        new Set([
-          "query",
-          "unitId",
-          "expectedHash",
-          "profileId",
-          "role",
-          "tools",
-        ]),
-      );
-      // Smuggled profileId/role/tools are ignored (allowed keys for hostile tests)
-      // but never applied — factory identity wins.
-      if (!parsed.ok || !parsed.unitId || !parsed.expectedHash) {
-        // Allow only unitId+expectedHash as required for open_unit
-        if (!isPlainObject(input)) {
-          return failure(
-            "INVALID_INPUT",
-            makeToolReceipt({
-              snapshotId,
-              query: "",
-              filters: { snapshotId },
-              candidateIds: [],
-              selectedIds: [],
-              failures: ["invalid-input"],
-            }),
-          );
+      // Single clean path: unitId + expectedHash required.
+      // Smuggled profileId/role/tools allowed as keys but never applied.
+      if (!isPlainObject(input)) return invalidInput();
+      const allowed = new Set([
+        "query",
+        "unitId",
+        "expectedHash",
+        "profileId",
+        "role",
+        "tools",
+      ]);
+      for (const key of Reflect.ownKeys(input)) {
+        if (typeof key === "symbol" || !allowed.has(key)) {
+          return invalidInput();
         }
-      }
-      // Re-parse with smuggled keys allowed as ignored
-      if (!isPlainObject(input)) {
-        return failure(
-          "INVALID_INPUT",
-          makeToolReceipt({
-            snapshotId,
-            query: "",
-            filters: { snapshotId },
-            candidateIds: [],
-            selectedIds: [],
-            failures: ["invalid-input"],
-          }),
-        );
+        if (!ownData(input, key).ok) return invalidInput();
       }
       const unitProp = ownData(input, "unitId");
       const hashProp = ownData(input, "expectedHash");
@@ -450,17 +454,7 @@ export function createSourceTools(options: {
         !hashProp.present ||
         typeof hashProp.value !== "string"
       ) {
-        return failure(
-          "INVALID_INPUT",
-          makeToolReceipt({
-            snapshotId,
-            query: "",
-            filters: { snapshotId },
-            candidateIds: [],
-            selectedIds: [],
-            failures: ["invalid-input"],
-          }),
-        );
+        return invalidInput();
       }
       const unitId = unitProp.value as SourceUnitId;
       const expectedHash = hashProp.value;
@@ -468,30 +462,31 @@ export function createSourceTools(options: {
       if (!unitStore) {
         return failure(
           "TOOL_NOT_AVAILABLE",
-          makeToolReceipt({
-            snapshotId,
-            query: unitId,
-            filters: { snapshotId },
-            candidateIds: [unitId],
-            selectedIds: [],
-            failures: ["unit-store:not-configured"],
-          }),
+          unbackedReceipt(snapshotId, unitId, ["unit-store:not-configured"]),
         );
       }
 
       const loaded = await unitStore.get(unitId, expectedHash);
       if (!loaded.ok) {
-        const receipt = makeToolReceipt({
+        const built = makeToolReceipt({
           snapshotId,
           query: unitId,
           filters: { snapshotId },
           candidateIds: [unitId],
           selectedIds: [],
           failures: [loaded.code],
+          indexVersion: UNBACKED_INDEX_VERSION,
+          indexedRepresentationsSha256: UNBACKED_CORPUS,
         });
+        if (!built.ok) {
+          return failure(
+            "RECEIPT_INVALID",
+            unbackedReceipt(snapshotId, unitId, ["receipt-invalid"]),
+          );
+        }
         return failure(
           loaded.code === "HASH_MISMATCH" ? "HASH_MISMATCH" : "UNIT_NOT_FOUND",
-          receipt,
+          built.receipt,
         );
       }
 
@@ -501,20 +496,28 @@ export function createSourceTools(options: {
         unitId,
         text: loaded.value.text,
       });
-      const receipt = makeToolReceipt({
+      const built = makeToolReceipt({
         snapshotId,
         query: unitId,
         filters: { snapshotId },
         candidateIds: [unitId],
         selectedIds: preview.ok ? [unitId] : [],
         failures: preview.ok ? [] : [preview.code],
+        indexVersion: "source-tools-open-unit",
+        indexedRepresentationsSha256: UNBACKED_CORPUS,
       });
+      if (!built.ok) {
+        return failure(
+          "RECEIPT_INVALID",
+          unbackedReceipt(snapshotId, unitId, ["receipt-invalid"]),
+        );
+      }
       if (!preview.ok) {
-        return failure("ACCESS_DENIED", receipt);
+        return failure("ACCESS_DENIED", built.receipt);
       }
       return success({
         preview: preview.value,
-        receipt,
+        receipt: built.receipt,
       });
     },
   };

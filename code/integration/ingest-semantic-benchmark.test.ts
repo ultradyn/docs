@@ -415,9 +415,30 @@ describe("offline semantic retrieval benchmark", () => {
       "utf8",
     );
 
+    // Exact map + lexical index + Researcher source-tools (T-30-01).
+    // source.vector_optional is a TOOL_NOT_AVAILABLE stub, not a vector index export.
     expect(retrievalIndex).toBe(
-      'export * from "./exact-map.js";\nexport * from "./lexical-index.js";\n',
+      [
+        'export * from "./exact-map.js";',
+        'export * from "./lexical-index.js";',
+        'export { createSourceTools } from "./source-tools.js";',
+        "export type {",
+        "  SourceTools,",
+        "  SourceToolError,",
+        "  SourceToolResult,",
+        "  SearchBackend,",
+        "  UnitStore,",
+        '} from "./source-tools.js";',
+        "export type {",
+        "  SearchBackendIdentity,",
+        "  UnitStoreRecord,",
+        '} from "./source-tool-seams.js";',
+        "",
+      ].join("\n"),
     );
-    expect(retrievalIndex).not.toMatch(/semantic|dense|vector|embedding/i);
+    // No dense/semantic embedding/vector-index export on the production surface.
+    expect(retrievalIndex).not.toMatch(
+      /semantic|dense|embedding|vector-index|createVector/i,
+    );
   });
 });
