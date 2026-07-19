@@ -25,10 +25,17 @@ const SourceRepresentationKindSchema = z.enum([
   "csv",
 ]);
 
+const CapabilityIdSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9][a-z0-9:._-]{0,127}$/u,
+    "must be a bounded lowercase capability identifier",
+  );
+
 export const RepresentationCapabilitySchema = z
   .object({
     schemaVersion: z.literal(1),
-    id: z.string().min(1),
+    id: CapabilityIdSchema,
     version: z.number().safe().int().positive(),
     representationKind: SourceRepresentationKindSchema,
     tier: FormatTierSchema,
@@ -118,7 +125,7 @@ export const RepresentationCapabilityRefSchema = z.discriminatedUnion(
     z
       .object({
         status: z.literal("resolved"),
-        id: z.string().min(1),
+        id: CapabilityIdSchema,
         version: z.number().safe().int().positive(),
       })
       .strict(),
@@ -150,6 +157,56 @@ const MAPPING_FINDING_CODES = new Set<RepresentationAuditFindingCode>([
   "ORIGINAL_POSITION_INVALID",
 ]);
 
+interface RepresentationAuditFindingRead {
+  readonly code: RepresentationAuditFindingCode;
+  readonly severity: "error" | "warning";
+  readonly message: string;
+  readonly locatorIndex?: number | undefined;
+  readonly cell?: { readonly row: number; readonly column: number } | undefined;
+}
+
+export function compareRepresentationAuditFindings(
+  left: RepresentationAuditFindingRead,
+  right: RepresentationAuditFindingRead,
+): number {
+  return (
+    left.code.localeCompare(right.code) ||
+    (left.locatorIndex ?? -1) - (right.locatorIndex ?? -1) ||
+    (left.cell?.row ?? -1) - (right.cell?.row ?? -1) ||
+    (left.cell?.column ?? -1) - (right.cell?.column ?? -1)
+  );
+}
+
+export function deriveRepresentationAuditPolicy(input: {
+  readonly tier: FormatTier;
+  readonly capability: RepresentationCapabilityRef;
+  readonly findings: readonly RepresentationAuditFindingRead[];
+}): {
+  readonly structuralPass: boolean;
+  readonly mappingPass: boolean;
+  readonly claimEligible: boolean;
+} {
+  const errors = input.findings.filter(
+    (finding) => finding.severity === "error",
+  );
+  const structuralPass = !errors.some((finding) =>
+    STRUCTURAL_FINDING_CODES.has(finding.code),
+  );
+  const mappingPass = !errors.some((finding) =>
+    MAPPING_FINDING_CODES.has(finding.code),
+  );
+  return {
+    structuralPass,
+    mappingPass,
+    claimEligible:
+      input.tier === "A" &&
+      input.capability.status === "resolved" &&
+      structuralPass &&
+      mappingPass &&
+      errors.length === 0,
+  };
+}
+
 export const RepresentationAuditSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -164,15 +221,30 @@ export const RepresentationAuditSchema = z
   })
   .strict()
   .superRefine((audit, context) => {
-    const errors = audit.findings.filter(
-      (finding) => finding.severity === "error",
-    );
-    const structuralPass = !errors.some((finding) =>
-      STRUCTURAL_FINDING_CODES.has(finding.code),
-    );
-    const mappingPass = !errors.some((finding) =>
-      MAPPING_FINDING_CODES.has(finding.code),
-    );
+    for (const [index, finding] of audit.findings.entries()) {
+      if (finding.severity !== "error") {
+        context.addIssue({
+          code: "custom",
+          path: ["findings", index, "severity"],
+          message: "current finding codes are errors",
+        });
+      }
+      if (
+        index > 0 &&
+        compareRepresentationAuditFindings(
+          audit.findings[index - 1]!,
+          finding,
+        ) >= 0
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["findings", index],
+          message: "findings must be strictly sorted and unique",
+        });
+      }
+    }
+    const { structuralPass, mappingPass, claimEligible } =
+      deriveRepresentationAuditPolicy(audit);
 
     if (audit.structuralPass !== structuralPass) {
       context.addIssue({
@@ -189,12 +261,6 @@ export const RepresentationAuditSchema = z
       });
     }
 
-    const claimEligible =
-      audit.tier === "A" &&
-      audit.capability.status === "resolved" &&
-      structuralPass &&
-      mappingPass &&
-      errors.length === 0;
     if (audit.claimEligible !== claimEligible) {
       context.addIssue({
         code: "custom",

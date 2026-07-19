@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  CoverageObligationSchema,
   RepresentationAuditSchema,
   RepresentationCapabilitySchema,
-} from "./representation-audit.js";
-import { CoverageObligationSchema } from "./schemas.js";
+} from "./index.js";
 import {
   ingestSchemaRegistry,
   validateIngestRecord,
@@ -175,6 +175,11 @@ describe("ingestion schema registry", () => {
     expect(RepresentationCapabilitySchema.parse(capability)).toEqual(
       capability,
     );
+    for (const id of [" ", "UPPERCASE", "x".repeat(129)]) {
+      expect(
+        RepresentationCapabilitySchema.safeParse({ ...capability, id }).success,
+      ).toBe(false);
+    }
     for (const requiredChecks of [
       ["structure", "mapping"],
       ["mapping", "mapping"],
@@ -186,6 +191,41 @@ describe("ingestion schema registry", () => {
         }).success,
       ).toBe(false);
     }
+    const firstFinding = {
+      code: "TIER_UNSUPPORTED",
+      severity: "error",
+      message: "Unsupported.",
+    } as const;
+    const secondFinding = {
+      code: "INVALID_CAPABILITY",
+      severity: "error",
+      message: "Invalid.",
+    } as const;
+
+    const locatedAt2 = {
+      code: "LOCATOR_OVERLAP",
+      severity: "error",
+      message: "Overlap.",
+      locatorIndex: 2,
+    } as const;
+    const locatedAt10 = { ...locatedAt2, locatorIndex: 10 } as const;
+    const locatedAudit = {
+      ...audit,
+      structuralPass: true,
+      mappingPass: false,
+      claimEligible: false,
+      findings: [locatedAt2, locatedAt10],
+    } as const;
+    expect(RepresentationAuditSchema.safeParse(locatedAudit).success).toBe(
+      true,
+    );
+    expect(
+      RepresentationAuditSchema.safeParse({
+        ...locatedAudit,
+        findings: [locatedAt10, locatedAt2],
+      }).success,
+    ).toBe(false);
+
     for (const invalid of [
       { ...audit, schemaVersion: 0 },
       { ...audit, humanVerified: true },
@@ -212,6 +252,47 @@ describe("ingestion schema registry", () => {
       {
         ...audit,
         findings: [{ code: "UNKNOWN", severity: "error", message: "Unknown." }],
+      },
+      {
+        ...audit,
+        tier: "D",
+        claimEligible: false,
+        findings: [firstFinding, secondFinding],
+      },
+      {
+        ...audit,
+        tier: "D",
+        claimEligible: false,
+        findings: [secondFinding, secondFinding],
+      },
+      {
+        ...audit,
+        mappingPass: false,
+        claimEligible: false,
+        findings: [
+          {
+            code: "LOCATOR_OVERLAP",
+            severity: "error",
+            message: "Normalized overlap.",
+            locatorIndex: 2,
+          },
+          {
+            code: "LOCATOR_OVERLAP",
+            severity: "error",
+            message: "Original overlap.",
+            locatorIndex: 2,
+          },
+        ],
+      },
+      {
+        ...audit,
+        findings: [
+          {
+            code: "LOCATOR_MISSING",
+            severity: "warning",
+            message: "Missing.",
+          },
+        ],
       },
     ]) {
       expect(RepresentationAuditSchema.safeParse(invalid).success).toBe(false);

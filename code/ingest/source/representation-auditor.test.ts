@@ -219,6 +219,56 @@ describe("representation capability audit", () => {
     }
   });
 
+  it("rejects inherited prototype-shaped representation and capability input", () => {
+    const inheritedRepresentation = Object.create(representation) as unknown;
+    const inheritedCapability = Object.create(capability("A")) as unknown;
+    const inheritedLocator: SourceRepresentation = {
+      ...representation,
+      locatorMap: [
+        Object.create(
+          representation.locatorMap[0]!,
+        ) as SourceRepresentation["locatorMap"][number],
+        representation.locatorMap[1]!,
+      ],
+    };
+
+    expect(auditRepresentation(inheritedRepresentation)).toMatchObject({
+      ok: false,
+      code: "INVALID_INPUT",
+    });
+    expect(auditRepresentation(inheritedLocator)).toMatchObject({
+      ok: false,
+      code: "INVALID_INPUT",
+    });
+    expect(
+      auditRepresentation(representation, inheritedCapability),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        capability: { status: "unresolved" },
+        tier: "D",
+        claimEligible: false,
+        findings: expect.arrayContaining([
+          expect.objectContaining({ code: "INVALID_CAPABILITY" }),
+        ]),
+      },
+    });
+  });
+
+  it("treats explicit null capability as malformed instead of selecting a built-in", () => {
+    expect(auditRepresentation(representation, null)).toMatchObject({
+      ok: true,
+      value: {
+        capability: { status: "unresolved" },
+        tier: "D",
+        claimEligible: false,
+        findings: expect.arrayContaining([
+          expect.objectContaining({ code: "INVALID_CAPABILITY" }),
+        ]),
+      },
+    });
+  });
+
   it("returns INVALID_INPUT rather than minting an audit for an invalid identity", () => {
     expect(auditRepresentation({ ...representation, id: "" })).toEqual({
       ok: false,
@@ -289,6 +339,26 @@ describe("representation capability audit", () => {
         "MAPPING_COVERAGE_GAP",
       ],
       [
+        "forged original line order",
+        {
+          ...representation,
+          locatorMap: [
+            representation.locatorMap[0]!,
+            {
+              ...locator,
+              original: {
+                ...locator.original,
+                lineStart: 1,
+                lineEnd: 1,
+                columnStart: 7,
+                columnEnd: 11,
+              },
+            },
+          ],
+        },
+        "ORIGINAL_POSITION_INVALID",
+      ],
+      [
         "wrong locator kind",
         {
           ...representation,
@@ -310,6 +380,39 @@ describe("representation capability audit", () => {
           findings: expect.arrayContaining([expect.objectContaining({ code })]),
         },
       });
+    }
+  });
+
+  it("deduplicates normalized and original defects at the same code and locator", () => {
+    const second = representation.locatorMap[1]!;
+    const doublyOverlapping: SourceRepresentation = {
+      ...representation,
+      locatorMap: [
+        representation.locatorMap[0]!,
+        {
+          ...second,
+          normalized: { ...second.normalized, utf16Start: 4 },
+          original: { ...second.original, byteStart: 4 },
+        },
+      ],
+    };
+    const result = auditRepresentation(doublyOverlapping);
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { claimEligible: false },
+    });
+    if (result.ok) {
+      expect(
+        result.value.findings.filter(
+          (value) =>
+            value.code === "LOCATOR_OVERLAP" && value.locatorIndex === 1,
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          message: "Normalized locators overlap.",
+        }),
+      ]);
     }
   });
 
@@ -467,6 +570,80 @@ describe("representation capability audit", () => {
         value: {
           claimEligible: false,
           findings: expect.arrayContaining([expect.objectContaining({ code })]),
+        },
+      });
+    }
+  });
+
+  it("accepts terminal empty CSV cells and rejects unterminated quoted state", () => {
+    const trailing: SourceRepresentation = {
+      ...csvRepresentation,
+      normalizedText: "a,",
+      locatorMap: [
+        csvRepresentation.locatorMap[0]!,
+        {
+          ...csvRepresentation.locatorMap[1]!,
+          normalized: {
+            utf16Start: 2,
+            utf16End: 2,
+            lineStart: 1,
+            columnStart: 3,
+            lineEnd: 1,
+            columnEnd: 3,
+          },
+          original: {
+            byteStart: 2,
+            byteEnd: 2,
+            lineStart: 1,
+            columnStart: 3,
+            lineEnd: 1,
+            columnEnd: 3,
+          },
+        },
+      ],
+    };
+    const unterminated: SourceRepresentation = {
+      ...csvRepresentation,
+      normalizedText: '"a',
+      locatorMap: [
+        {
+          ...csvRepresentation.locatorMap[0]!,
+          normalized: {
+            utf16Start: 0,
+            utf16End: 2,
+            lineStart: 1,
+            columnStart: 1,
+            lineEnd: 1,
+            columnEnd: 3,
+          },
+          original: {
+            byteStart: 0,
+            byteEnd: 2,
+            lineStart: 1,
+            columnStart: 1,
+            lineEnd: 1,
+            columnEnd: 3,
+          },
+        },
+      ],
+    };
+
+    expect(auditRepresentation(trailing)).toMatchObject({
+      ok: true,
+      value: { claimEligible: true, findings: [] },
+    });
+    for (const malformed of [
+      unterminated,
+      { ...unterminated, normalizedText: '"a"x' },
+      { ...unterminated, normalizedText: 'a"b' },
+    ]) {
+      expect(auditRepresentation(malformed)).toMatchObject({
+        ok: true,
+        value: {
+          claimEligible: false,
+          findings: expect.arrayContaining([
+            expect.objectContaining({ code: "MAPPING_COVERAGE_GAP" }),
+          ]),
         },
       });
     }

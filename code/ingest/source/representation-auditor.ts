@@ -8,6 +8,8 @@ import type {
   SourceRepresentationKind,
 } from "../../domain/ingest/index.js";
 import {
+  compareRepresentationAuditFindings,
+  deriveRepresentationAuditPolicy,
   RepresentationAuditSchema,
   RepresentationCapabilitySchema,
   SourceRepresentationSchema,
@@ -67,7 +69,8 @@ function resolveCapability(
   representation: SourceRepresentation,
   input: unknown,
 ): CapabilityResolution {
-  const candidate = input ?? capabilityFor(representation.kind);
+  const candidate =
+    input === undefined ? capabilityFor(representation.kind) : input;
   const parsed = RepresentationCapabilitySchema.safeParse(candidate);
   if (!parsed.success) {
     return {
@@ -285,11 +288,17 @@ function auditLineMapping(
     previousNormalizedStart = start;
     previousNormalizedEnd = Math.max(previousNormalizedEnd, end);
 
-    if (!validOriginalPosition(locator)) {
+    if (
+      !validOriginalPosition(locator) ||
+      locator.original.lineStart !== locator.normalized.lineStart ||
+      locator.original.columnStart !== locator.normalized.columnStart ||
+      locator.original.lineEnd !== locator.normalized.lineEnd ||
+      locator.original.columnEnd !== locator.normalized.columnEnd
+    ) {
       findings.push(
         finding(
           "ORIGINAL_POSITION_INVALID",
-          "Original locator coordinates are invalid.",
+          "Original locator line or column geometry is invalid.",
           index,
         ),
       );
@@ -351,13 +360,20 @@ interface ExpectedCsvCell {
   readonly end: number;
 }
 
-function expectedCsvCells(text: string): readonly ExpectedCsvCell[] {
-  if (text.length === 0) return [];
+interface ExpectedCsvScan {
+  readonly cells: readonly ExpectedCsvCell[];
+  readonly valid: boolean;
+}
+
+function expectedCsvCells(text: string): ExpectedCsvScan {
+  if (text.length === 0) return { cells: [], valid: true };
   const cells: ExpectedCsvCell[] = [];
   let row = 1;
   let column = 1;
   let start = 0;
   let quoted = false;
+  let afterClosingQuote = false;
+  let valid = true;
 
   const push = (end: number): void => {
     cells.push({ row, column, start, end });
@@ -372,11 +388,18 @@ function expectedCsvCells(text: string): readonly ExpectedCsvCell[] {
         continue;
       }
       quoted = false;
+      afterClosingQuote = true;
       continue;
     }
     if (offset === start && character === '"') {
       quoted = true;
       continue;
+    }
+    if (
+      character === '"' ||
+      (afterClosingQuote && character !== "," && character !== "\n")
+    ) {
+      valid = false;
     }
     if (character !== "," && character !== "\n") continue;
     push(offset);
@@ -387,9 +410,10 @@ function expectedCsvCells(text: string): readonly ExpectedCsvCell[] {
       column = 1;
     }
     start = offset + 1;
+    afterClosingQuote = false;
   }
-  if (start < text.length) push(text.length);
-  return cells;
+  if (start < text.length || text.endsWith(",")) push(text.length);
+  return { cells, valid: valid && !quoted };
 }
 
 function auditCsvMapping(
@@ -397,7 +421,8 @@ function auditCsvMapping(
 ): RepresentationAuditFinding[] {
   const findings: RepresentationAuditFinding[] = [];
   const boundaries = normalizedBoundaries(representation.normalizedText);
-  const expected = expectedCsvCells(representation.normalizedText);
+  const scan = expectedCsvCells(representation.normalizedText);
+  const expected = scan.cells;
   const locators = representation.locatorMap;
   let previousNormalizedStart = -1;
   let previousNormalizedEnd = -1;
@@ -471,11 +496,17 @@ function auditCsvMapping(
     previousNormalizedStart = start;
     previousNormalizedEnd = Math.max(previousNormalizedEnd, end);
 
-    if (!validOriginalPosition(locator)) {
+    if (
+      !validOriginalPosition(locator) ||
+      locator.original.lineStart !== locator.normalized.lineStart ||
+      locator.original.columnStart !== locator.normalized.columnStart ||
+      locator.original.lineEnd !== locator.normalized.lineEnd ||
+      locator.original.columnEnd !== locator.normalized.columnEnd
+    ) {
       findings.push(
         finding(
           "ORIGINAL_POSITION_INVALID",
-          "Original CSV locator coordinates are invalid.",
+          "Original CSV locator line or column geometry is invalid.",
           index,
         ),
       );
@@ -526,6 +557,14 @@ function auditCsvMapping(
       );
     }
   }
+  if (!scan.valid) {
+    findings.push(
+      finding(
+        "MAPPING_COVERAGE_GAP",
+        "CSV text contains an impossible quoted-field state.",
+      ),
+    );
+  }
   if (locators.length !== expected.length) {
     findings.push(
       finding(
@@ -547,13 +586,13 @@ function stableFindings(
       value.locatorIndex ?? -1,
       value.cell?.row ?? -1,
       value.cell?.column ?? -1,
-      value.message,
     ].join("\u0000");
-    byKey.set(key, value);
+    const existing = byKey.get(key);
+    if (!existing || value.message.localeCompare(existing.message) < 0) {
+      byKey.set(key, value);
+    }
   }
-  return [...byKey.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, value]) => value);
+  return [...byKey.values()].sort(compareRepresentationAuditFindings);
 }
 
 function freezeAudit(audit: RepresentationAudit): RepresentationAudit {
@@ -566,10 +605,65 @@ function freezeAudit(audit: RepresentationAudit): RepresentationAudit {
   return Object.freeze(audit);
 }
 
+function hasPlainPrototype(input: unknown): boolean {
+  return (
+    typeof input === "object" &&
+    input !== null &&
+    Object.getPrototypeOf(input) === Object.prototype
+  );
+}
+
+function hasPlainRepresentationShape(input: unknown): boolean {
+  if (!hasPlainPrototype(input)) return false;
+  const record = input as Record<string, unknown>;
+  if (!Array.isArray(record.locatorMap) || !Array.isArray(record.warnings)) {
+    return false;
+  }
+  if (
+    Object.getPrototypeOf(record.locatorMap) !== Array.prototype ||
+    Object.getPrototypeOf(record.warnings) !== Array.prototype
+  ) {
+    return false;
+  }
+  for (const value of record.locatorMap) {
+    if (!hasPlainPrototype(value)) return false;
+    const locator = value as Record<string, unknown>;
+    if (
+      !hasPlainPrototype(locator.normalized) ||
+      !hasPlainPrototype(locator.original) ||
+      (locator.cell !== undefined && !hasPlainPrototype(locator.cell))
+    ) {
+      return false;
+    }
+  }
+  for (const value of record.warnings) {
+    if (!hasPlainPrototype(value)) return false;
+    const warning = value as Record<string, unknown>;
+    if (!hasPlainPrototype(warning.location)) return false;
+  }
+  return true;
+}
+
+function hasPlainCapabilityShape(input: unknown): boolean {
+  if (!hasPlainPrototype(input)) return false;
+  const record = input as Record<string, unknown>;
+  return (
+    Array.isArray(record.requiredChecks) &&
+    Object.getPrototypeOf(record.requiredChecks) === Array.prototype
+  );
+}
+
 export function auditRepresentation(
   representationInput: unknown,
   capabilityInput?: unknown,
 ): IngestResult<RepresentationAudit, "INVALID_INPUT"> {
+  if (!hasPlainRepresentationShape(representationInput)) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: "Invalid source representation: expected a plain record",
+    };
+  }
   const parsedRepresentation =
     SourceRepresentationSchema.safeParse(representationInput);
   if (!parsedRepresentation.success) {
@@ -582,37 +676,25 @@ export function auditRepresentation(
     };
   }
   const representation = parsedRepresentation.data as SourceRepresentation;
-  const resolution = resolveCapability(representation, capabilityInput);
+  const normalisedCapabilityInput =
+    capabilityInput !== undefined && !hasPlainCapabilityShape(capabilityInput)
+      ? null
+      : capabilityInput;
+  const resolution = resolveCapability(
+    representation,
+    normalisedCapabilityInput,
+  );
   const mappingFindings =
     representation.kind === "csv"
       ? auditCsvMapping(representation)
       : auditLineMapping(representation);
   const findings = stableFindings([...resolution.findings, ...mappingFindings]);
-  const errors = findings.filter((value) => value.severity === "error");
-  const structuralPass = !errors.some((value) =>
-    [
-      "LOCATOR_MISSING",
-      "LOCATOR_KIND_MISMATCH",
-      "MAPPING_COVERAGE_GAP",
-      "CSV_CELL_ORDER_INVALID",
-    ].includes(value.code),
-  );
-  const mappingPass = !errors.some((value) =>
-    [
-      "LOCATOR_INTERVAL_INVALID",
-      "LOCATOR_OUT_OF_BOUNDS",
-      "LOCATOR_ORDER_INVALID",
-      "LOCATOR_OVERLAP",
-      "LOCATOR_POSITION_MISMATCH",
-      "ORIGINAL_POSITION_INVALID",
-    ].includes(value.code),
-  );
-  const claimEligible =
-    resolution.tier === "A" &&
-    resolution.capability.status === "resolved" &&
-    structuralPass &&
-    mappingPass &&
-    errors.length === 0;
+  const { structuralPass, mappingPass, claimEligible } =
+    deriveRepresentationAuditPolicy({
+      tier: resolution.tier,
+      capability: resolution.capability,
+      findings,
+    });
   const parsedAudit = RepresentationAuditSchema.parse({
     schemaVersion: 1,
     representationId: representation.id,
