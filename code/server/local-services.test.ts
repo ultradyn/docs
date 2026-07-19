@@ -2162,7 +2162,7 @@ describe("persistent local HTTP workflow", () => {
     const agents = await app.inject({ method: "GET", url: "/api/agents" });
 
     expect(agents.statusCode).toBe(200);
-    expect(agents.json().agents).toHaveLength(15);
+    expect(agents.json().agents).toHaveLength(16);
     expect(agents.json().agents).toContainEqual(
       expect.objectContaining({
         id: "critic",

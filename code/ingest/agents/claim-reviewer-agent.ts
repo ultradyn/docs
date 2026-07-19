@@ -292,7 +292,8 @@ function acceptAxesReady(row: {
     row.entailment === "entailed" &&
     row.atomicity === "atomic" &&
     row.scope === "compatible" &&
-    row.qualifiers !== "missing" &&
+    // Whitelist (not `!== "missing"`): future enum values must fail closed.
+    (row.qualifiers === "complete" || row.qualifiers === "n/a") &&
     row.authorityEligible === true
   );
 }
