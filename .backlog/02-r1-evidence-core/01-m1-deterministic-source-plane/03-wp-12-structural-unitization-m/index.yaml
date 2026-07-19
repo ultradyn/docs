@@ -19,7 +19,8 @@ tasks:
       file: T001-t-12-01-implement-structural-s.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-12-01 — Implement structural source-unit parser
     - complexity: medium
       depends_on:
