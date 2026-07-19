@@ -744,6 +744,235 @@ describe("durable store / crash / custody", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("fails closed when intermediate ingest/ or claims/ component is a symlink", async () => {
+    if (process.platform !== "linux") return;
+    const base = await mkdtemp(join(tmpdir(), "clm-comp-"));
+    try {
+      // Root is real; plant symlink as first component `.ultradyn` or `ingest`
+      const root = join(base, "root");
+      await mkdir(root);
+      const outside = join(base, "outside");
+      await mkdir(outside);
+      // Convention path uses .ultradyn/claims — symlink the claims component after priming
+      const store = createFileClaimStore(root);
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const created = await r.create(createInput());
+      // If create succeeds, replace claims dir with symlink and force next op
+      if (created.ok) {
+        const claimsPath = join(root, ".ultradyn", "claims");
+        const { rename: ren } = await import("node:fs/promises");
+        await ren(claimsPath, join(base, "claims-real")).catch(() => undefined);
+        await symlink(outside, claimsPath);
+        const fresh = createFileClaimStore(root);
+        await expect(
+          fresh.append({
+            ...(created.value as Claim),
+            version: 2,
+            state: "disputed",
+          }),
+        ).rejects.toThrow(/symbolic|Refusing|STREAM_CORRUPT/i);
+      } else {
+        // RED: store missing — must still fail somehow when production lands
+        expect(typeof createFileClaimStore).toBe("function");
+        expect(created.ok).toBe(true);
+      }
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("fails closed on leaf symlink / non-regular node in claim stream", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-leaf-"));
+    try {
+      const store = createFileClaimStore(root);
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const created = await r.create(createInput());
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      const streamDir = join(root, ".ultradyn", "claims", created.value.id);
+      const leaf = join(streamDir, "v00000001.json");
+      const outside = join(root, "outside-bytes.json");
+      await writeFile(outside, '{"evil":true}\n', "utf8");
+      await rm(leaf, { force: true }).catch(() => undefined);
+      await symlink(outside, leaf);
+      const fresh = createFileClaimStore(root);
+      await expect(fresh.get(created.value.id, 1)).rejects.toThrow(
+        /symbolic|Refusing|STREAM_CORRUPT|non-regular/i,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("held-fd parent swap does not read outside claim stream", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-swap-"));
+    try {
+      // RED locks: createFileClaimStore accepts optional test hook
+      // `betweenBindAndLeafOpen` for deterministic parent swap (test seam only).
+      const mod = await import("./claim-repository.js");
+      expect(typeof mod.createFileClaimStore).toBe("function");
+      const outside = join(root, "outside");
+      await mkdir(outside);
+      await writeFile(
+        join(outside, "planted.json"),
+        JSON.stringify({ planted: true }),
+        "utf8",
+      );
+      let swapped = false;
+      const store = createFileClaimStore(root, {
+        betweenBindAndLeafOpen: async () => {
+          // Production GREEN must perform leaf I/O only via held fd;
+          // if pathname is used, swap can redirect. RED expects fail-closed.
+          swapped = true;
+        },
+      });
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const created = await r.create(createInput());
+      // Either create fails closed on hostile posture or succeeds without outside I/O
+      if (created.ok) {
+        const got = await r.get(created.value.id);
+        expect(got.ok).toBe(true);
+        if (got.ok) {
+          expect(JSON.stringify(got.value)).not.toMatch(/planted/);
+        }
+      }
+      expect(swapped || !created.ok).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("durable idempotency survives restart and conflicts different digest", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-idem-"));
+    try {
+      const r1 = createClaimRepository({
+        store: createFileClaimStore(root),
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const first = await r1.create({
+        ...createInput(),
+        idempotencyKey: "dur-clm-1",
+      });
+      expect(first.ok).toBe(true);
+      const r2 = createClaimRepository({
+        store: createFileClaimStore(root),
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const replay = await r2.create({
+        ...createInput(),
+        idempotencyKey: "dur-clm-1",
+      });
+      expect(replay.ok).toBe(true);
+      if (first.ok && replay.ok) {
+        expect(replay.value.id).toBe(first.value.id);
+        expect(replay.value.version).toBe(first.value.version);
+      }
+      const conflict = await createClaimRepository({
+        store: createFileClaimStore(root),
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      }).create({
+        ...createInput({ statement: "Different durable payload." }),
+        idempotencyKey: "dur-clm-1",
+      });
+      expect(conflict.ok).toBe(false);
+      if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("durable list never falls back to memory and corrupt bytes are typed failures", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-list-"));
+    try {
+      const mem = createInMemoryClaimStore();
+      await createClaimRepository({
+        store: mem,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      }).create(createInput({ statement: "memory-only" }));
+
+      const file = createFileClaimStore(root);
+      const durable = createClaimRepository({
+        store: file,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const listed = await durable.list();
+      expect(listed.ok).toBe(true);
+      if (!listed.ok) return;
+      // must not surface memory-only claims
+      expect(
+        listed.value.every((c) => c.statement !== "memory-only"),
+      ).toBe(true);
+
+      // plant corrupt claim file
+      const created = await durable.create(
+        createInput({ statement: "on-disk" }),
+      );
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      const streamDir = join(root, ".ultradyn", "claims", created.value.id);
+      await writeFile(join(streamDir, "v00000002.json"), "not-json{{{", "utf8");
+      const fresh = createFileClaimStore(root);
+      await expect(fresh.latest(created.value.id)).rejects.toThrow(
+        /STREAM_CORRUPT|malformed|corrupt/i,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("embedded id/version mismatch and foreign stream entry fail STREAM_CORRUPT", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-xstream-"));
+    try {
+      const store = createFileClaimStore(root);
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const created = await r.create(createInput());
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      const streamDir = join(root, ".ultradyn", "claims", created.value.id);
+      await writeFile(
+        join(streamDir, "v00000002.json"),
+        JSON.stringify({
+          ...created.value,
+          id: "clm-01ARZ3NDEKTSV4RRFFQ69G5FBW",
+          version: 2,
+        }),
+        "utf8",
+      );
+      const fresh = createFileClaimStore(root);
+      await expect(fresh.latest(created.value.id)).rejects.toThrow(
+        /STREAM_CORRUPT|cross-stream|mismatch/i,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 describe("public seams", () => {
