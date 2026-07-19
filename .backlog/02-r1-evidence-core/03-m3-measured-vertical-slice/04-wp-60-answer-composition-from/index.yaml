@@ -54,3 +54,12 @@ tasks:
       priority: medium
       status: pending
       title: Embed application refs in the sealed pack so selection is auditable, not just reproducible
+    - complexity: medium
+      depends_on:
+        - P2.M3.E4.T003
+      estimate_hours: 4
+      file: T005-t-60-04-wire-remaining-r1-acce.todo
+      id: T005
+      priority: high
+      status: pending
+      title: T-60-04 — Wire remaining R1 acceptance scenarios AS-02/03/04 + small corpus

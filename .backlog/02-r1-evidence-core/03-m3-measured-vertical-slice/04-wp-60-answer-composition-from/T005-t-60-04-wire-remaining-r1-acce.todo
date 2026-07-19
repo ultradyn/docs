@@ -1,0 +1,26 @@
+---
+complexity: medium
+created_at: "2026-07-19T18:46:33Z"
+depends_on:
+    - P2.M3.E4.T003
+estimate_hours: 4
+id: P2.M3.E4.T005
+priority: high
+status: pending
+tags:
+    - r1
+    - acceptance
+    - followup
+title: T-60-04 — Wire remaining R1 acceptance scenarios AS-02/03/04 + small corpus
+updated_at: "2026-07-19T18:46:33Z"
+---
+Honest residual from T-60-03. The R1 acceptance runner (code/integration/automatic-ingestion-r1.ts) currently wires ONLY AS-01 tiny to status:complete (real pipeline, provider call counter, cacheHits=0). AS-02/03/04 and the small corpus return status:not_implemented with an explicit residual detail — so R1 is NOT yet accepted end-to-end.
+
+Scope: wire AS-02 (incomplete evidence refinement — Critic flags missing facet + unnecessary citation; Researcher new packet version; no Curiosity Planner before terminal acceptance), AS-03 (honest source gap — Critic no_supported_answer; non-promotable; no fabricated claims), AS-04 (split-role protection — weak evidence -> Critic rejects rather than accept-to-curiosity) to status:complete on tiny+small, each with providerCalls>0 and cacheHits===0 enforced via the existing counter mechanism. Reuse the AS-01 pattern in runR1Acceptance.
+
+Acceptance criteria:
+- AS-02/03/04 tiny return status:complete with the scenario-specific validity/pipeline pins (see source-bundle/15-project-specification.md section 4)
+- Each complete scenario asserts providerCalls>0 and cacheHits===0 (zero-cache full pipeline)
+- Contradictions create active P1 work and prevent done; evaluator isolation (fresh Critic + Claim Reviewer call ids)
+- Two differently framed questions reuse claims but yield distinct compositions (AS-01 already pins this)
+- Same isolated-pin + per-gate mutation discipline as T-60-02/T-60-03
