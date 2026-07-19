@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-19T14:18:48Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T14:26:08Z"
 complexity: medium
 created_at: "2026-07-19T14:02:46Z"
 depends_on: []
+duration_minutes: 7.3339906958666665
 estimate_hours: 2
 id: B001
 priority: high
 started_at: "2026-07-19T14:18:48Z"
-status: in_progress
+status: done
 tags: []
 title: markStale discards ClaimStore.append verdict and reports unwritten claims as staled
-updated_at: "2026-07-19T14:18:48Z"
+updated_at: "2026-07-19T14:26:08Z"
 ---
 Found by a repo-wide sweep for discarded authority verdicts, prompted by the same defect class appearing in T-23-01.
 
