@@ -12,13 +12,20 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { digestDataRightsPolicyProfile } from "../../domain/ingest/index.js";
+import {
+  digestDataRightsPolicyProfile,
+  type PolicyApproval,
+} from "../../domain/ingest/index.js";
 
 import {
   POLICY_APPROVAL_ROOT,
   createFilePolicyApprovalStore,
   createInMemoryPolicyApprovalStore,
 } from "./index.js";
+import {
+  createFilePolicyApprovalStoreForTests,
+  integrityAttestation,
+} from "./testing.js";
 
 const HUMAN = "alex.review-1";
 const APPROVED_AT = "2026-07-19T07:30:00.000Z";
@@ -55,7 +62,7 @@ const changedProfile = { ...canonicalProfile, retentionDays: 30 } as const;
 const DIGEST_B = () => digestDataRightsPolicyProfile(changedProfile);
 
 function approval(overrides: Record<string, unknown> = {}) {
-  return {
+  const base = {
     schemaVersion: 1 as const,
     profileId: canonicalProfile.id,
     profile: canonicalProfile,
@@ -65,6 +72,13 @@ function approval(overrides: Record<string, unknown> = {}) {
     reason: "Reviewed against the source licence.",
     ...overrides,
   };
+  return {
+    ...base,
+    attestation:
+      "attestation" in overrides
+        ? overrides.attestation
+        : integrityAttestation(base),
+  } as unknown as PolicyApproval;
 }
 
 let root = "";
@@ -232,7 +246,10 @@ describe("approvals survive process restart", () => {
 });
 
 describe("the file adapter fails closed on hostile custody", () => {
-  it("refuses a profile id that would escape the approval root", async () => {
+  it("refuses a record whose profile id disagrees with its embedded profile", async () => {
+    // Escape is impossible by construction because the leaf name is a hash of
+    // the id, so this proves the identity refinement, not path handling. The
+    // filesystem-level escape property is asserted in the security suite.
     const store = createFilePolicyApprovalStore({ root });
     for (const profileId of ["../escape", "a/../..", "/etc/passwd"]) {
       const result = await store.publish(approval({ profileId }));
@@ -303,7 +320,7 @@ describe("the file adapter fails closed on hostile custody", () => {
 
   it("fails closed when the approval root cannot be opened", async () => {
     const missing = join(root, "no", "such", "tree");
-    const result = await createFilePolicyApprovalStore({
+    const result = await createFilePolicyApprovalStoreForTests({
       root: missing,
       capabilities: { openDirectory: async () => undefined },
     }).publish(approval());
@@ -315,7 +332,7 @@ describe("the file adapter fails closed on hostile custody", () => {
     // parses as JSON.
     const store = createFilePolicyApprovalStore({ root });
     await store.publish(approval());
-    const read = await createFilePolicyApprovalStore({
+    const read = await createFilePolicyApprovalStoreForTests({
       root,
       capabilities: {
         readFile: async () => Buffer.from('{"schemaVersion":1}', "utf8"),
@@ -325,7 +342,7 @@ describe("the file adapter fails closed on hostile custody", () => {
   });
 
   it("leaves nothing half-readable when publication is interrupted", async () => {
-    const store = createFilePolicyApprovalStore({
+    const store = createFilePolicyApprovalStoreForTests({
       root,
       capabilities: {
         fsyncDirectory: async () => {
@@ -368,7 +385,7 @@ describe("the file adapter fails closed on hostile custody", () => {
 
   it("performs no I/O outside the root when descriptor binding is unavailable", async () => {
     const attacker = await mkdtemp(join(tmpdir(), "policy-attacker-"));
-    const result = await createFilePolicyApprovalStore({
+    const result = await createFilePolicyApprovalStoreForTests({
       root,
       capabilities: { openDirectory: async () => undefined },
     }).publish(approval());
@@ -380,7 +397,7 @@ describe("the file adapter fails closed on hostile custody", () => {
   });
 
   it("accepts a retry after an interrupted publication", async () => {
-    await createFilePolicyApprovalStore({
+    await createFilePolicyApprovalStoreForTests({
       root,
       capabilities: {
         fsyncDirectory: async () => {

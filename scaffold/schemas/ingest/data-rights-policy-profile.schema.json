@@ -69,16 +69,31 @@
       "$ref": "#/$defs/capabilityList"
     },
     "allowedProcessors": {
-      "$ref": "#/$defs/capabilityList"
+      "allOf": [
+        {
+          "$ref": "#/$defs/capabilityList"
+        }
+      ],
+      "description": "Deterministic extraction capabilities; read bytes already in custody and emit derived representations."
     },
     "allowedProviders": {
-      "$ref": "#/$defs/capabilityList"
+      "allOf": [
+        {
+          "$ref": "#/$defs/capabilityList"
+        }
+      ],
+      "description": "LLM and STT model capabilities, whether local or remote. Whether a provider egresses is governed by allowedRegions, not by membership of this list."
     },
     "allowedStorage": {
       "$ref": "#/$defs/capabilityList"
     },
     "allowedRegions": {
-      "$ref": "#/$defs/capabilityList"
+      "allOf": [
+        {
+          "$ref": "#/$defs/capabilityList"
+        }
+      ],
+      "description": "Where execution and egress may occur. The explicit 'local' token means no egress. An empty list is never allow-all; it is rejected."
     },
     "retentionClass": {
       "enum": ["project-lifetime", "engagement-scoped", "session-scoped"]

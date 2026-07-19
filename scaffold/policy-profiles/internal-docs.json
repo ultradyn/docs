@@ -6,7 +6,7 @@
   "allowedProcessors": ["local-markdown", "local-text"],
   "allowedProviders": ["provider:local-whisper"],
   "allowedStorage": ["project-repository"],
-  "allowedRegions": ["local"],
+  "allowedRegions": ["au-southeast-1"],
   "retentionClass": "project-lifetime",
   "retentionDays": 365,
   "logging": "ids-only",

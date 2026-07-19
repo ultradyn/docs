@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { z } from "zod";
 
 import {
@@ -5,6 +7,29 @@ import {
   digestDataRightsPolicyProfile,
   type DataRightsPolicyProfile,
 } from "./data-rights-policy-profile.js";
+
+/**
+ * An independent attestation that an eligible human approved this exact payload.
+ *
+ * The record's digest proves INTEGRITY — that its fields agree with themselves.
+ * It cannot prove AUTHENTICITY, because the ledger is Git-visible and anyone who
+ * can write it can mint an internally consistent record and set `approvedBy` to
+ * any name. Authenticity therefore rides on a `proof` issued by an authority the
+ * store does not control and verified on every run decision. `payloadSha256`
+ * binds the canonical approval payload (profile digest, actor, time, reason);
+ * it deliberately excludes `proof`, so the proof commits to the payload rather
+ * than to itself.
+ *
+ * This envelope is transport only. The task defines the seam and a deterministic
+ * test fake; it invents no production trust root, key, or signature scheme.
+ */
+export interface PolicyApprovalAttestation {
+  version: 1;
+  authorityId: string;
+  authorityRevision: number;
+  payloadSha256: string;
+  proof: string;
+}
 
 /**
  * The durable approval record.
@@ -26,11 +51,69 @@ export interface PolicyApproval {
   approvedBy: string;
   approvedAt: string;
   reason: string;
+  attestation: PolicyApprovalAttestation;
+}
+
+/** The approval payload an attestation commits to: everything but the
+ * attestation itself, in a fixed key order so the digest is construction
+ * independent. */
+export interface PolicyApprovalPayload {
+  schemaVersion: 1;
+  profileId: string;
+  profileSha256: string;
+  approvedBy: string;
+  approvedAt: string;
+  reason: string;
+}
+
+/**
+ * The digest an attestation binds. It covers the profile through its digest
+ * rather than by inlining the whole profile, which is why `profileSha256` is
+ * itself schema-verified against the embedded profile: the two checks together
+ * mean a valid attestation commits transitively to the exact profile bytes.
+ */
+export function digestPolicyApprovalPayload(
+  approval: Pick<
+    PolicyApproval,
+    | "schemaVersion"
+    | "profileId"
+    | "profileSha256"
+    | "approvedBy"
+    | "approvedAt"
+    | "reason"
+  >,
+): string {
+  const payload: PolicyApprovalPayload = {
+    schemaVersion: approval.schemaVersion,
+    profileId: approval.profileId,
+    profileSha256: approval.profileSha256,
+    approvedBy: approval.approvedBy,
+    approvedAt: approval.approvedAt,
+    reason: approval.reason,
+  };
+  return createHash("sha256")
+    .update(JSON.stringify(payload), "utf8")
+    .digest("hex");
 }
 
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);
 const NonBlankSchema = z.string().trim().min(1);
 const IsoTimestampSchema = z.string().datetime();
+
+/** A proof is an opaque, bounded token. Bounding it keeps a hostile record from
+ * carrying an unbounded string, and opacity keeps the store from depending on
+ * any particular authority's scheme. */
+const ProofSchema = z.string().min(1).max(4096);
+
+const AttestationSchema = z
+  .object({
+    version: z.literal(1),
+    authorityId: NonBlankSchema,
+    authorityRevision: z.number().int().nonnegative(),
+    payloadSha256: Sha256Schema,
+    proof: ProofSchema,
+  })
+  .strict();
 
 export const PolicyApprovalSchema: z.ZodType<PolicyApproval> = z
   .object({
@@ -41,6 +124,7 @@ export const PolicyApprovalSchema: z.ZodType<PolicyApproval> = z
     approvedBy: NonBlankSchema,
     approvedAt: IsoTimestampSchema,
     reason: NonBlankSchema,
+    attestation: AttestationSchema,
   })
   .strict()
   .superRefine((approval, context) => {
@@ -56,6 +140,18 @@ export const PolicyApprovalSchema: z.ZodType<PolicyApproval> = z
       });
     }
 
+    // Prohibited material is declarable as a PROFILE but can never be the
+    // subject of an APPROVAL. Rejecting it here makes the invariant structural:
+    // it holds for any record reaching the ledger, not only for those created
+    // through the approve() path.
+    if (approval.profile.dataRightsClass === "prohibited") {
+      context.addIssue({
+        code: "custom",
+        path: ["profile", "dataRightsClass"],
+        message: "prohibited material may never be the subject of an approval",
+      });
+    }
+
     // The digest is the sole discriminator between an idempotent replay and a
     // conflict, so it must actually commit to the embedded profile. Left
     // unchecked it is free text, and a record pairing a hostile profile with a
@@ -66,7 +162,21 @@ export const PolicyApprovalSchema: z.ZodType<PolicyApproval> = z
         code: "custom",
         path: ["profileSha256"],
         message:
-          "profileSha256 does not commit to the embedded profile; the record is not self-authenticating",
+          "profileSha256 does not commit to the embedded profile; the record is not integrity-consistent",
+      });
+    }
+
+    // The attestation must at least commit to THIS payload. Whether the proof
+    // is genuine is an authenticity question answered by the injected verifier;
+    // this is the integrity half, and it lets a transplanted attestation be
+    // caught even before a verifier is consulted.
+    const payloadDigest = digestPolicyApprovalPayload(approval);
+    if (approval.attestation.payloadSha256 !== payloadDigest) {
+      context.addIssue({
+        code: "custom",
+        path: ["attestation", "payloadSha256"],
+        message:
+          "attestation payloadSha256 does not commit to the approval payload",
       });
     }
   });

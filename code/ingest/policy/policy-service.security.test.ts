@@ -4,6 +4,7 @@ import {
   createInMemoryPolicyApprovalStore,
   createPolicyService,
 } from "./index.js";
+import { createFakeAttestationAuthority } from "./testing.js";
 
 /**
  * Authority and contract hardening, written against e6ed2a6 in response to the
@@ -44,10 +45,13 @@ const prohibited = {
   dataRightsClass: "prohibited",
 } as const;
 
-function service(isAuthorisedHuman: (actor: string) => boolean = () => true) {
+function service(eligible: (actor: string) => boolean = () => true) {
   return createPolicyService({
     store: createInMemoryPolicyApprovalStore(),
-    approvalPolicy: { isAuthorisedHuman },
+    authority: createFakeAttestationAuthority({
+      authorityId: "authority-1",
+      eligible,
+    }),
     now: () => APPROVED_AT,
   });
 }
@@ -106,6 +110,7 @@ describe("approver identity is normalised before it is judged or recorded", () =
     ["\tbot:sneaky", "leading tab"],
     ["AGENT:sneaky", "uppercase"],
     ["agent​:sneaky", "zero width space"],
+    ["​ agent:sneaky", "zero width space shielding a trailing space"],
   ] as const;
 
   it.each(evasions)(

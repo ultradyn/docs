@@ -11,6 +11,10 @@ import {
   createInMemoryPolicyApprovalStore,
   createPolicyService,
 } from "./index.js";
+import {
+  createFakeAttestationAuthority,
+  createFilePolicyApprovalStoreForTests,
+} from "./testing.js";
 
 const HUMAN = "alex.review-1";
 const OTHER_HUMAN = "sam.review-2";
@@ -71,6 +75,14 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+function authorityFor(eligible?: (actor: string) => boolean) {
+  return createFakeAttestationAuthority({
+    authorityId: "authority-1",
+    eligible:
+      eligible ?? ((actor: string) => actor === HUMAN || actor === OTHER_HUMAN),
+  });
+}
+
 function service(
   overrides: {
     isAuthorisedHuman?: (actor: string) => boolean;
@@ -79,11 +91,7 @@ function service(
 ) {
   return createPolicyService({
     store: overrides.store ?? createInMemoryPolicyApprovalStore(),
-    approvalPolicy: {
-      isAuthorisedHuman:
-        overrides.isAuthorisedHuman ??
-        ((actor: string) => actor === HUMAN || actor === OTHER_HUMAN),
-    },
+    authority: authorityFor(overrides.isAuthorisedHuman),
     now: () => APPROVED_AT,
   });
 }
@@ -290,7 +298,7 @@ describe("run authority survives a process restart", () => {
   function durable() {
     return createPolicyService({
       store: createFilePolicyApprovalStore({ root }),
-      approvalPolicy: { isAuthorisedHuman: (actor: string) => actor === HUMAN },
+      authority: authorityFor((actor: string) => actor === HUMAN),
       now: () => APPROVED_AT,
     });
   }
@@ -360,7 +368,7 @@ describe("run authority survives a process restart", () => {
       reason: "Approved before the restart.",
     });
     const broken = createPolicyService({
-      store: createFilePolicyApprovalStore({
+      store: createFilePolicyApprovalStoreForTests({
         root,
         capabilities: {
           readFile: async () => {
@@ -368,7 +376,7 @@ describe("run authority survives a process restart", () => {
           },
         },
       }),
-      approvalPolicy: { isAuthorisedHuman: (actor: string) => actor === HUMAN },
+      authority: authorityFor((actor: string) => actor === HUMAN),
       now: () => APPROVED_AT,
     });
     const allowed = await broken.assertRunAllowed(candidate.id);

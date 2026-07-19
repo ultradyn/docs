@@ -89,17 +89,25 @@ describe("reference profiles encode the rules they are meant to demonstrate", ()
     }
   });
 
-  it("keeps restricted-local-only free of egress", () => {
-    // A local model capability is still a provider; what makes it non-egressing
-    // is the region, which is why the two fields stay separate.
-    const profile = load("restricted-local-only.json") as {
-      allowedRegions: string[];
-      allowedProviders: string[];
-      maxQuoteBytes: number;
-    };
-    expect(profile.allowedRegions).toEqual(["local"]);
-    expect(profile.allowedProviders.length).toBeGreaterThan(0);
-    expect(profile.maxQuoteBytes).toBe(0);
+  it("distinguishes local-only from egressing material by REGION, not provider", () => {
+    // Comparing the two fixtures is the point: both declare model providers, so
+    // an assertion about one alone would pass vacuously. What separates them is
+    // the region list, which is where egress is actually governed.
+    type Profile = { allowedRegions: string[]; allowedProviders: string[] };
+    const restricted = load("restricted-local-only.json") as Profile;
+    const publicDocs = load("public-docs.json") as Profile;
+
+    expect(restricted.allowedRegions).toEqual(["local"]);
+    expect(publicDocs.allowedRegions).not.toContain("local");
+    expect(publicDocs.allowedRegions.length).toBeGreaterThan(0);
+
+    // Both carry providers; the fixtures would be indistinguishable on this
+    // axis, which is precisely why region is the control.
+    expect(restricted.allowedProviders.length).toBeGreaterThan(0);
+    expect(publicDocs.allowedProviders.length).toBeGreaterThan(0);
+    expect(publicDocs.allowedProviders).not.toEqual(
+      restricted.allowedProviders,
+    );
   });
 
   it("gives the prohibited profile no quotable bytes and no publication", () => {

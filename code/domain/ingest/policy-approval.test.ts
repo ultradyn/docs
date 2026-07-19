@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import Ajv2020Module from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
-import { PolicyApprovalSchema } from "./policy-approval.js";
+import {
+  PolicyApprovalSchema,
+  digestPolicyApprovalPayload,
+} from "./policy-approval.js";
 import {
   DataRightsPolicyProfileSchema,
   digestDataRightsPolicyProfile,
@@ -36,16 +39,30 @@ const canonicalProfile = {
   maxExpandedBytes: 100_000_000,
 } as const;
 
-const approval = {
-  schemaVersion: 1,
+const payload = {
+  schemaVersion: 1 as const,
   profileId: canonicalProfile.id,
-  profile: canonicalProfile,
   // Recomputed, not invented: the schema verifies that the digest commits to
-  // the embedded profile, so a record is self-authenticating.
+  // the embedded profile, so a record is integrity-consistent (not authentic —
+  // authenticity is the injected authority's job, not the schema's).
   profileSha256: digestDataRightsPolicyProfile(canonicalProfile),
   approvedBy: HUMAN,
   approvedAt: "2026-07-19T07:30:00.000Z",
   reason: "Reviewed against the source licence.",
+};
+
+const approval = {
+  ...payload,
+  profile: canonicalProfile,
+  attestation: {
+    version: 1,
+    authorityId: "authority-1",
+    authorityRevision: 1,
+    // The envelope must commit to the payload; the schema checks this even
+    // though only the injected authority can judge the proof genuine.
+    payloadSha256: digestPolicyApprovalPayload(payload),
+    proof: "envelope-proof-verified-elsewhere",
+  },
 } as const;
 
 function portable(name: string) {
@@ -119,6 +136,32 @@ describe("the durable approval record is strict", () => {
     expect(
       DataRightsPolicyProfileSchema.safeParse(approval.profile).success,
     ).toBe(true);
+  });
+
+  it("requires the attestation envelope", () => {
+    const withoutAttestation = { ...approval } as Record<string, unknown>;
+    delete withoutAttestation.attestation;
+    expect(PolicyApprovalSchema.safeParse(withoutAttestation).success).toBe(
+      false,
+    );
+  });
+
+  it("requires the attestation to commit to the payload", () => {
+    expect(
+      PolicyApprovalSchema.safeParse({
+        ...approval,
+        attestation: { ...approval.attestation, payloadSha256: "0".repeat(64) },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an unknown key inside the attestation", () => {
+    expect(
+      PolicyApprovalSchema.safeParse({
+        ...approval,
+        attestation: { ...approval.attestation, forged: true },
+      }).success,
+    ).toBe(false);
   });
 });
 

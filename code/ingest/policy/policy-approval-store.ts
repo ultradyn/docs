@@ -5,7 +5,6 @@ import { open, unlink } from "node:fs/promises";
 
 import {
   PolicyApprovalSchema,
-  digestDataRightsPolicyProfile,
   type PolicyApproval,
 } from "../../domain/ingest/index.js";
 import type { IngestResult } from "../../domain/ingest/types.js";
@@ -19,7 +18,10 @@ export const POLICY_APPROVAL_ROOT = "ingest/policy-approvals";
 export type PolicyApprovalPublishOutcome = "published" | "replayed";
 
 export type PolicyApprovalErrorCode =
-  "APPROVAL_CONFLICT" | "INVALID_APPROVAL" | "CUSTODY_UNAVAILABLE";
+  | "APPROVAL_CONFLICT"
+  | "INVALID_APPROVAL"
+  | "PROFILE_PROHIBITED"
+  | "CUSTODY_UNAVAILABLE";
 
 export type PolicyApprovalPublishResult = IngestResult<
   PolicyApprovalPublishOutcome,
@@ -43,6 +45,8 @@ const PUBLIC_MESSAGE: Record<PolicyApprovalErrorCode, string> = {
   APPROVAL_CONFLICT:
     "the profile id is already approved at a different content digest; changed content must use a new profile id",
   INVALID_APPROVAL: "the approval record failed strict validation",
+  PROFILE_PROHIBITED:
+    "material classified prohibited may never be approved or run",
   CUSTODY_UNAVAILABLE: "the approval store could not be read or written",
 };
 
@@ -52,8 +56,13 @@ function failure<T>(
   return { ok: false, code, message: PUBLIC_MESSAGE[code] };
 }
 
-/** Filesystem capabilities, injected so unavailable custody can be exercised
- * deterministically without touching anything outside the root. */
+/**
+ * Fault-injection seam, exercised only from `./testing.ts`.
+ *
+ * Deliberately NOT exported from the package barrel: production callers get
+ * real filesystem behaviour and have no reason to substitute it, and a public
+ * capability hook on a custody store is an invitation to weaken it.
+ */
 export interface PolicyApprovalCapabilities {
   openDirectory?(path: string): Promise<unknown | undefined>;
   readFile?(path: string): Promise<Uint8Array>;
@@ -98,12 +107,23 @@ function frozenCopy(approval: PolicyApproval): PolicyApproval {
 
 /**
  * Strict validation, including the digest recomputation the schema performs.
- * A record that parses is self-authenticating: its digest commits to the
- * profile it carries.
+ * A record that parses is self-CONSISTENT: its digest commits to the profile it
+ * carries and its attestation envelope commits to its payload. That is
+ * integrity, not authenticity — whether the attestation's proof is genuine is a
+ * question only the injected authority answers, in the service, on every run
+ * decision. The store deliberately makes no authenticity claim.
  */
 function validate(
   candidate: unknown,
 ): IngestResult<PolicyApproval, PolicyApprovalErrorCode> {
+  // Read the class before the full parse purely so the REASON survives. The
+  // schema also rejects a prohibited approval, but it would surface as a
+  // generic INVALID_APPROVAL, leaving a gate unable to report why it refused —
+  // which is the whole point of keeping the class representable.
+  const declared = (candidate as { profile?: { dataRightsClass?: unknown } })
+    ?.profile?.dataRightsClass;
+  if (declared === "prohibited") return failure("PROFILE_PROHIBITED");
+
   const parsed = PolicyApprovalSchema.safeParse(candidate);
   if (!parsed.success) return failure("INVALID_APPROVAL");
   return { ok: true, value: parsed.data };
@@ -154,8 +174,14 @@ async function leafName(profileId: string): Promise<string> {
  * through `/proc/self/fd/<fd>`. That keeps every subsequent operation anchored
  * to the inode we validated: a directory swapped after the check cannot
  * redirect a later write, because the descriptor still refers to the original
- * inode. This is Linux-specific, and the store fails closed elsewhere rather
- * than silently downgrading to pathname I/O that cannot offer the guarantee.
+ * inode.
+ *
+ * This is a HARD Linux requirement, not a preference. Off Linux there is no
+ * `/proc/self/fd`, and rather than silently downgrade to pathname I/O — which
+ * cannot offer the anchoring — the file adapter fails every operation closed
+ * with CUSTODY_UNAVAILABLE. There is deliberately no pathname fallback: a
+ * portable ledger that quietly weakened its custody guarantee off Linux would
+ * be worse than one that refused to run.
  */
 const DESCRIPTOR_PATHS_AVAILABLE = process.platform === "linux";
 
@@ -184,10 +210,16 @@ export function createFilePolicyApprovalStore(
 ): PolicyApprovalStore {
   const capabilities = options.capabilities ?? {};
   const components = POLICY_APPROVAL_ROOT.split("/");
-  // Whether this instance has ever bound the approval directory. A tree that
-  // has never existed is a fresh checkout holding no approvals; a tree that
-  // vanishes after we have bound it is tampering, and must surface as a typed
-  // storage failure rather than as "nothing approved".
+  // Whether THIS instance has bound the approval directory. It distinguishes a
+  // tree this instance created or read from one that has never existed, so a
+  // directory that vanishes mid-life surfaces as a typed storage failure rather
+  // than as "nothing approved".
+  //
+  // Honest limitation: this is per-instance and does not survive a restart. A
+  // fresh process that finds the tree already gone cannot tell a deleted ledger
+  // from a never-created one, and reports absence. Both are fail-closed (no run
+  // is authorised), so this is a diagnosis gap, not an authorisation bypass; a
+  // durable tamper-evidence marker would be a separate capability.
   let hasBound = false;
 
   async function bind(
@@ -333,6 +365,7 @@ export function createFilePolicyApprovalStore(
       const bytes = `${JSON.stringify(validated.value, null, 2)}\n`;
 
       let staged: FileHandle;
+      let stagedIdentity: { dev: bigint; ino: bigint };
       try {
         staged = await open(
           within(directory, temp),
@@ -347,8 +380,9 @@ export function createFilePolicyApprovalStore(
       }
 
       try {
-        const stat = await staged.stat();
+        const stat = await staged.stat({ bigint: true });
         if (!stat.isFile()) return failure("CUSTODY_UNAVAILABLE");
+        stagedIdentity = { dev: stat.dev, ino: stat.ino };
         await staged.writeFile(bytes, "utf8");
         await staged.sync();
       } catch {
@@ -366,6 +400,35 @@ export function createFilePolicyApprovalStore(
       }
 
       try {
+        // `link()` promotes by PATHNAME — Node has no linkat(AT_EMPTY_PATH) to
+        // promote the descriptor we wrote. So immediately before the link,
+        // re-open the temp with O_NOFOLLOW and confirm its inode identity still
+        // matches the file we staged. This closes a swap where the temp is
+        // replaced between write and promote.
+        //
+        // Residual, documented honestly: an attacker with write access to the
+        // approval directory could still win the sub-microsecond window between
+        // this check and the link. That attacker can already write the leaf
+        // directly, so it is not an escalation — the store's threat model
+        // assumes the directory is not writable by an adversary, and the
+        // descriptor anchoring and inode check narrow, not eliminate, the race.
+        const check = await open(
+          within(directory, temp),
+          fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+        );
+        try {
+          const stat = await check.stat({ bigint: true });
+          if (
+            !stat.isFile() ||
+            stat.dev !== stagedIdentity.dev ||
+            stat.ino !== stagedIdentity.ino
+          ) {
+            return failure("CUSTODY_UNAVAILABLE");
+          }
+        } finally {
+          await check.close().catch(() => {});
+        }
+
         // link() refuses an existing destination, so publication cannot replace
         // a record. rename() would clobber silently, which is exactly the
         // last-write-wins retargeting this store exists to prevent.

@@ -21,6 +21,11 @@ import {
   createFilePolicyApprovalStore,
   createInMemoryPolicyApprovalStore,
 } from "./index.js";
+import {
+  createFakeAttestationAuthority,
+  createFilePolicyApprovalStoreForTests,
+  integrityAttestation,
+} from "./testing.js";
 
 /**
  * Adversarial custody suite, written against e6ed2a6 in response to the
@@ -80,7 +85,7 @@ function approvalFor(
   profile: unknown,
   overrides: Record<string, unknown> = {},
 ) {
-  return {
+  const base = {
     schemaVersion: 1 as const,
     profileId: (profile as { id: string }).id,
     profile,
@@ -89,6 +94,13 @@ function approvalFor(
     approvedAt: APPROVED_AT,
     reason: "Reviewed against the source licence.",
     ...overrides,
+  };
+  return {
+    ...base,
+    attestation:
+      "attestation" in overrides
+        ? overrides.attestation
+        : integrityAttestation(base),
   };
 }
 
@@ -158,24 +170,24 @@ describe("a record must authenticate its own contents", () => {
 });
 
 describe("staging cannot be pre-empted by a planted file", () => {
-  it("never renames staged bytes it did not author", async () => {
-    // The original guard skipped the write when a staged file already existed
-    // and renamed it regardless of contents. Every component of the record is
-    // predictable, so the staged name is guessable.
+  it("promotes exactly the authored bytes, not attacker litter in the directory", async () => {
+    // The staged name is now 128-bit random, so a pre-plant cannot target it.
+    // Litter left at other names in the directory must never be promoted, and
+    // what lands at the leaf must be byte-for-byte what publish authored.
     await mkdir(join(root, POLICY_APPROVAL_ROOT), { recursive: true });
-    const legitimate = approvalFor(baseProfile);
-    const bytes = `${JSON.stringify(legitimate, null, 2)}\n`;
-    const stagedName = `${leafFor(baseProfile.id)}.${createHash("sha256")
-      .update(bytes, "utf8")
-      .digest("hex")
-      .slice(0, 16)}.staged`;
-
-    const plant = approvalFor(hostileProfile, {
+    const plantHostile = approvalFor(hostileProfile, {
       profileId: baseProfile.id,
       profile: { ...hostileProfile, id: baseProfile.id },
     });
-    await writeFile(stagedName, JSON.stringify(plant, null, 2));
+    // Litter at several plausible names an attacker might guess.
+    for (const suffix of [".tmp", ".staged", ".0000000000000000.tmp"]) {
+      await writeFile(
+        `${leafFor(baseProfile.id)}${suffix}`,
+        JSON.stringify(plantHostile, null, 2),
+      );
+    }
 
+    const legitimate = approvalFor(baseProfile);
     const store = createFilePolicyApprovalStore({ root });
     const published = await store.publish(legitimate as never);
     expect(published.ok).toBe(true);
@@ -330,7 +342,7 @@ describe("custody failures do not disclose paths or record contents", () => {
     await createFilePolicyApprovalStore({ root }).publish(
       approvalFor(baseProfile) as never,
     );
-    const read = await createFilePolicyApprovalStore({
+    const read = await createFilePolicyApprovalStoreForTests({
       root,
       capabilities: {
         readFile: async () => {
@@ -373,5 +385,55 @@ describe("a swapped custody root is detected rather than silently obeyed", () =>
       (await lstat(join(root, POLICY_APPROVAL_ROOT))).isSymbolicLink(),
     ).toBe(true);
     await rm(attacker, { recursive: true, force: true });
+  });
+});
+
+describe("prohibited material has no run authority at any boundary", () => {
+  const prohibitedProfile = {
+    ...baseProfile,
+    id: "policy-prohibited-material",
+    dataRightsClass: "prohibited",
+  } as const;
+
+  it("refuses a correctly digested prohibited record planted on disk", async () => {
+    // The refusal must be structural, not a property of the approve() path.
+    // A record reaching the ledger by any other route — a bad commit, a merge,
+    // a restored backup — is otherwise self-authenticating and would sail
+    // through a read-side gate that only trusts the digest.
+    await mkdir(join(root, POLICY_APPROVAL_ROOT), { recursive: true });
+    await writeFile(
+      leafFor(prohibitedProfile.id),
+      JSON.stringify(approvalFor(prohibitedProfile), null, 2),
+    );
+    const read = await createFilePolicyApprovalStore({ root }).read(
+      prohibitedProfile.id,
+    );
+    expect(read.ok).toBe(false);
+  });
+
+  it("refuses to publish a prohibited approval through the store", async () => {
+    const store = createInMemoryPolicyApprovalStore();
+    const result = await store.publish(approvalFor(prohibitedProfile) as never);
+    expect(result.ok).toBe(false);
+  });
+
+  it("denies run authority for a planted prohibited record", async () => {
+    const { createPolicyService } = await import("./policy-service.js");
+    await mkdir(join(root, POLICY_APPROVAL_ROOT), { recursive: true });
+    await writeFile(
+      leafFor(prohibitedProfile.id),
+      JSON.stringify(approvalFor(prohibitedProfile), null, 2),
+    );
+    const allowed = await createPolicyService({
+      store: createFilePolicyApprovalStore({ root }),
+      authority: createFakeAttestationAuthority({
+        authorityId: "authority-1",
+        eligible: () => true,
+      }),
+      now: () => APPROVED_AT,
+    }).assertRunAllowed(prohibitedProfile.id);
+    expect(allowed.ok).toBe(false);
+    if (allowed.ok) return;
+    expect(allowed.code).toBe("PROFILE_PROHIBITED");
   });
 });

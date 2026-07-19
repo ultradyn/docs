@@ -67,10 +67,14 @@ export interface DataRightsPolicyProfile {
   include: readonly string[];
   exclude: readonly string[];
   allowedMediaTypes: readonly string[];
-  /** LOCAL extraction capabilities. Read bytes already in custody, no egress. */
+  /** Deterministic extraction capabilities: read bytes already in custody and
+   * emit derived representations. e.g. "local-markdown". */
   allowedProcessors: readonly string[];
-  /** REMOTE model/STT capabilities. Carry egress, hence region concerns. Kept
-   * distinct from processors precisely because the threat profiles differ. */
+  /** LLM and STT model capabilities, WHETHER LOCAL OR REMOTE. e.g.
+   * "provider:local-whisper", "provider:anthropic/claude". Kept distinct from
+   * processors because a model capability is a different kind of thing from
+   * deterministic extraction regardless of where it runs; whether it egresses
+   * is governed by `allowedRegions`, not by membership of this list. */
   allowedProviders: readonly string[];
   allowedStorage: readonly string[];
   /** Region codes, or the explicit "local" token. Never empty: an empty list
@@ -80,6 +84,8 @@ export interface DataRightsPolicyProfile {
   retentionDays: number;
   logging: LoggingRule;
   cache: readonly CacheDimension[];
+  /** Legacy open string, carried forward from the minimal contract. T-13-01
+   * records it and does not interpret it; no vocabulary is defined here. */
   accessClass: string;
   licenceRestrictions: readonly LicenceRestriction[];
   publication: PublicationRule;
