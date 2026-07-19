@@ -43,3 +43,12 @@ tasks:
       priority: critical
       status: pending
       title: T-13-03 — Implement secret/PII and publication scans
+    - complexity: high
+      depends_on:
+        - P2.M1.E4.T001
+      estimate_hours: 8
+      file: T004-production-gate-select-and-wir.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: Production gate — select and wire policy attestation authority

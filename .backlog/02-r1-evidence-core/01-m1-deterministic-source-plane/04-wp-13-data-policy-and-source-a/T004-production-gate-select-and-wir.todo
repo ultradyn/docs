@@ -1,0 +1,32 @@
+---
+complexity: high
+created_at: "2026-07-19T08:38:45Z"
+depends_on:
+    - P2.M1.E4.T001
+estimate_hours: 8
+id: P2.M1.E4.T004
+priority: critical
+status: pending
+tags:
+    - wp-13
+    - ingest-v3
+    - production-gate
+    - security
+    - adr
+title: Production gate — select and wire policy attestation authority
+updated_at: "2026-07-19T08:38:45Z"
+---
+Synthetic production-activation gate created after T-13-01 introduced a mandatory PolicyApprovalAuthority seam.
+
+This task is intentionally blocked pending an ADR/trust-root decision. Deterministic fake authority supports local R0/R1 tests only and is never a production trust root.
+
+Deliverables:
+- ADR selecting the production attestation trust model, trust root, canonical proof algorithm/envelope compatibility, key custody, authority policy revision, rotation, revocation, expiry, and recovery.
+- Production PolicyApprovalAuthority issuer/verifier adapter wired into runtime activation.
+- Deterministic adapter/failure cases, restart/rotation/revocation/transplant/outage tests, visible UI/runtime unavailable state, docs, and exact activation checklist.
+- No production ingestion run is activatable while this capability is absent or blocked.
+
+Acceptance:
+- approve and assertRunAllowed verify exact payload-bound attestations under current authority revision.
+- forged labels/proofs, transplant, stale/revoked authority, unavailable verifier, and unknown trust root fail closed.
+- local fake remains explicit and cannot satisfy production activation checks.
