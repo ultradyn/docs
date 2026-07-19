@@ -150,3 +150,42 @@ export function integrityAttestation(
     proof: "integrity-envelope-not-a-genuine-proof",
   };
 }
+
+import type { UnitAccessRecord, UnitAccessResolver } from "./policy-gate.js";
+
+/**
+ * Deterministic unit-access resolver for gate tests.
+ *
+ * Resolves a unit id to its repository metadata binding (snapshot, policy,
+ * logical path). A missing id is a typed miss; `setUnavailable(true)` models a
+ * metadata-store outage, which must stay distinct from a policy denial. This is
+ * a test seam only, never exported from the package barrel; a production adapter
+ * would compose the SourceUnit / SourceFile / Snapshot repositories.
+ */
+export interface FakeUnitAccessResolver extends UnitAccessResolver {
+  setUnavailable(unavailable: boolean): void;
+}
+
+export function createFakeUnitAccessResolver(
+  records: ReadonlyMap<string, UnitAccessRecord>,
+): FakeUnitAccessResolver {
+  let unavailable = false;
+  const resolver = {
+    async resolve(unitId: string) {
+      if (unavailable) {
+        return {
+          ok: false as const,
+          code: "UNIT_METADATA_UNAVAILABLE" as const,
+        };
+      }
+      const found = records.get(unitId);
+      return found
+        ? { ok: true as const, value: found }
+        : { ok: false as const, code: "UNIT_NOT_FOUND" as const };
+    },
+    setUnavailable(value: boolean): void {
+      unavailable = value;
+    },
+  };
+  return resolver as FakeUnitAccessResolver;
+}
