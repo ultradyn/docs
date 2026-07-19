@@ -94,4 +94,15 @@ export {
 } from "./claim-review-service.js";
 export * from "./obligation-service.js";
 export * from "./question-admissibility.js";
-export * from "./question-link-service.js";
+// Explicit re-exports (was `export *`) so a testing helper added to this module
+// in future cannot reach the barrel automatically. createInMemoryQuestionLinkStore
+// IS deliberately public here — pinned by question-link-service.test.ts "public
+// seams" — and is retained unchanged; this closes the recurrence vector without
+// reversing that decision.
+export {
+  createInMemoryQuestionLinkStore,
+  createQuestionLinkService,
+  type QuestionLinkError,
+  type QuestionReader,
+  type QuestionLinkService,
+} from "./question-link-service.js";
