@@ -29,7 +29,8 @@ export type SourceToolError =
   | "UNIT_NOT_FOUND"
   | "ACCESS_DENIED"
   | "COMMIT_FAILED"
-  | "RECEIPT_INVALID";
+  | "RECEIPT_INVALID"
+  | "INDEX_IDENTITY_UNAVAILABLE";
 
 const FIXED_MESSAGES: Record<SourceToolError, string> = {
   INVALID_INPUT: "Tool input is invalid.",
@@ -38,6 +39,8 @@ const FIXED_MESSAGES: Record<SourceToolError, string> = {
   UNIT_NOT_FOUND: "Requested unit was not found.",
   ACCESS_DENIED: "Unit access denied by policy.",
   COMMIT_FAILED: "Source tool operation failed.",
+  INDEX_IDENTITY_UNAVAILABLE:
+    "Configured search index identity is missing or malformed.",
   RECEIPT_INVALID: "Source tool could not construct a valid receipt.",
 };
 
@@ -309,14 +312,36 @@ export function createSourceTools(options: {
       selectedIds: sortIds(raw.selectedIds ?? candidateIds),
       hits: raw.hits ?? [],
     };
-    // Prefer backend identity; fall back to response.receipt identity if present.
-    const indexVersion =
-      backend.identity.indexVersion ||
-      raw.receipt?.indexVersion ||
-      UNBACKED_INDEX_VERSION;
-    const corpusDigest = (backend.identity.indexedRepresentationsSha256 ||
-      raw.receipt?.indexedRepresentationsSha256 ||
-      UNBACKED_CORPUS) as Sha256;
+    /**
+     * B004: index identity comes from the CONFIGURED backend seam and nowhere
+     * else. It previously fell back to raw.receipt — the backend's OWN
+     * response — and then to unbacked sentinels.
+     *
+     * Both fallbacks were fail-open. The receipt exists to record WHICH index
+     * and WHICH corpus produced a result; letting the backend name those makes
+     * the record a restatement of the backend's claim rather than an
+     * independent fact, so a hostile or misconfigured backend controlled its
+     * own attestation. Degrading to sentinels was worse: the receipt still
+     * looked well formed, so downstream saw a valid receipt for a search whose
+     * provenance was unknown.
+     *
+     * Unbacked sentinels remain correct ONLY on genuinely unbacked tools
+     * (maps / follow_links / vector_optional), never as a degradation from a
+     * backed path.
+     */
+    const indexVersion = backend.identity.indexVersion;
+    const corpusDigest = backend.identity.indexedRepresentationsSha256;
+    if (
+      typeof indexVersion !== "string" ||
+      indexVersion.length === 0 ||
+      typeof corpusDigest !== "string" ||
+      !/^[0-9a-f]{64}$/u.test(corpusDigest)
+    ) {
+      return failure(
+        "INDEX_IDENTITY_UNAVAILABLE",
+        unbackedReceipt(snapshotId, query, ["index-identity-unavailable"]),
+      );
+    }
 
     const filtered = await policyGate.filterRetrieval({
       response,

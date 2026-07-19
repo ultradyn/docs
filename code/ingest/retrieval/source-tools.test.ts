@@ -254,3 +254,81 @@ describe("contract — researcher allowlist surface", () => {
     expect(a.receipt.indexVersion).not.toBe(b.receipt.indexVersion);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B004 — index identity must come from the configured backend, never from the
+// backend's own response, and must never degrade to unbacked sentinels.
+// ---------------------------------------------------------------------------
+describe("B004 index identity provenance", () => {
+  const GOOD_DIGEST = "b".repeat(64) as Sha256;
+
+  function backendWith(identity: {
+    indexVersion: string;
+    indexedRepresentationsSha256: string;
+  }) {
+    return {
+      identity: identity as unknown as SearchBackendIdentity,
+      async search() {
+        return {
+          candidateIds: [],
+          selectedIds: [],
+          hits: [],
+          // The backend ALSO offers identity inside its own response. This is
+          // the smuggling channel: a hostile or misconfigured backend naming
+          // the very index the receipt is supposed to independently attest.
+          receipt: {
+            indexVersion: "attacker-claimed-index",
+            indexedRepresentationsSha256: "c".repeat(64),
+          },
+        } as unknown as SearchResponse;
+      },
+    };
+  }
+
+  it("FAILS CLOSED when configured identity is missing, ignoring response-supplied identity", async () => {
+    const t = tools({
+      lexicalIndex: backendWith({
+        indexVersion: "",
+        indexedRepresentationsSha256: "",
+      }),
+    });
+    const result = await t.lexical({ query: "retention" });
+    expect(result.ok, "empty configured identity must not produce a receipt").toBe(
+      false,
+    );
+    if (result.ok) return;
+    expect(result.code).toBe("INDEX_IDENTITY_UNAVAILABLE");
+    // And it must not have silently adopted what the backend claimed.
+    expect(JSON.stringify(result)).not.toContain("attacker-claimed-index");
+  });
+
+  it("FAILS CLOSED on a malformed configured corpus digest", async () => {
+    const t = tools({
+      lexicalIndex: backendWith({
+        indexVersion: "lexical-v1",
+        indexedRepresentationsSha256: "not-a-digest",
+      }),
+    });
+    const result = await t.lexical({ query: "retention" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INDEX_IDENTITY_UNAVAILABLE");
+  });
+
+  it("POSITIVE CONTROL: a properly configured backend still produces a receipt", async () => {
+    // Without this the assertions above could be satisfied by a tool that
+    // refuses everything, which would pass while breaking retrieval entirely.
+    const t = tools({
+      lexicalIndex: backendWith({
+        indexVersion: "lexical-v1",
+        indexedRepresentationsSha256: GOOD_DIGEST,
+      }),
+    });
+    const result = await t.lexical({ query: "retention" });
+    expect(result.ok, "correctly configured backend must still work").toBe(true);
+    if (!result.ok) return;
+    expect(result.value.receipt.indexVersion).toBe("lexical-v1");
+    // Identity comes from configuration, never from the response.
+    expect(result.value.receipt.indexedRepresentationsSha256).toBe(GOOD_DIGEST);
+  });
+});
