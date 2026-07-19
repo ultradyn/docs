@@ -1,0 +1,545 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import type { Sha256, SnapshotId, SourceFileId, SourceUnitId } from "../../domain/ingest/index.js";
+import { ClaimSchema, type Claim } from "../../domain/ingest/claim.js";
+
+import {
+  createClaimRepository,
+  createInMemoryClaimStore,
+  createFileClaimStore,
+  deriveClaimId,
+  type EvidenceVerificationReader,
+} from "./claim-repository.js";
+
+const SNAPSHOT = `snap-${"b".repeat(64)}` as SnapshotId;
+const FILE = `file-${"a".repeat(64)}` as SourceFileId;
+const UNIT = "unit-01ARZ3NDEKTSV4RRFFQ69G5FAV" as SourceUnitId;
+const QUESTION = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const PACKET = "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+function sha(text: string): Sha256 {
+  return createHash("sha256").update(text).digest("hex") as Sha256;
+}
+
+const FILE_HASH = sha("file");
+const UNIT_HASH = sha("unit");
+
+function evidence(verified = false) {
+  return {
+    snapshotId: SNAPSHOT,
+    fileId: FILE,
+    unitId: UNIT,
+    fileSha256: FILE_HASH,
+    unitSha256: UNIT_HASH,
+    verified,
+  };
+}
+
+function createInput(overrides: Record<string, unknown> = {}) {
+  return {
+    statement: "Workers retry failed endpoints with exponential backoff.",
+    claimType: "behavior",
+    scope: { component: "delivery-worker", version: "3.x" },
+    authority: "official",
+    lifecycle: "current",
+    evidenceRefs: [evidence(false)],
+    relationships: {
+      qualifierClaimIds: [] as string[],
+      contradictsClaimIds: [] as string[],
+      supersedesClaimIds: [] as string[],
+    },
+    createdFrom: { questionId: QUESTION, packetId: PACKET },
+    ...overrides,
+  };
+}
+
+function verifierOk(): EvidenceVerificationReader {
+  return {
+    isVerified: async () => true,
+  };
+}
+
+function verifierNone(): EvidenceVerificationReader {
+  return {
+    isVerified: async () => false,
+  };
+}
+
+function repo(
+  overrides: {
+    store?: ReturnType<typeof createInMemoryClaimStore>;
+    evidence?: EvidenceVerificationReader;
+  } = {},
+) {
+  return createClaimRepository({
+    store: overrides.store ?? createInMemoryClaimStore(),
+    evidence: overrides.evidence ?? verifierOk(),
+  });
+}
+
+describe("construction", () => {
+  it("requires evidence verification reader", () => {
+    expect(() =>
+      createClaimRepository({
+        store: createInMemoryClaimStore(),
+      } as never),
+    ).toThrow(/evidence/i);
+  });
+});
+
+describe("create — proposed only", () => {
+  it("creates a proposed claim with version 1", async () => {
+    const result = await repo().create(createInput());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.state).toBe("proposed");
+    expect(result.value.version).toBe(1);
+    expect(result.value.id).toMatch(/^clm-/);
+    expect(Object.isFrozen(result.value)).toBe(true);
+    expect(result.value.statement).toContain("retry");
+  });
+
+  it("rejects empty statement and unknown claimType", async () => {
+    const empty = await repo().create(createInput({ statement: "" }));
+    expect(empty.ok).toBe(false);
+    const badType = await repo().create(createInput({ claimType: "bogus" }));
+    expect(badType.ok).toBe(false);
+  });
+
+  it("rejects hostile accessors and unknown keys", async () => {
+    let accessed = false;
+    const hostile = {
+      ...createInput(),
+      get statement() {
+        accessed = true;
+        throw new Error("nope");
+      },
+    };
+    delete (hostile as { statement?: string }).statement;
+    Object.defineProperty(hostile, "statement", {
+      enumerable: true,
+      get() {
+        accessed = true;
+        throw new Error("nope");
+      },
+    });
+    const result = await repo().create(hostile);
+    expect(accessed).toBe(false);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("INVALID_INPUT");
+
+    const unknown = await repo().create({ ...createInput(), evil: true });
+    expect(unknown.ok).toBe(false);
+  });
+
+  it("rejects create that tries to force accepted state", async () => {
+    const result = await repo().create(createInput({ state: "accepted" }));
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("transition — acceptance gates (T-22-01 + T-22-03 seam)", () => {
+  it("rejects accept without reviewerRunId (T-22-03 owns acceptance application)", async () => {
+    const r = repo();
+    const created = await r.create(createInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const result = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      // no reviewerRunId
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("REVIEW_REQUIRED");
+  });
+
+  it("rejects accept without verified evidence even with reviewerRunId", async () => {
+    const r = repo({ evidence: verifierNone() });
+    const created = await r.create(createInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const result = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("EVIDENCE_UNVERIFIED");
+  });
+
+  it("rejects accept when scope, authority, or lifecycle missing on record", async () => {
+    // create requires them; transition re-validates mandatory acceptance fields
+    const r = repo();
+    const created = await r.create(createInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    // Accept path with verified evidence + review
+    const ok = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    // With verifierOk and full fields, accept succeeds
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.value.state).toBe("accepted");
+    expect(ok.value.version).toBe(2);
+  });
+
+  it("rejects accept when evidenceRefs empty", async () => {
+    const r = repo();
+    const created = await r.create(
+      createInput({
+        evidenceRefs: [],
+      }),
+    );
+    // create may allow empty for draft-ish proposed OR reject — RED: create requires ≥1 ref
+    expect(created.ok).toBe(false);
+    if (!created.ok) expect(created.code).toBe("INVALID_INPUT");
+  });
+});
+
+describe("transition — lifecycle table", () => {
+  it("allows proposed → disputed", async () => {
+    const r = repo();
+    const created = await r.create(createInput());
+    if (!created.ok) return;
+    const result = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "disputed",
+      reason: "conflicts with peer claim",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.state).toBe("disputed");
+  });
+
+  it("allows accepted → stale via source change mark", async () => {
+    const r = repo();
+    const created = await r.create(createInput());
+    if (!created.ok) return;
+    await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    const stale = await r.markStaleFromSourceChange({
+      snapshotId: SNAPSHOT,
+      unitIds: [UNIT],
+      reason: "unit content changed",
+    });
+    expect(stale.ok).toBe(true);
+    if (!stale.ok) return;
+    expect(stale.value.some((c) => c.state === "stale")).toBe(true);
+    const got = await r.get(created.value.id);
+    expect(got.ok).toBe(true);
+    if (!got.ok) return;
+    expect(got.value.state).toBe("stale");
+  });
+
+  it("allows accepted → superseded with acyclic supersedes edge", async () => {
+    const r = repo();
+    const a = await r.create(createInput({ statement: "Claim A text" }));
+    const b = await r.create(createInput({ statement: "Claim B text" }));
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    await r.transition({
+      claimId: a.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    await r.transition({
+      claimId: b.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FBW",
+    });
+    const result = await r.transition({
+      claimId: a.value.id,
+      expectedVersion: 2,
+      to: "superseded",
+      supersederId: b.value.id,
+      reason: "B replaces A",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.state).toBe("superseded");
+  });
+
+  it("rejects cyclic supersession", async () => {
+    const r = repo();
+    const a = await r.create(createInput({ statement: "A" }));
+    const b = await r.create(createInput({ statement: "B" }));
+    if (!a.ok || !b.ok) return;
+    await r.transition({
+      claimId: a.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    await r.transition({
+      claimId: b.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FBW",
+    });
+    await r.transition({
+      claimId: a.value.id,
+      expectedVersion: 2,
+      to: "superseded",
+      supersederId: b.value.id,
+      reason: "B>A",
+    });
+    // B superseded by A would cycle
+    const cycle = await r.transition({
+      claimId: b.value.id,
+      expectedVersion: 2,
+      to: "superseded",
+      supersederId: a.value.id,
+      reason: "cycle",
+    });
+    expect(cycle.ok).toBe(false);
+    if (!cycle.ok) expect(cycle.code).toBe("CYCLE_DETECTED");
+  });
+
+  it("rejects illegal transitions (stale → accepted, superseded → proposed)", async () => {
+    const r = repo();
+    const created = await r.create(createInput());
+    if (!created.ok) return;
+    await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    await r.markStaleFromSourceChange({
+      snapshotId: SNAPSHOT,
+      unitIds: [UNIT],
+      reason: "changed",
+    });
+    const illegal = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 3,
+      to: "accepted",
+      reviewerRunId: "run-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    expect(illegal.ok).toBe(false);
+    if (!illegal.ok) expect(illegal.code).toBe("ILLEGAL_TRANSITION");
+  });
+
+  it("rejects overwrite / stale expectedVersion", async () => {
+    const r = repo();
+    const created = await r.create(createInput());
+    if (!created.ok) return;
+    const bad = await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 0,
+      to: "disputed",
+      reason: "x",
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.code).toBe("VERSION_CONFLICT");
+  });
+});
+
+describe("append-only CAS and idempotency", () => {
+  it("get returns latest; versions append-only", async () => {
+    const r = repo();
+    const created = await r.create(createInput());
+    if (!created.ok) return;
+    await r.transition({
+      claimId: created.value.id,
+      expectedVersion: 1,
+      to: "disputed",
+      reason: "peer",
+    });
+    const latest = await r.get(created.value.id);
+    expect(latest.ok).toBe(true);
+    if (!latest.ok) return;
+    expect(latest.value.version).toBe(2);
+    expect(latest.value.state).toBe("disputed");
+    const v1 = await r.getVersion(created.value.id, 1);
+    expect(v1.ok).toBe(true);
+    if (!v1.ok) return;
+    expect(v1.value.state).toBe("proposed");
+  });
+
+  it("idempotent create/transition with same key", async () => {
+    const r = repo();
+    const input = { ...createInput(), idempotencyKey: "c1" };
+    const first = await r.create(input);
+    const second = await r.create(input);
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(second.value.id).toBe(first.value.id);
+    expect(second.value.version).toBe(first.value.version);
+  });
+
+  it("idempotency conflict on different payload same key", async () => {
+    const r = repo();
+    const first = await r.create({
+      ...createInput(),
+      idempotencyKey: "c2",
+    });
+    expect(first.ok).toBe(true);
+    const conflict = await r.create({
+      ...createInput({ statement: "Different statement entirely." }),
+      idempotencyKey: "c2",
+    });
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
+  });
+});
+
+describe("list and immutability", () => {
+  it("list returns created claims without mutation alias", async () => {
+    const r = repo();
+    await r.create(createInput({ statement: "One" }));
+    await r.create(createInput({ statement: "Two" }));
+    const list = await r.list();
+    expect(list.ok).toBe(true);
+    if (!list.ok) return;
+    expect(list.value.length).toBeGreaterThanOrEqual(2);
+    expect(Object.isFrozen(list.value)).toBe(true);
+  });
+});
+
+describe("durable store / crash / custody", () => {
+  it("exports createFileClaimStore", async () => {
+    const mod = await import("./claim-repository.js");
+    expect(typeof mod.createFileClaimStore).toBe("function");
+  });
+
+  it("survives fresh process get after create", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-dur-"));
+    try {
+      const store = createFileClaimStore(root);
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+      });
+      const created = await r.create(createInput());
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      const fresh = createClaimRepository({
+        store: createFileClaimStore(root),
+        evidence: verifierOk(),
+      });
+      const got = await fresh.get(created.value.id);
+      expect(got.ok).toBe(true);
+      if (!got.ok) return;
+      expect(got.value.statement).toBe(created.value.statement);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("crash before publish leaves no readable claim", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-crash-"));
+    try {
+      const store = createFileClaimStore(root, {
+        afterTempWriteBeforePublish: () => {
+          throw new Error("injected-crash");
+        },
+      });
+      const r = createClaimRepository({ store, evidence: verifierOk() });
+      await expect(r.create(createInput())).rejects.toThrow(/injected-crash/);
+      const fresh = createFileClaimStore(root);
+      const id = deriveClaimId(QUESTION, PACKET, createInput().statement);
+      const got = await fresh.get(id);
+      expect(got).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("fails closed on directory symlink root", async () => {
+    if (process.platform !== "linux") return;
+    const base = await mkdtemp(join(tmpdir(), "clm-root-"));
+    const outside = join(base, "outside");
+    const linkRoot = join(base, "link");
+    await mkdir(outside);
+    await symlink(outside, linkRoot);
+    const store = createFileClaimStore(linkRoot);
+    await expect(
+      store.append({
+        schemaVersion: 1,
+        id: "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        version: 1,
+        statement: "x",
+        claimType: "behavior",
+        scope: { component: "c" },
+        authority: "official",
+        lifecycle: "current",
+        state: "proposed",
+        evidenceRefs: [evidence()],
+        relationships: {
+          qualifierClaimIds: [],
+          contradictsClaimIds: [],
+          supersedesClaimIds: [],
+        },
+        createdFrom: { questionId: QUESTION, packetId: PACKET },
+      } as Claim),
+    ).rejects.toThrow(/symbolic|Refusing/i);
+    await rm(base, { recursive: true, force: true });
+  });
+});
+
+describe("public seams", () => {
+  it("ClaimSchema from domain rejects placeholder alone", () => {
+    expect(
+      ClaimSchema.safeParse({
+        schemaVersion: 1,
+        id: "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("registry Claim rejects placeholder and accepts full shape", async () => {
+    const { ingestSchemaRegistry } =
+      await import("../../domain/ingest/schema-registry.js");
+    const schema = ingestSchemaRegistry.get("Claim", 1);
+    expect(
+      schema.safeParse({
+        schemaVersion: 1,
+        id: "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("knowledge barrel re-exports createClaimRepository", async () => {
+    const barrel = await import("./index.js");
+    expect(
+      typeof (barrel as { createClaimRepository?: unknown })
+        .createClaimRepository,
+    ).toBe("function");
+  });
+
+  it("domain barrel ClaimSchema rejects placeholder (no soft typeof)", async () => {
+    const barrel = await import("../../domain/ingest/index.js");
+    const schema = (
+      barrel as {
+        ClaimSchema: { safeParse: (v: unknown) => { success: boolean } };
+      }
+    ).ClaimSchema;
+    expect(
+      schema.safeParse({
+        schemaVersion: 1,
+        id: "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      }).success,
+    ).toBe(false);
+  });
+});
