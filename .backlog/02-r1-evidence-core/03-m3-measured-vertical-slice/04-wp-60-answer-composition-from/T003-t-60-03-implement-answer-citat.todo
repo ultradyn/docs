@@ -2,6 +2,7 @@
 complexity: medium
 created_at: "2026-07-18T08:10:11Z"
 depends_on:
+    - P2.M3.E3.T003
     - P2.M3.E4.T002
 estimate_hours: 5
 id: P2.M3.E4.T003
