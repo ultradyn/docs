@@ -51,5 +51,6 @@ tasks:
       file: T004-bind-researcher-receipts-to-re.todo
       id: T004
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Bind Researcher receipts to real tool invocations (authenticity)
