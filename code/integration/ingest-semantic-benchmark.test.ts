@@ -357,6 +357,30 @@ describe("offline semantic retrieval benchmark", () => {
     ).toThrow(/latencyMs/i);
   });
 
+  it("rejects accessor and sparse-array input without invoking accessors", () => {
+    let accessed = false;
+    const accessorRun = { ...lexical } as Record<string, unknown>;
+    Object.defineProperty(accessorRun, "cases", {
+      enumerable: true,
+      get() {
+        accessed = true;
+        return lexical.cases;
+      },
+    });
+    expect(() =>
+      compareRetrievalRuns(
+        accessorRun as unknown as RetrievalBenchmarkRun,
+        dense,
+      ),
+    ).toThrow(/data field/i);
+    expect(accessed).toBe(false);
+
+    const sparseCases = new Array(lexical.cases.length);
+    expect(() =>
+      compareRetrievalRuns({ ...lexical, cases: sparseCases as never }, dense),
+    ).toThrow(/data item/i);
+  });
+
   it("rejects candidates that disguise lexical runs or alter corpus provenance", () => {
     expect(() =>
       compareRetrievalRuns(lexical, { ...dense, strategy: "lexical" }),

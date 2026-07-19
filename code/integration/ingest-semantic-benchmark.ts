@@ -125,6 +125,12 @@ function requireExactKeys(
   ) {
     throw new Error(`${path} contains an unexpected or missing field`);
   }
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor?.enumerable || !("value" in descriptor)) {
+      throw new Error(`${path}.${key} must be an enumerable data field`);
+    }
+  }
 }
 
 function requireIdentifier(value: unknown, path: string): string {
@@ -158,13 +164,22 @@ function requireCorpus(value: unknown, path: string): BenchmarkCorpus {
 }
 
 function requireIdArray(value: unknown, path: string): readonly string[] {
-  if (!Array.isArray(value)) throw new Error(`${path} must be an array`);
+  if (
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype
+  ) {
+    throw new Error(`${path} must be a plain array`);
+  }
   if (value.length > SEMANTIC_BENCHMARK_LIMITS.maxUnitIdsPerCase) {
     throw new Error(`${path} exceeds the benchmark bound`);
   }
-  const ids = value.map((item, index) =>
-    requireIdentifier(item, `${path}[${index}]`),
-  );
+  const ids = Array.from({ length: value.length }, (_, index) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor?.enumerable || !("value" in descriptor)) {
+      throw new Error(`${path}[${index}] must be an enumerable data item`);
+    }
+    return requireIdentifier(descriptor.value, `${path}[${index}]`);
+  });
   if (new Set(ids).size !== ids.length) {
     throw new Error(`${path} contains a duplicate unit id`);
   }
@@ -175,12 +190,25 @@ function parseProvenance(
   value: unknown,
   path: string,
 ): readonly BenchmarkFixtureProvenance[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 2) {
+  if (
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    value.length === 0 ||
+    value.length > 2
+  ) {
     throw new Error(`${path} must contain the bounded corpus provenance`);
   }
   const seen = new Set<string>();
   return Object.freeze(
-    value.map((entry, index) => {
+    Array.from({ length: value.length }, (_, index) => {
+      const itemDescriptor = Object.getOwnPropertyDescriptor(
+        value,
+        String(index),
+      );
+      if (!itemDescriptor?.enumerable || !("value" in itemDescriptor)) {
+        throw new Error(`${path}[${index}] must be an enumerable data item`);
+      }
+      const entry = itemDescriptor.value;
       const entryPath = `${path}[${index}]`;
       if (!isRecord(entry)) throw new Error(`${entryPath} must be an object`);
       requireExactKeys(entry, PROVENANCE_KEYS, entryPath);
@@ -234,14 +262,23 @@ function parseRun(
   );
   if (
     !Array.isArray(value.cases) ||
+    Object.getPrototypeOf(value.cases) !== Array.prototype ||
     value.cases.length === 0 ||
     value.cases.length > SEMANTIC_BENCHMARK_LIMITS.maxCases
   ) {
     throw new Error(`${role}.cases must be non-empty and bounded`);
   }
   const seen = new Set<string>();
-  const cases = value.cases.map((entry, index) => {
+  const cases = Array.from({ length: value.cases.length }, (_, index) => {
     const path = `${role}.cases[${index}]`;
+    const itemDescriptor = Object.getOwnPropertyDescriptor(
+      value.cases,
+      String(index),
+    );
+    if (!itemDescriptor?.enumerable || !("value" in itemDescriptor)) {
+      throw new Error(`${path} must be an enumerable data item`);
+    }
+    const entry = itemDescriptor.value;
     if (!isRecord(entry)) throw new Error(`${path} must be an object`);
     requireExactKeys(entry, CASE_KEYS, path);
     const caseId = requireIdentifier(entry.caseId, `${path}.caseId`);
@@ -418,19 +455,33 @@ export function runSemanticBenchmark(
   candidateValues: readonly RetrievalBenchmarkRun[],
 ): SemanticBenchmarkResult {
   const lexical = parseRun(lexicalValue, "baseline");
-  if (!Array.isArray(candidateValues) || candidateValues.length > 2) {
-    throw new Error("Candidates must be a bounded array");
+  if (
+    !Array.isArray(candidateValues) ||
+    Object.getPrototypeOf(candidateValues) !== Array.prototype ||
+    candidateValues.length > 2
+  ) {
+    throw new Error("Candidates must be a bounded plain array");
   }
-  const candidates = candidateValues.map((value) => {
-    const candidate = parseRun(value, "candidate");
-    requireComparable(lexical, candidate);
-    const comparison = compareRetrievalRuns(lexical, candidate);
-    return Object.freeze({
-      ...metrics(candidate),
-      ...comparison,
-      thresholdMet: thresholdMet(comparison),
-    });
-  });
+  const candidates = Array.from(
+    { length: candidateValues.length },
+    (_, index) => {
+      const itemDescriptor = Object.getOwnPropertyDescriptor(
+        candidateValues,
+        String(index),
+      );
+      if (!itemDescriptor?.enumerable || !("value" in itemDescriptor)) {
+        throw new Error(`candidates[${index}] must be an enumerable data item`);
+      }
+      const candidate = parseRun(itemDescriptor.value, "candidate");
+      requireComparable(lexical, candidate);
+      const comparison = compareRetrievalRuns(lexical, candidate);
+      return Object.freeze({
+        ...metrics(candidate),
+        ...comparison,
+        thresholdMet: thresholdMet(comparison),
+      });
+    },
+  );
   if (
     new Set(candidates.map((item) => item.strategy)).size !== candidates.length
   ) {
