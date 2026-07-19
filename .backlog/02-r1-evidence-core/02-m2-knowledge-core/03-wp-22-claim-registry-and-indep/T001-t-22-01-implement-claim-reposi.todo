@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T08:16:23Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T09:39:23Z"
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P2.M2.E2.T004
+duration_minutes: 83.01604654405
 estimate_hours: 8
 id: P2.M2.E3.T001
 priority: critical
 started_at: "2026-07-19T08:16:23Z"
-status: in_progress
+status: done
 tags: []
 title: T-22-01 — Implement Claim repository and lifecycle
-updated_at: "2026-07-19T08:16:23Z"
+updated_at: "2026-07-19T09:39:23Z"
 ---
 Bundle provenance: WP-22 / T-22-01
 

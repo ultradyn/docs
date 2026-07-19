@@ -14,12 +14,12 @@ status: pending
 tasks:
     - complexity: high
       depends_on:
-        - P2.M2.E2.T003
+        - P2.M2.E2.T004
       estimate_hours: 8
       file: T001-t-22-01-implement-claim-reposi.todo
       id: T001
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-22-01 — Implement Claim repository and lifecycle
     - complexity: medium
