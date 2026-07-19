@@ -1,0 +1,85 @@
+{
+  "caseId": "deprecation",
+  "kind": "weak",
+  "packet": {
+    "schemaVersion": 1,
+    "id": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "version": 1,
+    "references": [
+      {
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "fileId": "file-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "role": "primary",
+        "facetIds": [
+          "facet-definition"
+        ]
+      },
+      {
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "fileId": "file-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAQ",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "role": "supporting",
+        "facetIds": [
+          "facet-constraint"
+        ]
+      }
+    ],
+    "receiptId": "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "receiptDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "limits": {
+      "maxReferences": 32,
+      "maxFacetsPerReference": 8
+    }
+  },
+  "requiredFacetIds": [
+    "facet-definition",
+    "facet-constraint"
+  ],
+  "proposal": {
+    "schemaVersion": 1,
+    "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "referenceClassifications": [
+      {
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "classification": "deprecated_for_scope",
+        "reason": "Justifies unit A classification."
+      },
+      {
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAQ",
+        "classification": "necessary_qualifying",
+        "reason": "Justifies unit Q classification."
+      }
+    ],
+    "facetStates": [
+      {
+        "facetId": "facet-definition",
+        "state": "not_applicable",
+        "reason": "Definition facet assessment.",
+        "sourceUnitIds": [
+          "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"
+        ]
+      },
+      {
+        "facetId": "facet-constraint",
+        "state": "satisfied",
+        "reason": "Constraint facet assessment.",
+        "sourceUnitIds": [
+          "unit-01ARZ3NDEKTSV4RRFFQ69G5FAQ"
+        ]
+      }
+    ],
+    "verdict": "conflicting_or_deprecated",
+    "refinement": null
+  },
+  "expected": {
+    "ok": true,
+    "verdict": "conflicting_or_deprecated"
+  }
+}
