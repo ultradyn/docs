@@ -39,7 +39,8 @@ tasks:
       file: T003-t-22-03-implement-claimreview.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: T-22-03 — Implement ClaimReview application
     - complexity: medium
       depends_on:
