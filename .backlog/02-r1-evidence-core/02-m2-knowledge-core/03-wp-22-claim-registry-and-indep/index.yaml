@@ -69,3 +69,11 @@ tasks:
       priority: medium
       status: pending
       title: Implement qualify decision in ClaimReview application
+    - complexity: low
+      depends_on: []
+      estimate_hours: 1
+      file: T007-close-in-memory-store-barrel-l.todo
+      id: T007
+      priority: medium
+      status: pending
+      title: Close in-memory store barrel leaks in knowledge package

@@ -1,0 +1,26 @@
+---
+complexity: low
+created_at: "2026-07-19T13:33:40Z"
+depends_on: []
+estimate_hours: 1
+id: P2.M2.E3.T007
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Close in-memory store barrel leaks in knowledge package
+updated_at: "2026-07-19T13:33:40Z"
+---
+Two testing-only in-memory stores are reachable from production barrels, against the discipline established in T-22-01 and re-affirmed in T-22-03:
+
+1. createInMemoryEvidenceVerdictStore — exported directly from code/ingest/knowledge/index.ts (line 23 at time of filing).
+2. createInMemoryQuestionLinkStore — leaks transitively because question-link-service.ts is re-exported with 'export *' rather than an explicit named list.
+
+Why it matters: production code must never import a testing fake. A fake on the public barrel is an invitation for a future task to wire it into a real path, where it silently degrades a durability or authority guarantee. Both are the same class we closed twice already.
+
+Acceptance:
+- Neither factory is reachable from code/ingest/knowledge/index.ts.
+- question-link-service.ts is re-exported via an explicit named list, not export *.
+- Tests import them by module path; barrel-guard test asserts both are undefined on the barrel.
+- Production imports unchanged; full pnpm check green.
