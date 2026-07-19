@@ -741,6 +741,10 @@ Do not freeze the exact final TypeScript shape ahead of the gates; these nouns a
 - [ ] **Pass:** targeted Vitest passes.
 - [ ] **Commit:** `git commit -m "feat(ingest): gate retrieval and model exposure"`.
 
+### Production activation gate T-13-04 (blocked; not an R0/R1 implementation slice)
+
+Backlog task `P2.M1.E4.T004` is the release-truth gate for selecting and wiring a production `PolicyApprovalAuthority`. The deterministic issuer/verifier fake used by T-13-01 through T-13-03 supports local R0/R1 tests only and cannot satisfy production activation. Future M4-M8 expansion and release automation must depend explicitly on T-13-04; completion of T-13-01, T-13-02, or T-13-03 must never be interpreted as production readiness. T-13-04 remains blocked pending a Max-approved trust-root ADR and owns production issuer/verifier wiring, rotation, revocation, expiry, recovery, unavailable-state UX, and activation evidence.
+
 ### Task T-13-03: Scan intake and proposed changes for secrets/PII
 
 **IDs:** Backlog `P2.M1.E4.T003`; bundle `T-13-03`
