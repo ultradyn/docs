@@ -154,7 +154,9 @@ describe("SearchReceiptSchema", () => {
 
   it("rejects malformed receipt id", () => {
     expect(
-      SearchReceiptSchema.safeParse(validReceipt({ id: "bad" })).success,
+      SearchReceiptSchema.safeParse(
+        validReceipt({ id: "bad" as SearchReceipt["id"] }),
+      ).success,
     ).toBe(false);
   });
 

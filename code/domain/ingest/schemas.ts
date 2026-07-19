@@ -112,9 +112,7 @@ export const SourceRepresentationSchema = z
     }
   });
 
-export const SearchReceiptSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
+export { SearchReceiptSchema } from "./search-receipt.js";
 export const EvidencePacketSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();

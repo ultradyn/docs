@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
@@ -11,7 +10,6 @@ import type {
   SourceRepresentation,
   SourceRepresentationId,
   SourceUnit,
-  SourceUnitId,
 } from "../../domain/ingest/index.js";
 import {
   SearchReceiptSchema,
@@ -265,19 +263,20 @@ describe("createLexicalIndex build validation", () => {
 
   it("rejects mixed representation versions for one source file", async () => {
     const primary = guide();
-    const second = markdownFile(
-      "docs/guide.md",
-      "a",
-      "repr-01ARZ3NDEKTSV4RRFFQ69G5FCX",
-      GUIDE_TEXT,
-      2,
-    );
-    // Same file id (seed "a"), two representation versions.
+    // Construction note: unitizer unit ids are content-deterministic, so two
+    // full unitizations of the same text collide as DUPLICATE_UNIT. Pin the
+    // mixed-version rule with one unit set and two representation records that
+    // share a sourceFileId (second is unreferenced context).
+    const secondRepresentation: SourceRepresentation = {
+      ...primary.representations[0]!,
+      id: "repr-01ARZ3NDEKTSV4RRFFQ69G5FCX" as SourceRepresentationId,
+      version: 2,
+    };
     const index = createLexicalIndex();
     const result = await index.build(SNAPSHOT_ID, {
-      units: [...primary.units, ...second.units],
+      units: primary.units,
       files: primary.files,
-      representations: [...primary.representations, ...second.representations],
+      representations: [...primary.representations, secondRepresentation],
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -669,21 +668,26 @@ describe("immutability, purity, and no knowledge persistence", () => {
   });
 
   it("does not mutate caller input after build", async () => {
-    const corpus = guide();
-    const snapshot = structuredClone(corpus);
+    // Unitizer may freeze its returned arrays; use mutable shells so the
+    // post-build mutation probes copy-on-ingest rather than frozen fixtures.
+    const base = guide();
+    const corpus: Corpus = {
+      units: [...base.units],
+      files: [...base.files],
+      representations: [...base.representations],
+    };
+    const unitCount = corpus.units.length;
     const index = createLexicalIndex();
     const result = await index.build(SNAPSHOT_ID, corpus);
     expect(result.ok).toBe(true);
     (corpus.units as SourceUnit[]).pop();
-    expect(isDeepStrictEqual(snapshot.units, guide().units)).toBe(true);
-    // Build must have copied; search still works against original corpus size.
+    expect(corpus.units.length).toBe(unitCount - 1);
+    // Build must have copied; search still works against the pre-mutation corpus.
     const response = await searchOk(index, {
       query: "Deterministic",
       limit: 5,
     });
-    expect(
-      response.receipt.candidateIds.length + response.selectedIds.length,
-    ).toBeGreaterThanOrEqual(0);
+    expect(response.selectedIds.length).toBeGreaterThan(0);
   });
 
   it("receipt and response carry no source body text", async () => {
