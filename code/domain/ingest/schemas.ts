@@ -146,6 +146,10 @@ export {
   QualifierEdgeSchema,
   PackCitationSchema,
 } from "./sealed-claim-pack.js";
-export const AnswerCompositionSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
+// T-60-02: full AnswerComposition schema lives in answer-composition.ts.
+export {
+  AnswerCompositionSchema,
+  AnswerCompositionStateSchema,
+  SentenceClaimBindingSchema,
+  GoalCoverageSchema,
+} from "./answer-composition.js";
