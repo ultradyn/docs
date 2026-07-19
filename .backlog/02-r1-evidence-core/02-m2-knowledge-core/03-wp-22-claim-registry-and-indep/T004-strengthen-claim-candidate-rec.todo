@@ -1,0 +1,28 @@
+---
+complexity: medium
+created_at: "2026-07-19T12:49:31Z"
+depends_on:
+    - P2.M2.E3.T002
+estimate_hours: 3
+id: P2.M2.E3.T004
+priority: medium
+status: pending
+tags:
+    - claim
+    - retrieval
+    - metrics
+title: Strengthen claim-candidate recall corpus and metric
+updated_at: "2026-07-19T12:49:31Z"
+---
+Follow-up from T-22-02 independent review (River, Tier B PASS, Important finding #1).
+
+T-22-02 satisfies its acceptance criterion 'candidate generation recall is measurable': the labeled denominator is pinned and asserted non-zero (LABELED_PAIRS length = 5) with an absolute floor CLAIM_CANDIDATE_RECALL_FLOOR = 0.8. That is honest but statistically thin — n=5 supports a smoke-level regression guard, not a product-level claim about recall.
+
+Scope:
+- Expand the labeled claim-pair fixture to a corpus large and diverse enough to make the recall number meaningful (cover each relation: equivalent, variant, broader, narrower, contradiction; include near-miss negatives that must NOT be surfaced).
+- Keep the denominator pinned and asserted non-zero (never a vacuous 1.0 over an empty label set).
+- Consider hash-pinned fixture provenance following code/integration/ingest-semantic-benchmark.ts (BenchmarkFixtureProvenance) so the labels cannot drift silently.
+- Decide whether the metric belongs in IngestMetrics (see r0-r1-implementation-plan.md L332, alongside falseMergeRate / contradictionRecall) and whether to also report relation-accuracy as a secondary non-gating number.
+- Re-tune the floor once the corpus is representative.
+
+Non-goals: changing the candidate algorithm, the scope/type gating (AC1), or the evidence-not-decisive property (AC2) — those are settled and independently reviewed in T-22-02.

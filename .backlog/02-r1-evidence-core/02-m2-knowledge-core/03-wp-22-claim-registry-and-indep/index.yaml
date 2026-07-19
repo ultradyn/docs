@@ -41,3 +41,12 @@ tasks:
       priority: critical
       status: pending
       title: T-22-03 — Implement ClaimReview application
+    - complexity: medium
+      depends_on:
+        - P2.M2.E3.T002
+      estimate_hours: 3
+      file: T004-strengthen-claim-candidate-rec.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Strengthen claim-candidate recall corpus and metric
