@@ -53,8 +53,14 @@ interface CapabilityResolution {
 function finding(
   code: RepresentationAuditFinding["code"],
   message: string,
+  locatorIndex?: number,
 ): RepresentationAuditFinding {
-  return { code, severity: "error", message };
+  return {
+    code,
+    severity: "error",
+    message,
+    ...(locatorIndex === undefined ? {} : { locatorIndex }),
+  };
 }
 
 function resolveCapability(
@@ -130,6 +136,407 @@ function resolveCapability(
   };
 }
 
+interface NormalizedBoundary {
+  readonly line: number;
+  readonly column: number;
+}
+
+interface NormalizedLineRange {
+  readonly start: number;
+  readonly end: number;
+  readonly line: number;
+}
+
+function normalizedBoundaries(text: string): readonly NormalizedBoundary[] {
+  const boundaries = new Array<NormalizedBoundary>(text.length + 1);
+  let line = 1;
+  let column = 1;
+  for (let offset = 0; offset <= text.length; offset += 1) {
+    boundaries[offset] = { line, column };
+    if (offset === text.length) break;
+    if (text[offset] === "\n") {
+      line += 1;
+      column = 1;
+    } else {
+      column += 1;
+    }
+  }
+  return boundaries;
+}
+
+function normalizedLineRanges(text: string): readonly NormalizedLineRange[] {
+  if (text.length === 0) return [];
+  const ranges: NormalizedLineRange[] = [];
+  let start = 0;
+  let line = 1;
+  for (let offset = 0; offset < text.length; offset += 1) {
+    if (text[offset] !== "\n") continue;
+    ranges.push({ start, end: offset, line });
+    start = offset + 1;
+    line += 1;
+  }
+  if (start < text.length) ranges.push({ start, end: text.length, line });
+  return ranges;
+}
+
+function validOriginalPosition(
+  locator: SourceRepresentation["locatorMap"][number],
+): boolean {
+  const values = [
+    locator.original.byteStart,
+    locator.original.byteEnd,
+    locator.original.lineStart,
+    locator.original.columnStart,
+    locator.original.lineEnd,
+    locator.original.columnEnd,
+  ];
+  if (!values.every(Number.isSafeInteger)) return false;
+  if (locator.original.byteStart > locator.original.byteEnd) return false;
+  if (locator.original.lineStart > locator.original.lineEnd) return false;
+  return !(
+    locator.original.lineStart === locator.original.lineEnd &&
+    locator.original.columnStart > locator.original.columnEnd
+  );
+}
+
+function auditLineMapping(
+  representation: SourceRepresentation,
+): RepresentationAuditFinding[] {
+  const findings: RepresentationAuditFinding[] = [];
+  const boundaries = normalizedBoundaries(representation.normalizedText);
+  const expectedLines = normalizedLineRanges(representation.normalizedText);
+  const locators = representation.locatorMap;
+
+  if (representation.normalizedText.length > 0 && locators.length === 0) {
+    findings.push(
+      finding("LOCATOR_MISSING", "Non-empty representation has no locators."),
+    );
+  }
+
+  let previousNormalizedStart = -1;
+  let previousNormalizedEnd = -1;
+  let previousOriginalStart = -1;
+  let previousOriginalEnd = -1;
+  for (const [index, locator] of locators.entries()) {
+    if (locator.kind !== "line" || locator.cell !== undefined) {
+      findings.push(
+        finding(
+          "LOCATOR_KIND_MISMATCH",
+          "Non-CSV representation requires line locators without cell metadata.",
+          index,
+        ),
+      );
+    }
+
+    const start = locator.normalized.utf16Start;
+    const end = locator.normalized.utf16End;
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start > end
+    ) {
+      findings.push(
+        finding(
+          "LOCATOR_INTERVAL_INVALID",
+          "Normalized locator interval is invalid.",
+          index,
+        ),
+      );
+    } else if (start < 0 || end > representation.normalizedText.length) {
+      findings.push(
+        finding(
+          "LOCATOR_OUT_OF_BOUNDS",
+          "Normalized locator is outside the representation text.",
+          index,
+        ),
+      );
+    } else {
+      const startPosition = boundaries[start]!;
+      const endPosition = boundaries[end]!;
+      if (
+        locator.normalized.lineStart !== startPosition.line ||
+        locator.normalized.columnStart !== startPosition.column ||
+        locator.normalized.lineEnd !== endPosition.line ||
+        locator.normalized.columnEnd !== endPosition.column
+      ) {
+        findings.push(
+          finding(
+            "LOCATOR_POSITION_MISMATCH",
+            "Normalized locator line or column does not match its offsets.",
+            index,
+          ),
+        );
+      }
+    }
+
+    if (start < previousNormalizedStart) {
+      findings.push(
+        finding(
+          "LOCATOR_ORDER_INVALID",
+          "Normalized locators are not in source order.",
+          index,
+        ),
+      );
+    } else if (start < previousNormalizedEnd) {
+      findings.push(
+        finding("LOCATOR_OVERLAP", "Normalized locators overlap.", index),
+      );
+    }
+    previousNormalizedStart = start;
+    previousNormalizedEnd = Math.max(previousNormalizedEnd, end);
+
+    if (!validOriginalPosition(locator)) {
+      findings.push(
+        finding(
+          "ORIGINAL_POSITION_INVALID",
+          "Original locator coordinates are invalid.",
+          index,
+        ),
+      );
+    }
+    if (locator.original.byteStart < previousOriginalStart) {
+      findings.push(
+        finding(
+          "LOCATOR_ORDER_INVALID",
+          "Original locators are not in source order.",
+          index,
+        ),
+      );
+    } else if (locator.original.byteStart < previousOriginalEnd) {
+      findings.push(
+        finding("LOCATOR_OVERLAP", "Original locators overlap.", index),
+      );
+    }
+    previousOriginalStart = locator.original.byteStart;
+    previousOriginalEnd = Math.max(
+      previousOriginalEnd,
+      locator.original.byteEnd,
+    );
+  }
+
+  if (locators.length !== expectedLines.length) {
+    findings.push(
+      finding(
+        "MAPPING_COVERAGE_GAP",
+        "Line locator count does not cover normalized text.",
+      ),
+    );
+  }
+  const comparable = Math.min(locators.length, expectedLines.length);
+  for (let index = 0; index < comparable; index += 1) {
+    const locator = locators[index]!;
+    const expected = expectedLines[index]!;
+    if (
+      locator.normalized.utf16Start !== expected.start ||
+      locator.normalized.utf16End !== expected.end ||
+      locator.normalized.lineStart !== expected.line ||
+      locator.normalized.lineEnd !== expected.line
+    ) {
+      findings.push(
+        finding(
+          "MAPPING_COVERAGE_GAP",
+          "Line locator does not cover the expected normalized line.",
+          index,
+        ),
+      );
+    }
+  }
+  return findings;
+}
+
+interface ExpectedCsvCell {
+  readonly row: number;
+  readonly column: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+function expectedCsvCells(text: string): readonly ExpectedCsvCell[] {
+  if (text.length === 0) return [];
+  const cells: ExpectedCsvCell[] = [];
+  let row = 1;
+  let column = 1;
+  let start = 0;
+  let quoted = false;
+
+  const push = (end: number): void => {
+    cells.push({ row, column, start, end });
+  };
+
+  for (let offset = 0; offset < text.length; offset += 1) {
+    const character = text[offset]!;
+    if (quoted) {
+      if (character !== '"') continue;
+      if (text[offset + 1] === '"') {
+        offset += 1;
+        continue;
+      }
+      quoted = false;
+      continue;
+    }
+    if (offset === start && character === '"') {
+      quoted = true;
+      continue;
+    }
+    if (character !== "," && character !== "\n") continue;
+    push(offset);
+    if (character === ",") {
+      column += 1;
+    } else {
+      row += 1;
+      column = 1;
+    }
+    start = offset + 1;
+  }
+  if (start < text.length) push(text.length);
+  return cells;
+}
+
+function auditCsvMapping(
+  representation: SourceRepresentation,
+): RepresentationAuditFinding[] {
+  const findings: RepresentationAuditFinding[] = [];
+  const boundaries = normalizedBoundaries(representation.normalizedText);
+  const expected = expectedCsvCells(representation.normalizedText);
+  const locators = representation.locatorMap;
+  let previousNormalizedStart = -1;
+  let previousNormalizedEnd = -1;
+  let previousOriginalStart = -1;
+  let previousOriginalEnd = -1;
+
+  for (const [index, locator] of locators.entries()) {
+    if (locator.kind !== "cell" || locator.cell === undefined) {
+      findings.push(
+        finding(
+          "LOCATOR_KIND_MISMATCH",
+          "CSV representation requires cell locators with cell metadata.",
+          index,
+        ),
+      );
+    }
+    const start = locator.normalized.utf16Start;
+    const end = locator.normalized.utf16End;
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start > end
+    ) {
+      findings.push(
+        finding(
+          "LOCATOR_INTERVAL_INVALID",
+          "Normalized CSV locator interval is invalid.",
+          index,
+        ),
+      );
+    } else if (start < 0 || end > representation.normalizedText.length) {
+      findings.push(
+        finding(
+          "LOCATOR_OUT_OF_BOUNDS",
+          "Normalized CSV locator is outside the representation text.",
+          index,
+        ),
+      );
+    } else {
+      const startPosition = boundaries[start]!;
+      const endPosition = boundaries[end]!;
+      if (
+        locator.normalized.lineStart !== startPosition.line ||
+        locator.normalized.columnStart !== startPosition.column ||
+        locator.normalized.lineEnd !== endPosition.line ||
+        locator.normalized.columnEnd !== endPosition.column
+      ) {
+        findings.push(
+          finding(
+            "LOCATOR_POSITION_MISMATCH",
+            "Normalized CSV locator line or column does not match its offsets.",
+            index,
+          ),
+        );
+      }
+    }
+
+    if (start < previousNormalizedStart) {
+      findings.push(
+        finding(
+          "LOCATOR_ORDER_INVALID",
+          "CSV locators are not in normalized source order.",
+          index,
+        ),
+      );
+    } else if (start < previousNormalizedEnd) {
+      findings.push(
+        finding("LOCATOR_OVERLAP", "Normalized CSV locators overlap.", index),
+      );
+    }
+    previousNormalizedStart = start;
+    previousNormalizedEnd = Math.max(previousNormalizedEnd, end);
+
+    if (!validOriginalPosition(locator)) {
+      findings.push(
+        finding(
+          "ORIGINAL_POSITION_INVALID",
+          "Original CSV locator coordinates are invalid.",
+          index,
+        ),
+      );
+    }
+    if (locator.original.byteStart < previousOriginalStart) {
+      findings.push(
+        finding(
+          "LOCATOR_ORDER_INVALID",
+          "CSV locators are not in original source order.",
+          index,
+        ),
+      );
+    } else if (locator.original.byteStart < previousOriginalEnd) {
+      findings.push(
+        finding("LOCATOR_OVERLAP", "Original CSV locators overlap.", index),
+      );
+    }
+    previousOriginalStart = locator.original.byteStart;
+    previousOriginalEnd = Math.max(
+      previousOriginalEnd,
+      locator.original.byteEnd,
+    );
+
+    const expectedCell = expected[index];
+    if (
+      !expectedCell ||
+      locator.cell?.row !== expectedCell.row ||
+      locator.cell.column !== expectedCell.column
+    ) {
+      findings.push({
+        code: "CSV_CELL_ORDER_INVALID",
+        severity: "error",
+        message: "CSV cell identity is not in contiguous row-major order.",
+        locatorIndex: index,
+        ...(locator.cell === undefined ? {} : { cell: locator.cell }),
+      });
+    }
+    if (
+      expectedCell &&
+      (start !== expectedCell.start || end !== expectedCell.end)
+    ) {
+      findings.push(
+        finding(
+          "MAPPING_COVERAGE_GAP",
+          "CSV cell locator does not cover the expected serialized cell.",
+          index,
+        ),
+      );
+    }
+  }
+  if (locators.length !== expected.length) {
+    findings.push(
+      finding(
+        "MAPPING_COVERAGE_GAP",
+        "CSV locator count does not cover every serialized cell.",
+      ),
+    );
+  }
+  return findings;
+}
+
 function stableFindings(
   values: readonly RepresentationAuditFinding[],
 ): RepresentationAuditFinding[] {
@@ -176,7 +583,11 @@ export function auditRepresentation(
   }
   const representation = parsedRepresentation.data as SourceRepresentation;
   const resolution = resolveCapability(representation, capabilityInput);
-  const findings = stableFindings(resolution.findings);
+  const mappingFindings =
+    representation.kind === "csv"
+      ? auditCsvMapping(representation)
+      : auditLineMapping(representation);
+  const findings = stableFindings([...resolution.findings, ...mappingFindings]);
   const errors = findings.filter((value) => value.severity === "error");
   const structuralPass = !errors.some((value) =>
     [
