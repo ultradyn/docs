@@ -613,15 +613,27 @@ describe("audio session public seam", () => {
         console.error(error instanceof Error ? error.message : String(error));
       }
     `;
-    const startedAt = Date.now();
-
+    /**
+     * B002: the guarantee under test is that appendChunk REFUSES a FIFO instead
+     * of blocking forever in open(). execFile's timeout + SIGKILL already proves
+     * that: a blocking open() is killed, execFile rejects, and this test fails.
+     *
+     * The previous formulation also asserted a 2000ms wall-clock bound measured
+     * around the spawn. That measured process startup plus an in-process
+     * TypeScript transform, not open() behaviour, so it failed under concurrent
+     * test load (observed at 2069ms and 2132ms) while the code was correct.
+     * A test that fails for reasons unrelated to its subject teaches people to
+     * re-run the suite, which is how real failures start getting ignored.
+     *
+     * The timeout is set well above load noise but below vitest's per-test
+     * timeout, so a genuine hang still fails here rather than stalling the run.
+     */
     const result = await execFile(
       process.execPath,
       ["--import", "tsx", "--input-type=module", "-e", childProgram],
-      { timeout: 2_000, killSignal: "SIGKILL" },
+      { timeout: 10_000, killSignal: "SIGKILL" },
     );
 
-    expect(Date.now() - startedAt).toBeLessThan(2_000);
     expect(result.stderr).toMatch(/regular file/i);
     expect(result.stderr).not.toContain("unexpected FIFO acknowledgement");
   });
