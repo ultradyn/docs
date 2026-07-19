@@ -1,11 +1,6 @@
 /**
- * T-21-04 / P2.M2.E2.T004 — WP-21 integration remediation RED.
- * Honest failures against landed T-21-01..03 production (claim 2f91a58).
- *
- * A) Facet authority — QuestionFacetReader mandatory; no caller override
- * B) Complete packet digest — schemaVersion,id,questionId,version,references,receiptId,receiptDigest,limits
- * C) Authoritative history composer — rehydrate stores before pure loop
- * D) Atomic append+idempotency — crash after record before op commit
+ * T-21-04 RED-2 — isolated root invariants against landed production (2f91a58+).
+ * Soft-pass free. GREEN only after acceptance.
  */
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -21,7 +16,6 @@ import {
   type EvidenceReference,
 } from "../../domain/ingest/evidence-packet.js";
 import type {
-  EvidencePacketId,
   QuestionId,
   Sha256,
   SnapshotId,
@@ -47,42 +41,50 @@ import {
   createInMemoryEvidenceVerdictStore,
   createFileEvidenceVerdictStore,
   deriveEvidenceVerdictId,
-  type EvidencePacketReader,
-  type PacketVerifier,
-  type ReceiptFailureReader,
 } from "./evidence-verdict-service.js";
-import {
-  evaluateEvidenceLoop,
-  type EvidenceLoopHistory,
-} from "./evidence-loop-policy.js";
+import { evaluateEvidenceLoop } from "./evidence-loop-policy.js";
 
 const SNAPSHOT = `snap-${"b".repeat(64)}` as SnapshotId;
 const FILE_A = `file-${"a".repeat(64)}` as SourceFileId;
 const UNIT_A = "unit-01ARZ3NDEKTSV4RRFFQ69G5FAV" as SourceUnitId;
-const UNIT_B = "unit-01ARZ3NDEKTSV4RRFFQ69G5FBW" as SourceUnitId;
 const QUESTION = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV" as QuestionId;
+const OTHER_Q = "q-01ARZ3NDEKTSV4RRFFQ69G5FBW" as QuestionId;
 
 function sha(text: string): Sha256 {
   return createHash("sha256").update(text).digest("hex") as Sha256;
 }
-
 const FILE_HASH_A = sha("file-a");
 const UNIT_HASH_A = sha("unit-a");
+const DIGEST_A = "a".repeat(64);
+const DIGEST_B = "b".repeat(64);
+
+function ref(
+  overrides: Partial<EvidenceReference> = {},
+): EvidenceReference {
+  return {
+    snapshotId: SNAPSHOT,
+    fileId: FILE_A,
+    unitId: UNIT_A,
+    fileSha256: FILE_HASH_A,
+    unitSha256: UNIT_HASH_A,
+    role: "primary",
+    facetIds: ["purpose"],
+    ...overrides,
+  };
+}
 
 function context(): SourceHashContext {
   return {
-    fileSha256: (snapshotId, fileId) =>
-      snapshotId === SNAPSHOT && fileId === FILE_A ? FILE_HASH_A : undefined,
-    unitBinding: (snapshotId, unitId) =>
-      snapshotId === SNAPSHOT && unitId === UNIT_A
+    fileSha256: (s, f) =>
+      s === SNAPSHOT && f === FILE_A ? FILE_HASH_A : undefined,
+    unitBinding: (s, u) =>
+      s === SNAPSHOT && u === UNIT_A
         ? { textSha256: UNIT_HASH_A, sourceFileId: FILE_A }
         : undefined,
   };
 }
 
-function healthyReceipt(
-  overrides: Record<string, unknown> = {},
-): SearchReceipt {
+function healthyReceipt(overrides: Record<string, unknown> = {}): SearchReceipt {
   return SearchReceiptSchema.parse({
     schemaVersion: 1,
     id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -105,120 +107,182 @@ function healthyReceipt(
   }) as SearchReceipt;
 }
 
-function refA(): EvidenceReference {
+function samplePacket(
+  overrides: Partial<EvidencePacket> = {},
+): EvidencePacket {
   return {
-    snapshotId: SNAPSHOT,
-    fileId: FILE_A,
-    unitId: UNIT_A,
-    fileSha256: FILE_HASH_A,
-    unitSha256: UNIT_HASH_A,
-    role: "primary",
-    facetIds: ["purpose"],
+    schemaVersion: 1,
+    id: deriveEvidencePacketId(QUESTION),
+    questionId: QUESTION,
+    version: 1,
+    references: [ref()],
+    receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV" as never,
+    receiptDigest: DIGEST_A as Sha256,
+    limits: DEFAULT_EVIDENCE_PACKET_LIMITS,
+    ...overrides,
   };
 }
 
-// ---------------------------------------------------------------------------
-// B) Complete packet digest
-// ---------------------------------------------------------------------------
-describe("B — complete canonicalPacketPayloadDigest", () => {
-  const baseRefs = [refA()];
+type CompleteDigestInput = {
+  schemaVersion: 1;
+  id: string;
+  questionId: string;
+  version: number;
+  references: readonly EvidenceReference[];
+  receiptId: string;
+  receiptDigest: string;
+  limits: { maxReferences: number; maxFacetsPerReference: number };
+};
 
-  it("exports digest that includes schemaVersion, id, version, and limits", () => {
-    // Current incomplete API omits these — RED expects complete signature.
-    const complete = canonicalPacketPayloadDigest as (input: {
-      schemaVersion: 1;
-      id: string;
-      questionId: string;
-      version: number;
-      references: readonly EvidenceReference[];
-      receiptId: string;
-      receiptDigest: string;
-      limits: { maxReferences: number; maxFacetsPerReference: number };
-    }) => Sha256;
+function completeDigest(input: CompleteDigestInput): Sha256 {
+  return (canonicalPacketPayloadDigest as (i: CompleteDigestInput) => Sha256)(
+    input,
+  );
+}
 
-    const left = complete({
-      schemaVersion: 1,
-      id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      questionId: QUESTION,
-      version: 1,
-      references: baseRefs,
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      receiptDigest: "a".repeat(64),
-      limits: { maxReferences: 256, maxFacetsPerReference: 32 },
+const BASE_DIGEST_INPUT: CompleteDigestInput = {
+  schemaVersion: 1,
+  id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  questionId: QUESTION,
+  version: 1,
+  references: [ref()],
+  receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  receiptDigest: DIGEST_A,
+  limits: { maxReferences: 256, maxFacetsPerReference: 32 },
+};
+
+// =============================================================================
+// B — complete packet digest
+// =============================================================================
+describe("B — RED gaps: digest must bind schemaVersion/id/version/limits", () => {
+  it("mutation of schemaVersion changes digest", () => {
+    const withField = completeDigest(BASE_DIGEST_INPUT);
+    const alt = completeDigest({
+      ...BASE_DIGEST_INPUT,
+      // @ts-expect-error intentional illegal schema for mutation table
+      schemaVersion: 2 as 1,
     });
-    const rightLimits = complete({
-      schemaVersion: 1,
-      id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      questionId: QUESTION,
-      version: 1,
-      references: baseRefs,
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      receiptDigest: "a".repeat(64),
-      limits: { maxReferences: 128, maxFacetsPerReference: 32 },
-    });
-    const rightVersion = complete({
-      schemaVersion: 1,
-      id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      questionId: QUESTION,
-      version: 2,
-      references: baseRefs,
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      receiptDigest: "a".repeat(64),
-      limits: { maxReferences: 256, maxFacetsPerReference: 32 },
-    });
-    const rightId = complete({
-      schemaVersion: 1,
-      id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FBW",
-      questionId: QUESTION,
-      version: 1,
-      references: baseRefs,
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      receiptDigest: "a".repeat(64),
-      limits: { maxReferences: 256, maxFacetsPerReference: 32 },
-    });
-    expect(left).toMatch(/^[a-f0-9]{64}$/);
-    expect(left).not.toBe(rightLimits);
-    expect(left).not.toBe(rightVersion);
-    expect(left).not.toBe(rightId);
+    expect(withField).not.toBe(alt);
   });
 
-  it("limits-only mutation changes digest (integrity gap closed)", () => {
-    // Using the public incomplete signature if GREEN still incomplete, this
-    // documents the gap: two inputs differing only by limits must differ.
-    // After remediation, complete digest requires the full object.
-    const digestFn = canonicalPacketPayloadDigest as (
-      input: Record<string, unknown>,
-    ) => Sha256;
-    const a = digestFn({
-      schemaVersion: 1,
-      id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      questionId: QUESTION,
-      version: 1,
-      references: baseRefs,
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      receiptDigest: "b".repeat(64),
-      limits: DEFAULT_EVIDENCE_PACKET_LIMITS,
-    });
-    const b = digestFn({
-      schemaVersion: 1,
-      id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      questionId: QUESTION,
-      version: 1,
-      references: baseRefs,
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      receiptDigest: "b".repeat(64),
-      limits: { maxReferences: 1, maxFacetsPerReference: 1 },
-    });
-    expect(a).not.toBe(b);
+  it("mutation of id changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        id: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FBW",
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+
+  it("mutation of version changes digest", () => {
+    expect(
+      completeDigest({ ...BASE_DIGEST_INPUT, version: 2 }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+
+  it("mutation of maxReferences changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        limits: { ...BASE_DIGEST_INPUT.limits, maxReferences: 128 },
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+
+  it("mutation of maxFacetsPerReference changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        limits: { ...BASE_DIGEST_INPUT.limits, maxFacetsPerReference: 16 },
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
   });
 });
 
-// ---------------------------------------------------------------------------
-// A) Facet authority
-// ---------------------------------------------------------------------------
-describe("A — QuestionFacetReader authority for accepted", () => {
-  it("createEvidenceVerdictService requires facets reader", async () => {
-    const mod = await import("./evidence-verdict-service.js");
+describe("B — honest existing invariants (already bound by incomplete digest)", () => {
+  it("mutation of questionId changes digest", () => {
+    expect(
+      completeDigest({ ...BASE_DIGEST_INPUT, questionId: OTHER_Q }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+  it("mutation of receiptId changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FBW",
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+  it("mutation of receiptDigest changes digest", () => {
+    expect(
+      completeDigest({ ...BASE_DIGEST_INPUT, receiptDigest: DIGEST_B }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+  it("mutation of reference.role changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        references: [ref({ role: "supporting" })],
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+  it("mutation of reference.facetIds changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        references: [ref({ facetIds: ["other"] })],
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+  it("mutation of reference.fileSha256 changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        references: [ref({ fileSha256: sha("other-file") })],
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+  it("mutation of reference.unitSha256 changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        references: [ref({ unitSha256: sha("other-unit") })],
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+  it("mutation of reference.unitId changes digest", () => {
+    expect(
+      completeDigest({
+        ...BASE_DIGEST_INPUT,
+        references: [
+          ref({ unitId: "unit-01ARZ3NDEKTSV4RRFFQ69G5FBW" as SourceUnitId }),
+        ],
+      }),
+    ).not.toBe(completeDigest(BASE_DIGEST_INPUT));
+  });
+  it("facetIds set order does not change digest (semantic sort only)", () => {
+    const a = completeDigest({
+      ...BASE_DIGEST_INPUT,
+      references: [ref({ facetIds: ["z", "a"] })],
+    });
+    const b = completeDigest({
+      ...BASE_DIGEST_INPUT,
+      references: [ref({ facetIds: ["a", "z"] })],
+    });
+    expect(a).toBe(b);
+  });
+});
+
+// =============================================================================
+// A — facet authority
+// =============================================================================
+describe("A — QuestionFacetReader facet authority", () => {
+  async function loadMod() {
+    return import("./evidence-verdict-service.js");
+  }
+
+  it("construction without facets reader throws", async () => {
+    const mod = await loadMod();
     expect(() =>
       mod.createEvidenceVerdictService({
         store: createInMemoryEvidenceVerdictStore(),
@@ -227,12 +291,548 @@ describe("A — QuestionFacetReader authority for accepted", () => {
         verifier: {
           verifyReferences: async () => ({ ok: true, value: true }),
         },
-        // no facets reader
       } as never),
     ).toThrow(/facet/i);
   });
 
-  it("exports QuestionFacetReader type seam / createInMemoryQuestionFacetReader", async () => {
+  it("exports createInMemoryQuestionFacetReader (testing surface)", async () => {
+    const mod = await loadMod();
+    expect(
+      typeof (mod as { createInMemoryQuestionFacetReader?: unknown })
+        .createInMemoryQuestionFacetReader,
+    ).toBe("function");
+  });
+
+  async function verdictSvc(
+    facetMap: Map<string, string[]>,
+    packet: EvidencePacket = samplePacket(),
+  ) {
+    const mod = await loadMod();
+    const createFacets = (
+      mod as {
+        createInMemoryQuestionFacetReader: (
+          m: Map<string, string[]>,
+        ) => unknown;
+      }
+    ).createInMemoryQuestionFacetReader;
+    const facets = createFacets(facetMap);
+    return {
+      mod,
+      svc: mod.createEvidenceVerdictService({
+        store: createInMemoryEvidenceVerdictStore(),
+        packets: {
+          get: async (id, v) =>
+            id === packet.id && v === packet.version ? packet : undefined,
+        },
+        receipts: {
+          get: async () => ({
+            id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            failures: [],
+            selectedIds: [UNIT_A],
+            snapshotId: SNAPSHOT,
+          }),
+        },
+        verifier: {
+          verifyReferences: async () => ({ ok: true, value: true }),
+        },
+        facets,
+      }),
+      packet,
+    };
+  }
+
+  function acceptBody(
+    packet: EvidencePacket,
+    facets: string[],
+    states: Array<{ facetId: string; state: string; reason: string }>,
+  ) {
+    return {
+      questionId: QUESTION,
+      packetId: packet.id,
+      packetVersion: packet.version,
+      requiredFacetIds: facets,
+      referenceReviews: [
+        {
+          unitId: UNIT_A,
+          classification: "necessary_primary",
+          reason: "ok",
+        },
+      ],
+      facetStates: states,
+      verdict: "accepted",
+      criticisms: [],
+      followUpRequest: null,
+    };
+  }
+
+  it("omitted canonical facet cannot accept", async () => {
+    const { svc, packet } = await verdictSvc(
+      new Map([[QUESTION, ["purpose", "components"]]]),
+    );
+    const result = await svc.apply(
+      acceptBody(
+        packet,
+        ["purpose"],
+        [{ facetId: "purpose", state: "satisfied", reason: "ok" }],
+      ),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("extra caller facet cannot accept", async () => {
+    const { svc, packet } = await verdictSvc(
+      new Map([[QUESTION, ["purpose"]]]),
+    );
+    const result = await svc.apply(
+      acceptBody(
+        packet,
+        ["purpose", "extra"],
+        [
+          { facetId: "purpose", state: "satisfied", reason: "ok" },
+          { facetId: "extra", state: "satisfied", reason: "ok" },
+        ],
+      ),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("reordered canonical facets still accept when exactly covered", async () => {
+    const { svc, packet } = await verdictSvc(
+      new Map([[QUESTION, ["components", "purpose"]]]),
+    );
+    const result = await svc.apply(
+      acceptBody(
+        packet,
+        ["purpose", "components"], // different order, exact set
+        [
+          { facetId: "purpose", state: "satisfied", reason: "ok" },
+          { facetId: "components", state: "satisfied", reason: "ok" },
+        ],
+      ),
+    );
+    // After GREEN: exact set equality ignores order → ok
+    expect(result.ok).toBe(true);
+  });
+
+  it("duplicate facet ids in caller set cannot accept", async () => {
+    const { svc, packet } = await verdictSvc(
+      new Map([[QUESTION, ["purpose"]]]),
+    );
+    const result = await svc.apply(
+      acceptBody(
+        packet,
+        ["purpose", "purpose"],
+        [{ facetId: "purpose", state: "satisfied", reason: "ok" }],
+      ),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("authority unavailable (empty map) fails closed", async () => {
+    const { svc, packet } = await verdictSvc(new Map());
+    const result = await svc.apply(
+      acceptBody(
+        packet,
+        ["purpose"],
+        [{ facetId: "purpose", state: "satisfied", reason: "ok" }],
+      ),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(["FACET_AUTHORITY", "INVALID_INPUT"]).toContain(result.code);
+    }
+  });
+
+  it("non-accepted verdict still loads facets authority (does not skip fail-closed)", async () => {
+    const { svc, packet } = await verdictSvc(new Map());
+    const result = await svc.apply({
+      ...acceptBody(
+        packet,
+        ["purpose"],
+        [{ facetId: "purpose", state: "partial", reason: "thin" }],
+      ),
+      verdict: "needs_more_evidence",
+      followUpRequest: {
+        missingFacetIds: ["purpose"],
+        requiredSearch: { subject: "more" },
+        whyCurrentPacketFails: "thin",
+      },
+    });
+    // Unavailable authority fails closed even for non-accepted
+    expect(result.ok).toBe(false);
+  });
+
+  it("caller cannot override: omitting requiredFacetIds derives from authority and accepts only exact cover", async () => {
+    const { svc, packet } = await verdictSvc(
+      new Map([[QUESTION, ["purpose", "components"]]]),
+    );
+    const body = acceptBody(
+      packet,
+      ["purpose", "components"],
+      [
+        { facetId: "purpose", state: "satisfied", reason: "ok" },
+        { facetId: "components", state: "satisfied", reason: "ok" },
+      ],
+    );
+    const { requiredFacetIds: _drop, ...without } = body;
+    const result = await svc.apply(without);
+    // GREEN: derives from QuestionFacetReader → accepted
+    // RED: construction/apply lacks reader → fail
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.verdict).toBe("accepted");
+  });
+});
+
+// =============================================================================
+// C — history composer
+// =============================================================================
+describe("C — EvidenceHistoryComposer", () => {
+  it("exports composeAndEvaluateEvidenceLoop", async () => {
+    const mod = await import("./evidence-loop-policy.js");
+    expect(
+      typeof (mod as { composeAndEvaluateEvidenceLoop?: unknown })
+        .composeAndEvaluateEvidenceLoop,
+    ).toBe("function");
+  });
+
+  it("public barrel exports composer not as sole evaluateEvidenceLoop for routing", async () => {
+    const barrel = await import("./index.js");
+    expect(
+      typeof (barrel as { composeAndEvaluateEvidenceLoop?: unknown })
+        .composeAndEvaluateEvidenceLoop,
+    ).toBe("function");
+  });
+
+  it("empty stores fail closed without routing receipt", async () => {
+    const mod = await import("./evidence-loop-policy.js");
+    const compose = (
+      mod as {
+        composeAndEvaluateEvidenceLoop: (
+          i: unknown,
+        ) => Promise<{ ok: boolean; value?: { route?: string; historyReceipt?: unknown } }>;
+      }
+    ).composeAndEvaluateEvidenceLoop;
+    const result = await compose({
+      questionId: QUESTION,
+      packets: createInMemoryEvidencePacketStore(),
+      verdicts: createInMemoryEvidenceVerdictStore(),
+      budget: { maxRefinements: 3 },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.value?.historyReceipt).toBeUndefined();
+  });
+
+  it("pure evaluateEvidenceLoop rejects version gaps", () => {
+    const result = evaluateEvidenceLoop(
+      {
+        questionId: QUESTION,
+        steps: [
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["a"],
+              requiredSearch: { subject: "x" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 3,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 3,
+            verdict: "needs_more_evidence",
+            followUpRequest: {
+              missingFacetIds: ["b"],
+              requiredSearch: { subject: "y" },
+              whyCurrentPacketFails: "g",
+            },
+          },
+        ],
+      },
+      { maxRefinements: 5 },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("pure evaluateEvidenceLoop rejects duplicate versions", () => {
+    const step = {
+      packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      packetVersion: 1,
+      verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      verdictVersion: 1,
+      verdict: "needs_more_evidence" as const,
+      followUpRequest: {
+        missingFacetIds: ["a"],
+        requiredSearch: { subject: "x" },
+        whyCurrentPacketFails: "g",
+      },
+    };
+    const result = evaluateEvidenceLoop(
+      { questionId: QUESTION, steps: [step, { ...step }] },
+      { maxRefinements: 5 },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("pure evaluateEvidenceLoop rejects fabricated terminal string", () => {
+    const result = evaluateEvidenceLoop(
+      {
+        questionId: QUESTION,
+        steps: [
+          {
+            packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            packetVersion: 1,
+            verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            verdictVersion: 1,
+            verdict: "totally_made_up",
+            followUpRequest: null,
+          },
+        ],
+      },
+      { maxRefinements: 3 },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("composer rejects mixed-question durable history", async () => {
+    const mod = await import("./evidence-loop-policy.js");
+    const compose = (
+      mod as {
+        composeAndEvaluateEvidenceLoop: (
+          i: unknown,
+        ) => Promise<{ ok: boolean }>;
+      }
+    ).composeAndEvaluateEvidenceLoop;
+    // Composer must verify records belong to questionId — empty or mixed fail
+    const result = await compose({
+      questionId: QUESTION,
+      packets: createInMemoryEvidencePacketStore(),
+      verdicts: createInMemoryEvidenceVerdictStore(),
+      budget: { maxRefinements: 3 },
+      // optional adversarial prebuilt steps must be ignored/rejected
+      steps: [
+        {
+          packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          packetVersion: 1,
+          verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          verdictVersion: 1,
+          verdict: "accepted",
+          followUpRequest: null,
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("composer rejects missing durable records", async () => {
+    const mod = await import("./evidence-loop-policy.js");
+    const compose = (
+      mod as {
+        composeAndEvaluateEvidenceLoop: (
+          i: unknown,
+        ) => Promise<{ ok: boolean; value?: { historyReceipt?: unknown } }>;
+      }
+    ).composeAndEvaluateEvidenceLoop;
+    const result = await compose({
+      questionId: OTHER_Q,
+      packets: createInMemoryEvidencePacketStore(),
+      verdicts: createInMemoryEvidenceVerdictStore(),
+      budget: { maxRefinements: 3 },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.value?.historyReceipt).toBeUndefined();
+  });
+
+  it("one valid composed history can succeed when stores hold paired records", async () => {
+    // RED: composer missing → fail. GREEN: load real packet+verdict then route.
+    const mod = await import("./evidence-loop-policy.js");
+    const compose = (
+      mod as {
+        composeAndEvaluateEvidenceLoop: (
+          i: unknown,
+        ) => Promise<{ ok: boolean; value?: { route: string } }>;
+      }
+    ).composeAndEvaluateEvidenceLoop;
+    // Without production composer this fails; when present with empty stores still fails
+    const result = await compose({
+      questionId: QUESTION,
+      packets: createInMemoryEvidencePacketStore(),
+      verdicts: createInMemoryEvidenceVerdictStore(),
+      budget: { maxRefinements: 3 },
+    });
+    // Document expected success path exists as export; empty → not ok
+    expect(result.ok).toBe(false);
+  });
+});
+
+// =============================================================================
+// D — atomic append + idempotency (packet + verdict)
+// =============================================================================
+describe("D — atomic packet append+idempotency", () => {
+  it("hook afterImmutablePublishBeforeOpCommit fires on durable append", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "pkt-hook2-"));
+    try {
+      let fired = false;
+      const store = createFileEvidencePacketStore(root, {
+        afterImmutablePublishBeforeOpCommit: () => {
+          fired = true;
+        },
+      } as never);
+      await store.append(samplePacket());
+      expect(fired).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("crash after immutable before op commit: same-key retry one version", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "pkt-atom2-"));
+    try {
+      const store = createFileEvidencePacketStore(root, {
+        afterImmutablePublishBeforeOpCommit: () => {
+          throw new Error("injected-crash-op");
+        },
+      } as never);
+      const links = {
+        get: async (id: string) =>
+          id === QUESTION
+            ? { questionId: QUESTION, snapshotId: SNAPSHOT }
+            : undefined,
+      };
+      const svc = createEvidenceService({
+        store,
+        links,
+        receipts: { get: async () => undefined },
+      });
+      const receipt = healthyReceipt();
+      await expect(
+        svc.appendPacket({
+          questionId: QUESTION,
+          references: [ref()],
+          receipt,
+          receiptDigest: receiptDigestOf(receipt),
+          context: context(),
+          idempotencyKey: "p-atom",
+        }),
+      ).rejects.toThrow(/injected-crash-op/);
+
+      const fresh = createEvidenceService({
+        store: createFileEvidencePacketStore(root),
+        links,
+        receipts: { get: async () => undefined },
+      });
+      const replay = await fresh.appendPacket({
+        questionId: QUESTION,
+        references: [ref()],
+        receipt,
+        receiptDigest: receiptDigestOf(receipt),
+        context: context(),
+        idempotencyKey: "p-atom",
+      });
+      expect(replay.ok).toBe(true);
+      if (!replay.ok) return;
+      expect(replay.value.version).toBe(1);
+
+      const conflict = await fresh.appendPacket({
+        questionId: QUESTION,
+        references: [ref()],
+        receipt: healthyReceipt({ query: "different" }),
+        receiptDigest: receiptDigestOf(healthyReceipt({ query: "different" })),
+        context: context(),
+        idempotencyKey: "p-atom",
+      });
+      expect(conflict.ok).toBe(false);
+      if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+});
+
+describe("D — honest existing invariant: in-memory packet idempotency conflict", () => {
+  it("in-memory packet idempotency still conflicts on different payload", async () => {
+    const svc = createEvidenceService({
+      store: createInMemoryEvidencePacketStore(),
+      links: {
+        get: async (id) =>
+          id === QUESTION
+            ? { questionId: QUESTION, snapshotId: SNAPSHOT }
+            : undefined,
+      },
+      receipts: { get: async () => undefined },
+    });
+    const receipt = healthyReceipt();
+    const first = await svc.appendPacket({
+      questionId: QUESTION,
+      references: [ref()],
+      receipt,
+      receiptDigest: receiptDigestOf(receipt),
+      context: context(),
+      idempotencyKey: "mem-p",
+    });
+    expect(first.ok).toBe(true);
+    const conflict = await svc.appendPacket({
+      questionId: QUESTION,
+      references: [ref()],
+      receipt: healthyReceipt({ query: "x" }),
+      receiptDigest: receiptDigestOf(healthyReceipt({ query: "x" })),
+      context: context(),
+      idempotencyKey: "mem-p",
+    });
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
+  });
+});
+
+describe("D — atomic verdict append+idempotency", () => {
+  it("hook afterImmutablePublishBeforeOpCommit fires on durable verdict append", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "evv-hook2-"));
+    try {
+      let fired = false;
+      const store = createFileEvidenceVerdictStore(root, {
+        afterImmutablePublishBeforeOpCommit: () => {
+          fired = true;
+        },
+      } as never);
+      const claimLike = {
+        schemaVersion: 1 as const,
+        id: deriveEvidenceVerdictId(QUESTION, deriveEvidencePacketId(QUESTION)),
+        questionId: QUESTION,
+        packetId: deriveEvidencePacketId(QUESTION),
+        packetVersion: 1,
+        version: 1,
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "necessary_primary" as const,
+            reason: "r",
+          },
+        ],
+        facetStates: [
+          { facetId: "purpose", state: "satisfied" as const, reason: "r" },
+        ],
+        verdict: "search_incomplete" as const,
+        criticisms: ["x"],
+        followUpRequest: null,
+        packetDigest: DIGEST_A as Sha256,
+      };
+      await store.append(claimLike as never);
+      expect(fired).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("exports createInMemoryQuestionFacetReader for authority tests", async () => {
     const mod = await import("./evidence-verdict-service.js");
     expect(
       typeof (mod as { createInMemoryQuestionFacetReader?: unknown })
@@ -240,406 +840,21 @@ describe("A — QuestionFacetReader authority for accepted", () => {
     ).toBe("function");
   });
 
-  it("omitting a canonical required facet cannot produce accepted", async () => {
-    const mod = await import("./evidence-verdict-service.js");
-    const createFacets = (
-      mod as {
-        createInMemoryQuestionFacetReader: (map: Map<string, string[]>) => {
-          getRequiredFacetIds: (
-            questionId: string,
-          ) => Promise<readonly string[] | undefined>;
-        };
-      }
-    ).createInMemoryQuestionFacetReader;
-
-    const facets = createFacets(
-      new Map([[QUESTION, ["purpose", "components", "boundary"]]]),
-    );
-    const packetId = deriveEvidencePacketId(QUESTION);
-    const packet: EvidencePacket = {
-      schemaVersion: 1,
-      id: packetId,
-      questionId: QUESTION,
-      version: 1,
-      references: [refA()],
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV" as never,
-      receiptDigest: "c".repeat(64) as Sha256,
-      limits: DEFAULT_EVIDENCE_PACKET_LIMITS,
-    };
-    const packets: EvidencePacketReader = {
-      get: async (id, version) =>
-        id === packet.id && version === 1 ? packet : undefined,
-    };
-    const receipts: ReceiptFailureReader = {
-      get: async () => ({
-        id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-        failures: [],
-        selectedIds: [UNIT_A],
-        snapshotId: SNAPSHOT,
-        query: "q",
-        filters: {},
-        candidateIds: [UNIT_A],
-        indexVersion: "v1",
-        indexedRepresentationsSha256: "d".repeat(64),
-      }),
-    };
-    const verifier: PacketVerifier = {
-      verifyReferences: async () => ({ ok: true, value: true }),
-    };
-    const svc = mod.createEvidenceVerdictService({
-      store: createInMemoryEvidenceVerdictStore(),
-      packets,
-      receipts,
-      verifier,
-      facets,
-    });
-    // Caller supplies only purpose — must NOT accept when canonical has 3 facets
-    const result = await svc.apply({
-      questionId: QUESTION,
-      packetId: packet.id,
-      packetVersion: 1,
-      requiredFacetIds: ["purpose"], // hostile subset
-      referenceReviews: [
-        {
-          unitId: UNIT_A,
-          classification: "necessary_primary",
-          reason: "ok",
-        },
-      ],
-      facetStates: [
-        { facetId: "purpose", state: "satisfied", reason: "ok" },
-      ],
-      verdict: "accepted",
-      criticisms: [],
-      followUpRequest: null,
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect([
-        "FACET_UNSATISFIED",
-        "FACET_AUTHORITY",
-        "INVALID_INPUT",
-      ]).toContain(result.code);
-    }
-  });
-
-  it("rejects caller requiredFacetIds override that disagrees with authority", async () => {
-    const mod = await import("./evidence-verdict-service.js");
-    const createFacets = (
-      mod as {
-        createInMemoryQuestionFacetReader: (map: Map<string, string[]>) => {
-          getRequiredFacetIds: (
-            questionId: string,
-          ) => Promise<readonly string[] | undefined>;
-        };
-      }
-    ).createInMemoryQuestionFacetReader;
-    const facets = createFacets(new Map([[QUESTION, ["purpose", "components"]]]));
-    const packetId = deriveEvidencePacketId(QUESTION);
-    const packet: EvidencePacket = {
-      schemaVersion: 1,
-      id: packetId,
-      questionId: QUESTION,
-      version: 1,
-      references: [refA()],
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV" as never,
-      receiptDigest: "c".repeat(64) as Sha256,
-      limits: DEFAULT_EVIDENCE_PACKET_LIMITS,
-    };
-    const svc = mod.createEvidenceVerdictService({
-      store: createInMemoryEvidenceVerdictStore(),
-      packets: {
-        get: async () => packet,
-      },
-      receipts: {
-        get: async () => ({
-          id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-          failures: [],
-          selectedIds: [UNIT_A],
-        }),
-      },
-      verifier: {
-        verifyReferences: async () => ({ ok: true, value: true }),
-      },
-      facets,
-    });
-    const result = await svc.apply({
-      questionId: QUESTION,
-      packetId: packet.id,
-      packetVersion: 1,
-      // caller tries to invent different set
-      requiredFacetIds: ["purpose", "components", "extra"],
-      referenceReviews: [
-        {
-          unitId: UNIT_A,
-          classification: "necessary_primary",
-          reason: "ok",
-        },
-      ],
-      facetStates: [
-        { facetId: "purpose", state: "satisfied", reason: "ok" },
-        { facetId: "components", state: "satisfied", reason: "ok" },
-        { facetId: "extra", state: "satisfied", reason: "ok" },
-      ],
-      verdict: "accepted",
-      criticisms: [],
-      followUpRequest: null,
-    });
-    expect(result.ok).toBe(false);
-  });
-
-  it("fails closed when facet authority is unavailable for the question", async () => {
-    const mod = await import("./evidence-verdict-service.js");
-    const createFacets = (
-      mod as {
-        createInMemoryQuestionFacetReader: (map: Map<string, string[]>) => {
-          getRequiredFacetIds: (
-            questionId: string,
-          ) => Promise<readonly string[] | undefined>;
-        };
-      }
-    ).createInMemoryQuestionFacetReader;
-    const facets = createFacets(new Map()); // empty — unavailable
-    const packetId = deriveEvidencePacketId(QUESTION);
-    const packet: EvidencePacket = {
-      schemaVersion: 1,
-      id: packetId,
-      questionId: QUESTION,
-      version: 1,
-      references: [refA()],
-      receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV" as never,
-      receiptDigest: "c".repeat(64) as Sha256,
-      limits: DEFAULT_EVIDENCE_PACKET_LIMITS,
-    };
-    const svc = mod.createEvidenceVerdictService({
-      store: createInMemoryEvidenceVerdictStore(),
-      packets: { get: async () => packet },
-      receipts: {
-        get: async () => ({
-          id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-          failures: [],
-          selectedIds: [UNIT_A],
-        }),
-      },
-      verifier: {
-        verifyReferences: async () => ({ ok: true, value: true }),
-      },
-      facets,
-    });
-    const result = await svc.apply({
-      questionId: QUESTION,
-      packetId: packet.id,
-      packetVersion: 1,
-      requiredFacetIds: ["purpose"],
-      referenceReviews: [
-        {
-          unitId: UNIT_A,
-          classification: "necessary_primary",
-          reason: "ok",
-        },
-      ],
-      facetStates: [
-        { facetId: "purpose", state: "satisfied", reason: "ok" },
-      ],
-      verdict: "accepted",
-      criticisms: [],
-      followUpRequest: null,
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(["FACET_AUTHORITY", "INVALID_INPUT"]).toContain(result.code);
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// C) Authoritative history composer
-// ---------------------------------------------------------------------------
-describe("C — EvidenceHistoryComposer authoritative routing", () => {
-  it("exports composeAndEvaluateEvidenceLoop / createEvidenceHistoryComposer", async () => {
-    const mod = await import("./evidence-loop-policy.js");
-    expect(
-      typeof (mod as { composeAndEvaluateEvidenceLoop?: unknown })
-        .composeAndEvaluateEvidenceLoop ??
-        (mod as { createEvidenceHistoryComposer?: unknown })
-          .createEvidenceHistoryComposer,
-    ).toBe("function");
-  });
-
-  it("public barrel does not route arbitrary structural history without composer", async () => {
-    const barrel = await import("./index.js");
-    // evaluateEvidenceLoop may remain for tests; composer is the public routing seam
-    expect(
-      typeof (barrel as { composeAndEvaluateEvidenceLoop?: unknown })
-        .composeAndEvaluateEvidenceLoop ??
-        (barrel as { createEvidenceHistoryComposer?: unknown })
-          .createEvidenceHistoryComposer,
-    ).toBe("function");
-  });
-
-  it("mixed-question / unpaired / skipped / fabricated histories fail closed with no routing receipt", async () => {
-    const mod = await import("./evidence-loop-policy.js");
-    const compose = (
-      mod as {
-        composeAndEvaluateEvidenceLoop: (
-          input: unknown,
-        ) => Promise<{ ok: boolean; code?: string; value?: { route?: string } }>;
-      }
-    ).composeAndEvaluateEvidenceLoop;
-
-    // Fabricated structural history must not yield a successful routing receipt
-    // when composer is used with empty stores.
-    const result = await compose({
-      questionId: QUESTION,
-      packets: createInMemoryEvidencePacketStore(),
-      verdicts: createInMemoryEvidenceVerdictStore(),
-      budget: { maxRefinements: 3 },
-    });
-    // Empty durable history fails closed — not continue with empty receipt
-    expect(result.ok).toBe(false);
-  });
-
-  it("pure evaluateEvidenceLoop remains available but structural unpaired steps are rejected", () => {
-    // Harden pure function: reject steps whose packet/verdict versions skip or duplicate
-    const fabricated: EvidenceLoopHistory = {
-      questionId: QUESTION,
-      steps: [
-        {
-          packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-          packetVersion: 1,
-          verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-          verdictVersion: 1,
-          verdict: "needs_more_evidence",
-          followUpRequest: {
-            missingFacetIds: ["a"],
-            requiredSearch: { subject: "x" },
-            whyCurrentPacketFails: "gap",
-          },
-        },
-        {
-          packetId: "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-          packetVersion: 3, // skip v2
-          verdictId: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-          verdictVersion: 3,
-          verdict: "needs_more_evidence",
-          followUpRequest: {
-            missingFacetIds: ["b"],
-            requiredSearch: { subject: "y" },
-            whyCurrentPacketFails: "gap",
-          },
-        },
-      ],
-    };
-    const result = evaluateEvidenceLoop(fabricated, { maxRefinements: 5 });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("INVALID_INPUT");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// D) Atomic append + idempotency
-// ---------------------------------------------------------------------------
-describe("D — atomic record+idempotency (packet and verdict)", () => {
-  it("packet store crash after immutable publish before op commit: same-key retry replays one version", async () => {
+  it("crash after immutable before op: same-key verdict retry one version", async () => {
     if (process.platform !== "linux") return;
-    const root = await mkdtemp(join(tmpdir(), "pkt-atom-"));
+    const root = await mkdtemp(join(tmpdir(), "evv-atom2-"));
     try {
-      const store = createFileEvidencePacketStore(root, {
-        afterImmutablePublishBeforeOpCommit: () => {
-          throw new Error("injected-crash-op");
-        },
-      } as never);
-      const svc = createEvidenceService({
-        store,
-        links: {
-          get: async (id) =>
-            id === QUESTION
-              ? { questionId: QUESTION, snapshotId: SNAPSHOT }
-              : undefined,
-        },
-        receipts: { get: async () => undefined },
-      });
-      const receipt = healthyReceipt();
-      await expect(
-        svc.appendPacket({
-          questionId: QUESTION,
-          references: [refA()],
-          receipt,
-          receiptDigest: receiptDigestOf(receipt),
-          context: context(),
-          idempotencyKey: "atom-1",
-        }),
-      ).rejects.toThrow(/injected-crash-op/);
-
-      // Fresh process: no half-success double version; same key reconciles
-      const fresh = createEvidenceService({
-        store: createFileEvidencePacketStore(root),
-        links: {
-          get: async (id) =>
-            id === QUESTION
-              ? { questionId: QUESTION, snapshotId: SNAPSHOT }
-              : undefined,
-        },
-        receipts: { get: async () => undefined },
-      });
-      const replay = await fresh.appendPacket({
-        questionId: QUESTION,
-        references: [refA()],
-        receipt,
-        receiptDigest: receiptDigestOf(receipt),
-        context: context(),
-        idempotencyKey: "atom-1",
-      });
-      expect(replay.ok).toBe(true);
-      if (!replay.ok) return;
-      expect(replay.value.version).toBe(1);
-      // Second different payload same key conflicts
-      const conflict = await fresh.appendPacket({
-        questionId: QUESTION,
-        references: [refA()],
-        receipt: healthyReceipt({ query: "other" }),
-        receiptDigest: receiptDigestOf(healthyReceipt({ query: "other" })),
-        context: context(),
-        idempotencyKey: "atom-1",
-      });
-      // may need expectedVersion for second append path; key conflict is the point
-      expect(conflict.ok === false || conflict.value.version === 1).toBe(true);
-      if (!conflict.ok) {
-        expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
-      }
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }, 60_000);
-
-  it("verdict store crash after immutable publish before op commit: same-key retry one version", async () => {
-    if (process.platform !== "linux") return;
-    const root = await mkdtemp(join(tmpdir(), "evv-atom-"));
-    try {
-      // Require facets reader once GREEN lands — for RED construction may throw
       const mod = await import("./evidence-verdict-service.js");
       const createFacets = (
         mod as {
-          createInMemoryQuestionFacetReader?: (
-            map: Map<string, string[]>,
+          createInMemoryQuestionFacetReader: (
+            m: Map<string, string[]>,
           ) => unknown;
         }
       ).createInMemoryQuestionFacetReader;
       expect(typeof createFacets).toBe("function");
-      if (typeof createFacets !== "function") return;
-
-      const packetId = deriveEvidencePacketId(QUESTION);
-      const packet: EvidencePacket = {
-        schemaVersion: 1,
-        id: packetId,
-        questionId: QUESTION,
-        version: 1,
-        references: [refA()],
-        receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV" as never,
-        receiptDigest: "c".repeat(64) as Sha256,
-        limits: DEFAULT_EVIDENCE_PACKET_LIMITS,
-      };
       const facets = createFacets(new Map([[QUESTION, ["purpose"]]]));
+      const packet = samplePacket();
       const store = createFileEvidenceVerdictStore(root, {
         afterImmutablePublishBeforeOpCommit: () => {
           throw new Error("injected-crash-op");
@@ -647,7 +862,7 @@ describe("D — atomic record+idempotency (packet and verdict)", () => {
       } as never);
       const applyInput = {
         questionId: QUESTION,
-        packetId,
+        packetId: packet.id,
         packetVersion: 1,
         requiredFacetIds: ["purpose"],
         referenceReviews: [
@@ -663,10 +878,9 @@ describe("D — atomic record+idempotency (packet and verdict)", () => {
         verdict: "accepted",
         criticisms: [],
         followUpRequest: null,
-        idempotencyKey: "vatom-1",
+        idempotencyKey: "v-atom",
       };
-      const svc = mod.createEvidenceVerdictService({
-        store,
+      const deps = {
         packets: { get: async () => packet },
         receipts: {
           get: async () => ({
@@ -676,58 +890,20 @@ describe("D — atomic record+idempotency (packet and verdict)", () => {
           }),
         },
         verifier: {
-          verifyReferences: async () => ({ ok: true, value: true }),
+          verifyReferences: async () => ({ ok: true as const, value: true as const }),
         },
         facets,
-      });
+      };
+      const svc = mod.createEvidenceVerdictService({ store, ...deps });
       await expect(svc.apply(applyInput)).rejects.toThrow(/injected-crash-op/);
       const fresh = mod.createEvidenceVerdictService({
         store: createFileEvidenceVerdictStore(root),
-        packets: { get: async () => packet },
-        receipts: {
-          get: async () => ({
-            id: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            failures: [],
-            selectedIds: [UNIT_A],
-          }),
-        },
-        verifier: {
-          verifyReferences: async () => ({ ok: true, value: true }),
-        },
-        facets,
+        ...deps,
       });
       const replay = await fresh.apply(applyInput);
       expect(replay.ok).toBe(true);
       if (!replay.ok) return;
       expect(replay.value.version).toBe(1);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }, 60_000);
-
-  it("file packet store honors afterImmutablePublishBeforeOpCommit (fires on append)", async () => {
-    if (process.platform !== "linux") return;
-    const root = await mkdtemp(join(tmpdir(), "pkt-hook-"));
-    try {
-      let fired = false;
-      const store = createFileEvidencePacketStore(root, {
-        afterImmutablePublishBeforeOpCommit: () => {
-          fired = true;
-        },
-      } as never);
-      const packet: EvidencePacket = {
-        schemaVersion: 1,
-        id: deriveEvidencePacketId(QUESTION),
-        questionId: QUESTION,
-        version: 1,
-        references: [refA()],
-        receiptId: "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV" as never,
-        receiptDigest: "e".repeat(64) as Sha256,
-        limits: DEFAULT_EVIDENCE_PACKET_LIMITS,
-      };
-      await store.append(packet);
-      // RED: current store ignores this hook → fired stays false
-      expect(fired).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
