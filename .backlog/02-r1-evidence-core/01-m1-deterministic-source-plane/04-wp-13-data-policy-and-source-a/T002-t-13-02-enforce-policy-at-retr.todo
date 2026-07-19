@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-19T08:39:39Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
@@ -7,13 +10,11 @@ depends_on:
 estimate_hours: 8
 id: P2.M1.E4.T002
 priority: critical
-status: pending
-tags:
-    - wp-13
-    - t-13-02
-    - ingest-v3
+started_at: "2026-07-19T08:39:39Z"
+status: in_progress
+tags: []
 title: T-13-02 — Enforce policy at retrieval/model boundaries
-updated_at: "2026-07-18T08:10:10Z"
+updated_at: "2026-07-19T08:39:39Z"
 ---
 Bundle provenance: WP-13 / T-13-02
 
