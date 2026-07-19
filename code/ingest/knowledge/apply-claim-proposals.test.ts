@@ -5,8 +5,6 @@
  * deriveClaimId is pure; relationship drops are reported; whole-batch refuse
  * on unsupported evidence and intra-batch id collision.
  */
-import { createHash } from "node:crypto";
-
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -359,24 +357,8 @@ describe("verdict + structural mapping", () => {
     expect(listed.ok && listed.value.length === 0).toBe(true);
   });
 
-  it("mutation certifying: create payload unit hashes equal packet (not agent-forged)", async () => {
+  it("packet-hash pin: create payload unit hashes equal packet (not agent-forged)", async () => {
     const { repository } = makeRepo();
-    // Agent cannot supply a different unitSha256 — apply only reads unitIds.
-    const agentish = proposals(
-      proposal({
-        // Hostile extra key must not open a path (strict validate drops it).
-        evidenceRefs: [
-          {
-            snapshotId: SNAP,
-            fileId: FILE,
-            unitId: UNIT_A,
-            fileSha256: "f".repeat(64),
-            unitSha256: "e".repeat(64),
-          },
-        ],
-      }),
-    );
-    // If validation rejects unknown keys, use only unitIds path.
     const clean = proposals(proposal({ evidenceReferenceIds: [UNIT_A] }));
     const result = await applyClaimProposals({
       questionId: QUESTION,
@@ -391,8 +373,35 @@ describe("verdict + structural mapping", () => {
     expect(result.value.claims[0]!.evidenceRefs[0]!.unitSha256).not.toBe(
       "e".repeat(64),
     );
-    // Hostile shape is not a supported apply input path.
-    void agentish;
-    void createHash;
+  });
+});
+
+describe("mutations (certifying)", () => {
+  it("removing intra-batch collision check would allow silent collapse — pin refuses", async () => {
+    // Certifying: ID_COLLISION is the load-bearing refuse; without it two
+    // same-statement proposals would share one id and lose one claim.
+    const { repository } = makeRepo();
+    const result = await applyClaimProposals({
+      questionId: QUESTION,
+      packet: packet(),
+      verdictAccepted: true,
+      proposals: proposals(
+        proposal({ text: "Colliding statement.", type: "definition" }),
+        proposal({
+          text: "Colliding statement.",
+          type: "behavior",
+          evidenceReferenceIds: [UNIT_B],
+        }),
+      ),
+      repository,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("ID_COLLISION");
+    expect((await repository.list()).ok && (await repository.list()).ok).toBe(
+      true,
+    );
+    const listed = await repository.list();
+    expect(listed.ok && listed.value.length === 0).toBe(true);
   });
 });

@@ -60,6 +60,13 @@ export {
   type ClaimStore,
   type ClaimRepository,
 } from "./claim-repository.js";
+// T004 — apply validated Claim Extractor proposals (create only; proposed).
+export {
+  applyClaimProposals,
+  type ApplyClaimProposalsError,
+  type ApplyClaimProposalsInput,
+  type ApplyClaimProposalsSuccess,
+} from "./apply-claim-proposals.js";
 // Claim candidates: pure-read relationship candidates (no merge decision).
 export {
   CLAIM_CANDIDATE_LIMITS,
