@@ -152,7 +152,18 @@ function failure(
   code: EvidenceVerdictServiceError,
   message: string,
 ): EvidenceVerdictApplyResult {
-  return { ok: false, code, message };
+  return Object.freeze({ ok: false as const, code, message });
+}
+
+function success(
+  value: EvidenceVerdict,
+  transition: EvidenceVerdictTransition,
+): EvidenceVerdictApplyResult {
+  return Object.freeze({
+    ok: true as const,
+    value: deepFreeze(value),
+    transition: Object.freeze({ ...transition }),
+  });
 }
 
 function deepFreeze<T>(value: T): T {
@@ -165,6 +176,56 @@ function deepFreeze<T>(value: T): T {
     Object.freeze(value);
   }
   return value;
+}
+
+/**
+ * Map custody/I/O errors to typed failures without leaking paths, fds, or bytes.
+ * Returns null when the error should rethrow (deterministic crash hooks).
+ */
+function mapCustodyError(
+  error: unknown,
+): EvidenceVerdictApplyResult | "rethrow" | null {
+  if (!(error instanceof Error)) {
+    return failure("COMMIT_FAILED", "Durable verdict store commit failed.");
+  }
+  if (
+    error.message.includes("injected-crash") ||
+    /afterTempWrite/i.test(error.message)
+  ) {
+    return "rethrow";
+  }
+  if (error.message.startsWith("STREAM_CORRUPT")) {
+    return failure("STREAM_CORRUPT", "Verdict stream is corrupt.");
+  }
+  if (
+    error.message.startsWith("Refusing") ||
+    error.message.includes("fail-closed") ||
+    error.message.includes("Descriptor binding") ||
+    error.message.includes("symbolic")
+  ) {
+    return failure(
+      "COMMIT_FAILED",
+      "Durable verdict store refused the operation.",
+    );
+  }
+  return null;
+}
+
+function mapReadError(
+  error: unknown,
+): IngestResult<never, EvidenceVerdictServiceError> {
+  if (error instanceof Error && error.message.startsWith("STREAM_CORRUPT")) {
+    return {
+      ok: false,
+      code: "STREAM_CORRUPT",
+      message: "Verdict stream is corrupt.",
+    };
+  }
+  return {
+    ok: false,
+    code: "COMMIT_FAILED",
+    message: "Durable verdict store read failed.",
+  };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -972,11 +1033,8 @@ export function createEvidenceVerdictService(options: {
       let packet: EvidencePacket | undefined;
       try {
         packet = await packets.get(packetId, packetVersion);
-      } catch (error) {
-        return failure(
-          "COMMIT_FAILED",
-          error instanceof Error ? error.message : "packet read failed",
-        );
+      } catch {
+        return failure("COMMIT_FAILED", "Packet reader failed.");
       }
       if (!packet) {
         return failure(
@@ -1274,14 +1332,13 @@ export function createEvidenceVerdictService(options: {
                     "Idempotency key reused with a different payload.",
                   );
                 }
-                return {
-                  ok: true as const,
-                  value: deepFreeze(structuredClone(prior.verdict)),
-                  transition: computeTransition(
+                return success(
+                  deepFreeze(structuredClone(prior.verdict)),
+                  computeTransition(
                     prior.verdict.verdict,
                     prior.verdict.facetStates,
                   ),
-                };
+                );
               }
             }
           }
@@ -1345,40 +1402,13 @@ export function createEvidenceVerdictService(options: {
               );
             }
           }
-          return {
-            ok: true as const,
-            value: record,
-            transition,
-          };
+          return success(record, transition);
         });
       } catch (error) {
-        if (
-          error instanceof Error &&
-          (error.message.startsWith("Refusing") ||
-            error.message.startsWith("STREAM_CORRUPT") ||
-            error.message.includes("fail-closed") ||
-            error.message.includes("Descriptor binding"))
-        ) {
-          // Crash hooks rethrow injected-crash — rethrow so tests can catch
-          if (error.message.includes("injected-crash")) throw error;
-          return failure(
-            error.message.startsWith("STREAM_CORRUPT")
-              ? "STREAM_CORRUPT"
-              : "COMMIT_FAILED",
-            error.message,
-          );
-        }
-        // Deterministic crash seams must surface
-        if (
-          error instanceof Error &&
-          /injected-crash|afterTempWrite/i.test(error.message)
-        ) {
-          throw error;
-        }
-        return failure(
-          "COMMIT_FAILED",
-          error instanceof Error ? error.message : "commit failed",
-        );
+        const mapped = mapCustodyError(error);
+        if (mapped === "rethrow") throw error;
+        if (mapped) return mapped;
+        return failure("COMMIT_FAILED", "Durable verdict store commit failed.");
       }
     },
 
@@ -1409,13 +1439,9 @@ export function createEvidenceVerdictService(options: {
             message: `Unknown verdict ${verdictId}@${version}.`,
           };
         }
-        return { ok: true, value: verdict };
+        return { ok: true, value: deepFreeze(verdict) };
       } catch (error) {
-        return {
-          ok: false,
-          code: "COMMIT_FAILED",
-          message: error instanceof Error ? error.message : "get failed",
-        };
+        return mapReadError(error);
       }
     },
 
@@ -1436,13 +1462,9 @@ export function createEvidenceVerdictService(options: {
             message: `No verdict stream for ${verdictId}.`,
           };
         }
-        return { ok: true, value: verdict };
+        return { ok: true, value: deepFreeze(verdict) };
       } catch (error) {
-        return {
-          ok: false,
-          code: "COMMIT_FAILED",
-          message: error instanceof Error ? error.message : "latest failed",
-        };
+        return mapReadError(error);
       }
     },
   };
