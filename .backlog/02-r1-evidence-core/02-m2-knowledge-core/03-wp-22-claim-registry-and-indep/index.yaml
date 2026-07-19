@@ -59,7 +59,8 @@ tasks:
       file: T005-enforce-rejected-claim-exclusi.todo
       id: T005
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Enforce rejected-claim exclusion at the claim store boundary
     - complexity: medium
       depends_on:
