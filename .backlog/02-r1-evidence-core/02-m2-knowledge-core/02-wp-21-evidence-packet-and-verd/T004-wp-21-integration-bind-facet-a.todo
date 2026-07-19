@@ -1,0 +1,39 @@
+---
+complexity: high
+created_at: "2026-07-19T08:29:02Z"
+depends_on:
+    - P2.M2.E2.T003
+estimate_hours: 8
+id: P2.M2.E2.T004
+priority: critical
+status: pending
+tags:
+    - wp-21
+    - ingest-v3
+    - integration-remediation
+    - security
+title: WP-21 integration — bind facet authority, history, digest, and idempotency
+updated_at: "2026-07-19T08:29:02Z"
+---
+Synthetic integration remediation after completed WP-21 epic review.
+
+Root causes:
+- EvidenceVerdict acceptance trusts caller-supplied requiredFacetIds rather than an authoritative facet source.
+- Evidence loop routing trusts caller-assembled packet/verdict history without rehydrating and verifying pairing, question, versions, digests, or existence.
+- canonicalPacketPayloadDigest omits schema/id/version/limits.
+- packet/verdict record publication and durable idempotency mapping are separate crash-visible commits.
+
+Deliverables:
+- Mandatory QuestionFacetReader authority seam; accepted verdict unavailable unless canonical required facets are loaded and exactly covered. No conversion from goals to facets and no permissive default; deterministic fake for local tests.
+- Authoritative EvidenceHistoryComposer/service that rehydrates stored packet+verdict pairs, verifies question/IDs/versions/digests/contiguity, and only then invokes the pure loop evaluator. Arbitrary structural histories cannot reach the public routing seam.
+- Complete canonical packet digest over the entire stored packet payload.
+- Atomic/recoverable store operation for append+idempotency in both packet and verdict stores, including crash after immutable record publication before operation commit.
+
+Acceptance criteria:
+- Omitting a canonical required facet cannot produce accepted.
+- Mixed-question, unpaired, reordered, duplicated, skipped, fabricated, or digest-mismatched histories fail closed and produce no routing receipt.
+- Any packet field change changes the complete packet digest.
+- Fresh-process retry after record-before-idempotency crash replays one logical packet/verdict; same key/different payload conflicts.
+- Existing T-21 packet/verdict/loop semantics, held-fd custody, outage handling, immutable history, and public barrels remain green.
+
+T-22-01 remains blocked until this task is merged; downstream claims must not consume non-authoritative verdict output.

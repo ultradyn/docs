@@ -43,3 +43,12 @@ tasks:
       status: done
       tags: []
       title: T-21-03 — Implement evidence loop limiter
+    - complexity: high
+      depends_on:
+        - P2.M2.E2.T003
+      estimate_hours: 8
+      file: T004-wp-21-integration-bind-facet-a.todo
+      id: T004
+      priority: critical
+      status: pending
+      title: WP-21 integration — bind facet authority, history, digest, and idempotency
