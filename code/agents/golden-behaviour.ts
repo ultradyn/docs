@@ -111,22 +111,12 @@ const claimReviewerExecutor: GoldenBehaviourExecutor = {
  * Evidence-critic NNN-input packets are shape stubs; behavioural goldens use the
  * complete-minimal contract packet (same as integration harness T-31-02).
  */
-const evidenceCriticExecutor: GoldenBehaviourExecutor = {
-  async execute(caseId, _input, expected) {
-    // caseId like "001" — context from sibling complete-minimal.json
-    void caseId;
-    // fixtureRoot not in signature — resolve relative to expected is wrong.
-    // Caller validateAgentBehaviouralGoldens injects via closure... we need path.
-    // See executeEvidenceCritic with fixturesRoot bound below.
-    return fail("evidence-critic executor must be bound with fixturesRoot");
-  },
-};
-
 function makeEvidenceCriticExecutor(
   fixturesRoot: string,
 ): GoldenBehaviourExecutor {
   return {
-    async execute(caseId, _input, expected) {
+    async execute(caseId, input, expected) {
+      void input; // NNN-input packet is a shape stub; use complete-minimal
       const completePath = join(fixturesRoot, "complete-minimal.json");
       let complete: {
         packet: unknown;
@@ -160,8 +150,9 @@ function makeEvidenceCriticExecutor(
 }
 
 /**
- * Static executor map for agents that do not need per-root binding.
- * evidence-critic is rebound per root in validateAgentBehaviouralGoldens.
+ * Registered behavioural agents. evidence-critic is factory-bound per fixtures
+ * root (see validateAgentBehaviouralGoldens); map entry is a presence marker
+ * with a fail-closed unbound stub so registration checks stay uniform.
  */
 export const BEHAVIOURAL_GOLDEN_EXECUTORS: ReadonlyMap<
   string,
@@ -169,8 +160,15 @@ export const BEHAVIOURAL_GOLDEN_EXECUTORS: ReadonlyMap<
 > = new Map([
   ["claim-extractor", claimExtractorExecutor],
   ["claim-reviewer", claimReviewerExecutor],
-  // placeholder — replaced per-root; presence required for registration checks
-  ["evidence-critic", evidenceCriticExecutor],
+  [
+    "evidence-critic",
+    {
+      execute: () =>
+        fail(
+          "evidence-critic executor requires fixturesRoot binding (internal)",
+        ),
+    },
+  ],
 ]);
 
 export function assertIngestThreeNeverLegacy(
@@ -226,7 +224,6 @@ export async function validateAgentBehaviouralGoldens(
   for (const name of names) {
     const errors: string[] = [];
     const fixturesDir = join(root, name, "fixtures");
-    let cases = 0;
 
     if (LEGACY_SHAPE_ONLY_AGENTS.has(name)) {
       results.push({
@@ -258,13 +255,12 @@ export async function validateAgentBehaviouralGoldens(
         ? makeEvidenceCriticExecutor(fixturesDir)
         : BEHAVIOURAL_GOLDEN_EXECUTORS.get(name)!;
 
-    let inputFiles: string[] = [];
+    let inputFiles: string[];
     try {
       const files = await readdir(fixturesDir);
       inputFiles = files
         .filter((f) => /^\d{3}-input\.json$/u.test(f))
         .sort();
-      cases = inputFiles.length;
     } catch (error) {
       results.push({
         name,
@@ -306,7 +302,7 @@ export async function validateAgentBehaviouralGoldens(
 
     results.push({
       name,
-      cases,
+      cases: inputFiles.length,
       valid: errors.length === 0,
       errors,
     });
