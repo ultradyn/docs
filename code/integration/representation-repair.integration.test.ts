@@ -200,19 +200,36 @@ describe("repair persists through the real repository seam", () => {
 
 describe("superseded and current representations never share a projection", () => {
   it("unitizes each representation version independently", async () => {
-    const { approved } = await approvedRepair();
+    const { service: instance, proposal, approved } = await approvedRepair();
     expect(approved.ok).toBe(true);
     if (!approved.ok) return;
+    const review = await instance.getReview(proposal.id);
+    expect(review.ok).toBe(true);
+    if (!review.ok) return;
     const current = approved.value.representation;
     const audited = auditRepresentation(current);
     expect(audited.ok).toBe(true);
     if (!audited.ok) return;
+    const persistedSourceFile = sourceFile();
+    const qualificationSourceFile: SourceFile = {
+      ...persistedSourceFile,
+      size: review.value.correctionArtifact.size,
+      sha256: review.value.correctionArtifact.sha256 as Sha256,
+    };
     const unitized = unitizeRepresentation({
-      sourceFile: sourceFile(),
+      sourceFile: qualificationSourceFile,
       representation: current,
       audit: audited.value,
     });
     expect(unitized.ok).toBe(true);
+    expect(sourceFile()).toEqual(persistedSourceFile);
+    expect(qualificationSourceFile).toMatchObject({
+      id: persistedSourceFile.id,
+      snapshotId: persistedSourceFile.snapshotId,
+      logicalPath: persistedSourceFile.logicalPath,
+      size: review.value.correctionArtifact.size,
+      sha256: review.value.correctionArtifact.sha256,
+    });
     if (!unitized.ok) return;
     const representationIds = new Set(
       unitized.value.map((unit) => unit.representationId),

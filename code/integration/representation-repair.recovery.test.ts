@@ -13,6 +13,7 @@ import type {
   SourceRepresentation,
   SourceRepresentationId,
 } from "../domain/ingest/index.js";
+import { InvalidationRequestSchema } from "../domain/ingest/index.js";
 import { createRepresentationRepairService } from "../ingest/source/index.js";
 import { createRepresentationRepairRepository } from "../repository/representation-repair-repository.js";
 
@@ -89,6 +90,13 @@ function baseOptions(root: string, deliver: (request: unknown) => void) {
       append: async (record: { readonly kind: string }) =>
         repository.appendLedgerRecord(record),
     },
+    invalidationOutbox: {
+      pending: async () =>
+        (await repository.readPendingInvalidations()).map((request) =>
+          InvalidationRequestSchema.parse(request),
+        ),
+      acknowledge: async (id: string) => repository.acknowledgeInvalidation(id),
+    },
     sourceFile: {
       schemaVersion: 1,
       id: SOURCE_FILE_ID,
@@ -133,8 +141,14 @@ async function approveWithFailingSink(failures: number) {
     }
     delivered.push(request);
   });
-  const { repository: _repository, ...serviceOptions } = options;
-  const instance = createRepresentationRepairService(serviceOptions);
+  const instance = createRepresentationRepairService({
+    ledger: options.ledger,
+    invalidationOutbox: options.invalidationOutbox,
+    sourceFile: options.sourceFile,
+    representation: options.representation,
+    approvalPolicy: options.approvalPolicy,
+    invalidationSink: options.invalidationSink,
+  });
   const proposal = await instance.propose({
     representationId: FAULTY_REPRESENTATION_ID,
     correctedText: CORRECTED_TEXT,
@@ -212,11 +226,15 @@ describe("recovery replays undelivered requests exactly once", () => {
     // Simulates a crash: the process that approved is gone, and a new service
     // instance must find and drain the outbox from durable state alone.
     const { delivered } = await approveWithFailingSink(1);
-    const { repository: _ignored, ...revivedOptions } = baseOptions(
-      root,
-      (request) => delivered.push(request),
-    );
-    const revived = createRepresentationRepairService(revivedOptions);
+    const options = baseOptions(root, (request) => delivered.push(request));
+    const revived = createRepresentationRepairService({
+      ledger: options.ledger,
+      invalidationOutbox: options.invalidationOutbox,
+      sourceFile: options.sourceFile,
+      representation: options.representation,
+      approvalPolicy: options.approvalPolicy,
+      invalidationSink: options.invalidationSink,
+    });
     const recovered = await revived.recoverInvalidations();
     expect(recovered.ok).toBe(true);
     if (!recovered.ok) return;

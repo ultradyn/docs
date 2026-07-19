@@ -109,7 +109,14 @@ describe("repair repository records are immutable once written", () => {
   it("refuses to overwrite an existing record", async () => {
     const repo = repository();
     await repo.append(proposalRecord());
-    const overwrite = await repo.overwrite?.(REPAIR_ID, proposalRecord());
+    const overwrite = (
+      repo as typeof repo & {
+        overwrite?: (
+          id: string,
+          record: Record<string, unknown>,
+        ) => Promise<unknown>;
+      }
+    ).overwrite;
     expect(overwrite).toBeUndefined();
   });
 
@@ -255,7 +262,7 @@ describe("repair repository rejects foreign on-disk state", () => {
     const repo = repository();
     await repo.append(proposalRecord());
     await writeFile(join(root, ".ultradyn/repair/journal.json"), "{ not json");
-    const result = await repository().currentRevision();
-    await expect(Promise.resolve(result)).rejects.toBeDefined();
+    const result = repository().currentRevision();
+    await expect(result).rejects.toBeDefined();
   });
 });

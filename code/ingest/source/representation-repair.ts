@@ -39,11 +39,17 @@ export interface RepresentationRepairLedger {
   }): Promise<void>;
 }
 
+export interface RepresentationRepairInvalidationOutbox {
+  pending(): Promise<readonly InvalidationRequest[]>;
+  acknowledge(id: string): Promise<void>;
+}
+
 export interface RepresentationRepairServiceOptions {
   readonly sourceFile: SourceFile;
   readonly representation: SourceRepresentation;
   readonly approvalPolicy: RepresentationRepairApprovalPolicy;
   readonly invalidationSink: RepresentationRepairInvalidationSink;
+  readonly invalidationOutbox?: RepresentationRepairInvalidationOutbox;
   readonly ledger: RepresentationRepairLedger;
 }
 
@@ -349,6 +355,7 @@ export function createRepresentationRepairService(
       pendingInvalidations.set(invalidation.id, immutable(invalidation));
       try {
         await options.invalidationSink.deliver(invalidation);
+        await options.invalidationOutbox?.acknowledge(invalidation.id);
         pendingInvalidations.delete(invalidation.id);
       } catch {
         // The committed outbox entry remains pending for explicit recovery.
@@ -421,10 +428,18 @@ export function createRepresentationRepairService(
     },
 
     async recoverInvalidations() {
+      const durablePending = await options.invalidationOutbox?.pending();
+      const pending = new Map<string, InvalidationRequest>(
+        (durablePending ?? []).map((request) => [request.id, request]),
+      );
+      for (const [id, request] of pendingInvalidations)
+        pending.set(id, request);
+
       const delivered: string[] = [];
-      for (const [id, request] of pendingInvalidations) {
+      for (const [id, request] of pending) {
         try {
           await options.invalidationSink.deliver(request);
+          await options.invalidationOutbox?.acknowledge(id);
           pendingInvalidations.delete(id);
           delivered.push(id);
         } catch {
