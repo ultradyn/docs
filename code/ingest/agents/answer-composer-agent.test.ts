@@ -212,27 +212,78 @@ describe("composeAnswerFromPack (deterministic)", () => {
 });
 
 describe("validateAnswerComposition (independent boundary)", () => {
-  it("UNMAPPED_ASSERTION when sentence cites claim not in pack", () => {
+  /** Valid pack citation unit for CLM_A — used so only one field is unmapped. */
+  const packUnitForA = "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA";
+
+  /**
+   * Isolated production pins (Claude mutation verify):
+   * each fixture puts CLM_OUT in EXACTLY ONE id-bearing field; all others use CLM_A.
+   * Deleting that field's gate alone must fail the matching test.
+   */
+  it("isolated pin: unmapped claimOrder alone → UNMAPPED_ASSERTION", () => {
     const p = pack();
     const goals = [{ goalId: "g1", text: "x" }];
     const bad = {
-      schemaVersion: 1,
+      schemaVersion: 1 as const,
       id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
       questionId: QUESTION,
       claimPackHash: p.hash,
       graphRevision: 1,
-      answer: "Invented claim text.",
+      answer: p.claims[0]!.statement,
       claimOrder: [CLM_OUT],
+      sentenceClaims: [{ sentenceIndex: 0, claimIds: [CLM_A] }],
+      citations: [{ claimId: CLM_A, unitId: packUnitForA }],
+      goalCoverage: [{ goalId: "g1", covered: true, claimIds: [CLM_A] }],
+      limitations: [],
+      state: "proposed" as const,
+    };
+    const result = validateAnswerComposition(bad, { pack: p, goals });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("UNMAPPED_ASSERTION");
+  });
+
+  it("isolated pin: unmapped sentenceClaims alone → UNMAPPED_ASSERTION", () => {
+    const p = pack();
+    const goals = [{ goalId: "g1", text: "x" }];
+    const bad = {
+      schemaVersion: 1 as const,
+      id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
+      questionId: QUESTION,
+      claimPackHash: p.hash,
+      graphRevision: 1,
+      answer: p.claims[0]!.statement,
+      claimOrder: [CLM_A],
       sentenceClaims: [{ sentenceIndex: 0, claimIds: [CLM_OUT] }],
-      citations: [],
+      citations: [{ claimId: CLM_A, unitId: packUnitForA }],
+      goalCoverage: [{ goalId: "g1", covered: true, claimIds: [CLM_A] }],
+      limitations: [],
+      state: "proposed" as const,
+    };
+    const result = validateAnswerComposition(bad, { pack: p, goals });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("UNMAPPED_ASSERTION");
+  });
+
+  it("isolated pin: unmapped goalCoverage alone → UNMAPPED_ASSERTION", () => {
+    const p = pack();
+    const goals = [{ goalId: "g1", text: "x" }];
+    const bad = {
+      schemaVersion: 1 as const,
+      id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
+      questionId: QUESTION,
+      claimPackHash: p.hash,
+      graphRevision: 1,
+      answer: p.claims[0]!.statement,
+      claimOrder: [CLM_A],
+      sentenceClaims: [{ sentenceIndex: 0, claimIds: [CLM_A] }],
+      citations: [{ claimId: CLM_A, unitId: packUnitForA }],
       goalCoverage: [{ goalId: "g1", covered: true, claimIds: [CLM_OUT] }],
       limitations: [],
-      state: "proposed",
+      state: "proposed" as const,
     };
-    const result = validateAnswerComposition(bad, {
-      pack: p,
-      goals,
-    });
+    const result = validateAnswerComposition(bad, { pack: p, goals });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe("UNMAPPED_ASSERTION");
@@ -332,7 +383,7 @@ describe("validateAnswerComposition (independent boundary)", () => {
     expect(result.code).toBe("INVENTED_PROSE");
   });
 
-  it("accepts a valid composition from composeAnswerFromPack", () => {
+  it("control: all-in-pack composition accepted", () => {
     const p = pack();
     const goals = [{ goalId: "g-storage", text: "Where is knowledge stored?" }];
     const composed = composeAnswerFromPack({
@@ -347,48 +398,6 @@ describe("validateAnswerComposition (independent boundary)", () => {
       goals,
     });
     expect(validated.ok).toBe(true);
-  });
-
-  /**
-   * Production pin: if the real UNMAPPED_ASSERTION loops are deleted from
-   * validateAnswerComposition, this test fails (Claude verifies by deleting
-   * the production gate). No inline stub — production path only.
-   */
-  it("production pin: unmapped claimOrder fails UNMAPPED_ASSERTION via real validate", () => {
-    const p = pack();
-    const goals = [{ goalId: "g1", text: "x" }];
-    const unmapped = {
-      schemaVersion: 1 as const,
-      id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
-      questionId: QUESTION,
-      claimPackHash: p.hash,
-      graphRevision: 1,
-      answer: "text",
-      claimOrder: [CLM_OUT],
-      sentenceClaims: [{ sentenceIndex: 0, claimIds: [CLM_OUT] }],
-      citations: [],
-      goalCoverage: [{ goalId: "g1", covered: true, claimIds: [CLM_OUT] }],
-      limitations: [],
-      state: "proposed" as const,
-    };
-    const result = validateAnswerComposition(unmapped, { pack: p, goals });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.code).toBe("UNMAPPED_ASSERTION");
-  });
-
-  it("production pin: valid composition accepted; refuse would be INVALID_PROPOSAL class", () => {
-    const p = pack();
-    const goals = [{ goalId: "g-storage", text: "Where is knowledge stored?" }];
-    const composed = composeAnswerFromPack({
-      questionId: QUESTION,
-      pack: p,
-      goals,
-    });
-    expect(composed.ok).toBe(true);
-    if (!composed.ok) return;
-    const result = validateAnswerComposition(composed.value, { pack: p, goals });
-    expect(result.ok).toBe(true);
   });
 });
 
