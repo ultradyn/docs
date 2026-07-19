@@ -146,45 +146,23 @@ describe("B003 UntrustedProse on critic free text", () => {
     ).toBe(smuggle);
   });
 
-  it("critic free-text reasons do not enter LLM provider requests on current agent path", async () => {
-    // Pins a CURRENT FACT: createEvidenceCriticAgent uses a caller-injected
-    // propose; critic free text is not round-tripped into provider messages
-    // today. When someone later wires that path, this test should fail and
-    // force an explicit decision (including deliberatelyExposeUntrustedProseToModel).
-    // Do not delete as "redundant" — it is the tripwire for the B003 residual.
-    const smuggle = "UNIQUE_SMUGGLE_TOKEN_retention_policy_question_xyz";
-    const providerRequests: { content: string }[] = [];
-    const agent = createEvidenceCriticAgent({
-      propose: async () =>
-        validProposal({
-          referenceClassifications: [
-            {
-              unitId: UNIT_A,
-              classification: "necessary_primary",
-              reason: smuggle,
-            },
-            {
-              unitId: UNIT_Q,
-              classification: "necessary_qualifying",
-              reason: "ok",
-            },
-          ],
-        }),
-    });
-    const result = await agent.runEvidenceCritic({
-      questionId: QUESTION,
-      question: "How does retry work?",
-      facets: ["facet-definition", "facet-constraint"],
+  it("type: validated reason cannot feed sendToModel(string) without hatch", () => {
+    // Tripwire for future model round-trips of critic prose (IMPORTANT 2 fold).
+    // A real provider boundary typed as (text: string) must not accept
+    // UntrustedProse without deliberatelyExposeUntrustedProseToModel.
+    function sendToModel(_text: string): void {
+      /* provider boundary stub */
+    }
+    const result = validateEvidenceCriticProposal(validProposal(), {
       packet: packet(),
+      requiredFacetIds: ["facet-definition", "facet-constraint"],
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(
-      isUntrustedProse(result.value.referenceClassifications[0]!.reason),
-    ).toBe(true);
-    for (const req of providerRequests) {
-      expect(req.content).not.toContain(smuggle);
-    }
-    expect(providerRequests).toHaveLength(0);
+    const reason = result.value.referenceClassifications[0]!.reason;
+    expect(isUntrustedProse(reason)).toBe(true);
+    // @ts-expect-error reason is UntrustedProse — not a plain string
+    sendToModel(reason);
+    sendToModel(deliberatelyExposeUntrustedProseToModel(reason));
   });
 });
