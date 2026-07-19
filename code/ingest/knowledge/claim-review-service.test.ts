@@ -507,7 +507,7 @@ describe("split preserves provenance", () => {
       "claim-review:idem-split-crash",
     );
     expect(orphan).toBeUndefined();
-    expect(crashing.listApplications()).toHaveLength(0);
+    expect(await crashing.listApplications()).toHaveLength(0);
 
     // Recovery: fresh service, same stores, no crash hook — completes once
     const recovered = createClaimReviewService({
@@ -546,7 +546,7 @@ describe("qualify decision", () => {
     if (!result.ok) expect(result.code).toBe("QUALIFY_UNSUPPORTED");
     const latest = await repo.get(claim.id);
     expect(latest.ok && latest.value.state).toBe("proposed");
-    expect(service.listApplications()).toHaveLength(0);
+    expect(await service.listApplications()).toHaveLength(0);
   });
 });
 
@@ -580,8 +580,8 @@ describe("rejection outcome and pack exclusion", () => {
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
     expect(isEligibleForAcceptedPack(claim.id, [applied.value])).toBe(false);
-    // Service accessor is the safe default path
-    expect(service.listAcceptedClaimIds()).not.toContain(claim.id);
+    // Service accessor is the safe default path (durable store, T-22-05)
+    expect(await service.listAcceptedClaimIds()).not.toContain(claim.id);
 
     const { service: s2 } = makeService();
     const c2 = await seedProposed(s2, {
@@ -592,7 +592,7 @@ describe("rejection outcome and pack exclusion", () => {
     if (!accepted.ok) return;
     expect(isEligibleForAcceptedPack(c2.id, [accepted.value])).toBe(true);
     expect(listAcceptedClaimIds([accepted.value])).toContain(c2.id);
-    expect(s2.listAcceptedClaimIds()).toContain(c2.id);
+    expect(await s2.listAcceptedClaimIds()).toContain(c2.id);
   });
 });
 

@@ -1,26 +1,31 @@
 /**
- * T-22-03 — ClaimReviewService: apply independent claim reviews idempotently.
+ * T-22-03 / T-22-05 — ClaimReviewService: apply independent claim reviews
+ * idempotently, with pack-safe accepted-id selection at the durable store.
  *
  * Authority boundary:
  * - Separation of duties: reviewer ≠ creating run, resolved from AUTHORITATIVE
  *   packet→run provenance (PacketCreationIdentityReader), never caller assertion.
  * - Accepted transitions only via this service's ClaimAcceptanceAuthority grant.
  * - Rejection is a review outcome (application.rejectedClaimIds), not ClaimState.
- * - Pack-safe default: listAcceptedClaimIds excludes any rejected id.
+ * - Pack-safe default (T-22-05): ClaimReviewApplicationStore.listAcceptedClaimIds
+ *   (and service.listAcceptedClaimIds) compute accepted − rejected over the
+ *   COMPLETE durable application set. There is no complete-set precondition on
+ *   the supported path — the store cannot be handed a partial set.
+ * - Pure listAcceptedClaimIds(applications) remains a testable helper with an
+ *   explicit complete-set precondition; it is NOT the pack-selection authority.
  * - Durable idempotency: ClaimReviewApplicationStore remembers the APPLICATION
  *   (not a claim); lookup MUST return the prior application and never re-apply.
  * - Split: multi-create under store.locked + operation-intent journal; incomplete
  *   splits never produce a durable application. HONEST RESIDUAL: a crash mid-split
  *   can leave unreferenced claim records (append-only custody cannot delete
- *   orphans); no application points at them until recovery completes. Child task
- *   may add orphan GC / intent-driven resume.
+ *   orphans); no application points at them until recovery completes.
  * - qualify: FAIL CLOSED with QUALIFY_UNSUPPORTED (not silent no-op) until
  *   qualifierClaimIds linking is implemented (child task).
  *
- * Residual (honest): a builder that bypasses this service and reads the claim
- * store directly can still see proposed claims that were rejected in an
- * application record — pack builders (T-32+) must consume applications or the
- * listAcceptedClaimIds accessor. Child task for store-level exclusion.
+ * Residual (honest, T-32+): a builder that bypasses applications entirely and
+ * reads ClaimStore directly still sees proposed claims with no rejection bit —
+ * ClaimState does not include rejected (T-22-01 five-set freeze). Pack builders
+ * must use applicationStore.listAcceptedClaimIds / service.listAcceptedClaimIds.
  */
 import { createHash } from "node:crypto";
 
@@ -243,7 +248,9 @@ function reviewDigest(review: ClaimReview, key: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Secondary convenience: single-id eligibility against application records.
+ * Pure helper: single-id eligibility against a supplied applications array.
+ * PRECONDITION: same complete-set rule as listAcceptedClaimIds(applications).
+ * Prefer ClaimReviewApplicationStore.isEligibleForAcceptedPack for authority.
  */
 export function isEligibleForAcceptedPack(
   claimId: string,
@@ -253,20 +260,15 @@ export function isEligibleForAcceptedPack(
 }
 
 /**
- * Pack-safe accepted ids over the applications array you pass.
+ * Pure helper over a supplied applications array — NOT the pack authority.
  *
- * PRECONDITION: `applications` MUST be the COMPLETE durable set of review
- * applications. This function is pure over its argument — a PARTIAL set
- * (e.g. in-process only after restart, or a filtered subset) silently weakens
- * exclusion: a claim accepted in a supplied application but rejected in a
- * missing one will still appear as accepted. Callers that cannot load the full
- * durable set must not use this as an authority boundary.
+ * PRECONDITION: `applications` MUST be the COMPLETE durable set. A PARTIAL set
+ * silently weakens exclusion (accept without matching reject appears accepted).
+ * Supported pack selection is ClaimReviewApplicationStore.listAcceptedClaimIds
+ * (T-22-05), which cannot be handed a partial set.
  *
  * Given a complete set: every id in any acceptedClaimIds, MINUS any id in any
- * rejectedClaimIds. There is no opt-out flag on the function itself.
- *
- * Residual: builders that ignore this API and read ClaimStore directly still
- * see proposed claims; that gap is T-32+ pack-builder scope.
+ * rejectedClaimIds.
  */
 export function listAcceptedClaimIds(
   applications: readonly ClaimReviewApplication[],
@@ -289,9 +291,12 @@ export function listAcceptedClaimIds(
 // ---------------------------------------------------------------------------
 
 /**
- * Durable application idempotency store.
+ * Durable application idempotency + pack-selection store.
  * Persists the APPLICATION (replayable result), not a claim snapshot.
  * ClaimStore.rememberIdempotency is claim-typed and is NOT used for reviews.
+ *
+ * T-22-05: listAcceptedClaimIds / isEligibleForAcceptedPack are computed over
+ * the complete durable set held by this store — no caller-supplied subset.
  */
 export interface ClaimReviewApplicationStore {
   remember(
@@ -304,6 +309,12 @@ export interface ClaimReviewApplicationStore {
   ): Promise<
     { digest: string; application: ClaimReviewApplication } | undefined
   >;
+  /** Complete durable application set (pack builders / audits). */
+  listApplications(): Promise<readonly ClaimReviewApplication[]>;
+  /** Pack-safe accepted ids over the complete durable set. */
+  listAcceptedClaimIds(): Promise<readonly ClaimId[]>;
+  /** Single-id convenience over the complete durable set. */
+  isEligibleForAcceptedPack(claimId: string): Promise<boolean>;
 }
 
 export function createInMemoryClaimReviewApplicationStore(): ClaimReviewApplicationStore {
@@ -311,6 +322,18 @@ export function createInMemoryClaimReviewApplicationStore(): ClaimReviewApplicat
     string,
     { digest: string; application: ClaimReviewApplication }
   >();
+  async function listApplications(): Promise<
+    readonly ClaimReviewApplication[]
+  > {
+    return Object.freeze(
+      [...map.values()].map((v) =>
+        deepFreeze(structuredClone(v.application)),
+      ) as ClaimReviewApplication[],
+    );
+  }
+  async function listAccepted(): Promise<readonly ClaimId[]> {
+    return listAcceptedClaimIds(await listApplications());
+  }
   return {
     async remember(key, digest, application) {
       const prior = map.get(key);
@@ -335,6 +358,10 @@ export function createInMemoryClaimReviewApplicationStore(): ClaimReviewApplicat
           }
         : undefined;
     },
+    listApplications,
+    listAcceptedClaimIds: listAccepted,
+    isEligibleForAcceptedPack: async (claimId) =>
+      (await listAccepted()).includes(claimId as ClaimId),
   };
 }
 
@@ -354,16 +381,18 @@ export interface ClaimReviewService {
     review: unknown,
     key: string,
   ): Promise<IngestResult<ClaimReviewApplication, ClaimReviewServiceError>>;
-  /** Pack-safe accepted ids from durable applications. */
-  listAcceptedClaimIds(): readonly ClaimId[];
-  /** All applications recorded (durable store + this process). */
-  listApplications(): readonly ClaimReviewApplication[];
+  /**
+   * Pack-safe accepted ids from the durable application store (complete set).
+   * T-22-05: not derived from a process-local index alone.
+   */
+  listAcceptedClaimIds(): Promise<readonly ClaimId[]>;
+  /** All durable applications in the application store. */
+  listApplications(): Promise<readonly ClaimReviewApplication[]>;
   /** The repository bound to this service's acceptance authority. */
   readonly repository: ClaimRepository;
   /** Expose authority for tests that need the same grant seam. */
   readonly acceptanceAuthority: ClaimAcceptanceAuthority;
 }
-
 export interface CreateClaimReviewServiceOptions {
   readonly store: ClaimStore;
   readonly evidence: EvidenceVerificationReader;
@@ -666,8 +695,9 @@ export function createClaimReviewService(
 
   return {
     apply,
-    listAcceptedClaimIds: () => listAcceptedClaimIds(applicationIndex),
-    listApplications: () => Object.freeze([...applicationIndex]),
+    // T-22-05: durable store is the complete-set authority (not applicationIndex).
+    listAcceptedClaimIds: () => applicationStore.listAcceptedClaimIds(),
+    listApplications: () => applicationStore.listApplications(),
     repository,
     acceptanceAuthority,
   };
