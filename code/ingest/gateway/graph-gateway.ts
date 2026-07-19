@@ -535,13 +535,16 @@ export function createInMemoryQuestionLinkStoreForGateway(): QuestionLinkStore {
 /** Bundle shared deps for simulated-restart tests (Maps stay in-process). */
 export function createInMemoryGraphGatewayDeps(
   hooks?: GraphGatewayHooks,
+  obligationHooks?: ObligationWriterTestHooks,
 ): GraphGatewayDeps & {
   obligationFake: ReturnType<
     typeof createInMemoryCoverageObligationEventWriter
   >;
   linkStore: QuestionLinkStore;
 } {
-  const obligationFake = createInMemoryCoverageObligationEventWriter();
+  const obligationFake = createInMemoryCoverageObligationEventWriter(
+    obligationHooks ?? {},
+  );
   const linkStore = createInMemoryQuestionLinkStoreForGateway();
   const human = new Set<string>();
   return {

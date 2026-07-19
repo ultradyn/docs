@@ -406,17 +406,20 @@ describe("visibility gate", () => {
 // ---------------------------------------------------------------------------
 describe("obligation primitive verdicts", () => {
   it("append version_conflict fails closed with NO commit", async () => {
-    const deps = createInMemoryGraphGatewayDeps();
-    deps.obligationFake.setTestHooks({ forceAppendVersionConflict: 7 });
+    const deps = createInMemoryGraphGatewayDeps(undefined, {
+      forceAppendVersionConflict: 7,
+    });
     const gw = createGraphGateway(deps);
     const result = await gw.apply(cmd("vc-fail", 0, CONCRETE_WORDING));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
     expect(await gw.listCommits()).toHaveLength(0);
-    // Positive baseline: without the force hook, same command would commit
-    const ok = await gw.apply(cmd("vc-ok", 0, CONCRETE_WORDING));
+    // Positive baseline: fresh deps without force hook commits
+    const deps2 = createInMemoryGraphGatewayDeps();
+    const gw2 = createGraphGateway(deps2);
+    const ok = await gw2.apply(cmd("vc-ok", 0, CONCRETE_WORDING));
     expect(ok.ok).toBe(true);
-    expect(await gw.listCommits()).toHaveLength(1);
+    expect(await gw2.listCommits()).toHaveLength(1);
   });
 
   it("reserveCreate returned id (≠ local allocate) is used on the commit", async () => {
@@ -424,8 +427,9 @@ describe("obligation primitive verdicts", () => {
     const validForced =
       "obl-01ARZ3NDEKTSV4RRFFQ69G5FZZ" as import("../../domain/ingest/types.js").ObligationId;
 
-    const deps = createInMemoryGraphGatewayDeps();
-    deps.obligationFake.setTestHooks({ forceReservedId: validForced });
+    const deps = createInMemoryGraphGatewayDeps(undefined, {
+      forceReservedId: validForced,
+    });
     const gw = createGraphGateway(deps);
     const result = await gw.apply(cmd("reserve-id", 0, CONCRETE_WORDING));
     expect(result.ok).toBe(true);
