@@ -1,0 +1,44 @@
+{
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FC0",
+  "outcome": "packet",
+  "receiptIds": [
+    "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FC0",
+    "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FC1"
+  ],
+  "packet": {
+    "references": [
+      {
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "fileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "role": "primary",
+        "facetIds": ["facet-constraint", "facet-behavior"]
+      },
+      {
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "fileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FB0",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "role": "supporting",
+        "facetIds": ["facet-behavior"]
+      }
+    ],
+    "facetSupport": [
+      {
+        "facetId": "facet-constraint",
+        "referenceCount": 1
+      },
+      {
+        "facetId": "facet-behavior",
+        "referenceCount": 2
+      }
+    ],
+    "limits": {
+      "maxReferences": 32,
+      "maxFacetsPerReference": 8
+    }
+  }
+}

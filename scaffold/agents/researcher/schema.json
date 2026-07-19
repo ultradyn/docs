@@ -1,0 +1,120 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["questionId", "outcome", "receiptIds", "packet"],
+  "properties": {
+    "questionId": {
+      "type": "string",
+      "pattern": "^q-[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "outcome": {
+      "enum": ["packet", "no_evidence"]
+    },
+    "receiptIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "pattern": "^rcpt-[0-9A-HJKMNP-TV-Z]{26}$"
+      }
+    },
+    "packet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["references", "facetSupport", "limits"],
+      "properties": {
+        "references": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshotId",
+              "fileId",
+              "unitId",
+              "fileSha256",
+              "unitSha256",
+              "role",
+              "facetIds"
+            ],
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "pattern": "^snap-[a-f0-9]{64}$"
+              },
+              "fileId": {
+                "type": "string",
+                "pattern": "^file-[a-f0-9]{64}$"
+              },
+              "unitId": {
+                "type": "string",
+                "pattern": "^unit-[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "fileSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "unitSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "role": {
+                "enum": ["primary", "supporting"]
+              },
+              "facetIds": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              }
+            }
+          }
+        },
+        "facetSupport": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["facetId", "referenceCount"],
+            "properties": {
+              "facetId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "referenceCount": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              }
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxReferences", "maxFacetsPerReference"],
+          "properties": {
+            "maxReferences": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "maxFacetsPerReference": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            }
+          }
+        }
+      }
+    }
+  }
+}

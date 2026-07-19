@@ -1,0 +1,7 @@
+{
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "question": "How does authentication work?",
+  "facets": ["definition", "behavior"],
+  "goals": ["evidence-for-auth"],
+  "documentation": "Tokens expire after fifteen minutes."
+}

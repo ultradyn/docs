@@ -1,0 +1,7 @@
+{
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FB0",
+  "question": "Is there documentation for the unreleased quantum transport layer?",
+  "facets": ["existence"],
+  "goals": ["evidence-or-absence"],
+  "documentation": "No matching units in the current snapshot."
+}

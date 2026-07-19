@@ -21,6 +21,7 @@ export const AgentInputPolicySchema = z.enum([
   "diff-summarizer",
   "simulated-asker",
   "agent-smith",
+  "researcher",
 ]);
 export type AgentInputPolicy = z.infer<typeof AgentInputPolicySchema>;
 
@@ -98,6 +99,20 @@ const policyFields: Record<
   "agent-smith": {
     allowed: ["request", "constraints", "existingDefinitions"],
     required: ["request", "constraints"],
+  },
+  // Researcher: minimal whitelist. Source/documentation text is DATA only —
+  // cannot grant tools or widen permissions. Tools come from the ingest
+  // allowlist, not from projected input fields.
+  researcher: {
+    allowed: [
+      "questionId",
+      "question",
+      "facets",
+      "goals",
+      "documentation",
+      "receipts",
+    ],
+    required: ["questionId", "question"],
   },
 };
 

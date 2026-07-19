@@ -1,0 +1,7 @@
+{
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FC0",
+  "question": "What are the retry limits for the delivery worker?",
+  "facets": ["constraint", "behavior"],
+  "goals": ["minimal-complete-references"],
+  "documentation": "Workers retry failed endpoints with exponential backoff."
+}

@@ -1,0 +1,13 @@
+{
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FB0",
+  "outcome": "no_evidence",
+  "receiptIds": ["rcpt-01ARZ3NDEKTSV4RRFFQ69G5FB0"],
+  "packet": {
+    "references": [],
+    "facetSupport": [],
+    "limits": {
+      "maxReferences": 32,
+      "maxFacetsPerReference": 8
+    }
+  }
+}

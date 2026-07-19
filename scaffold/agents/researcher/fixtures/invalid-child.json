@@ -1,0 +1,33 @@
+{
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "outcome": "packet",
+  "receiptIds": ["rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+  "childQuestions": [
+    {
+      "question": "How are refresh tokens rotated?"
+    }
+  ],
+  "packet": {
+    "references": [
+      {
+        "snapshotId": "snap-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "fileId": "file-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "unitSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "role": "primary",
+        "facetIds": ["facet-definition"]
+      }
+    ],
+    "facetSupport": [
+      {
+        "facetId": "facet-definition",
+        "referenceCount": 1
+      }
+    ],
+    "limits": {
+      "maxReferences": 32,
+      "maxFacetsPerReference": 8
+    }
+  }
+}
