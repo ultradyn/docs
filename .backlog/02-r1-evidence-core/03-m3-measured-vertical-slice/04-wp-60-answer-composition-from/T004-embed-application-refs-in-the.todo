@@ -1,18 +1,19 @@
 ---
 claimed_at: "2026-07-19T18:49:06Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T19:01:45Z"
 complexity: medium
 created_at: "2026-07-19T16:28:20Z"
 depends_on: []
+duration_minutes: 12.6622802419
 estimate_hours: 3
 id: P2.M3.E4.T004
 priority: medium
 started_at: "2026-07-19T18:49:06Z"
-status: in_progress
+status: done
 tags: []
 title: Embed application refs in the sealed pack so selection is auditable, not just reproducible
-updated_at: "2026-07-19T18:49:06Z"
+updated_at: "2026-07-19T19:01:45Z"
 ---
 Follow-up from the T-60-01 design brief. Proposed by River, refined by pi, deferred out of T-60-01 by the coordinator because it changes the committed pack shape.
 
