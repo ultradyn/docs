@@ -119,10 +119,7 @@ function reviewDraft(
 ): Record<string, unknown> {
   return {
     schemaVersion: 1,
-    id: `crv-${claimId.slice(4, 30).padEnd(26, "0").slice(0, 26)}`.replace(
-      /[^0-9A-HJKMNP-TV-Z]/gi,
-      "0",
-    ),
+    id: nextCrv(),
     claimId,
     expectedVersion: 1,
     decision: "accept" as ClaimReviewDecision,
@@ -133,15 +130,13 @@ function reviewDraft(
   };
 }
 
-/** Unique crv id per call for distinct applications. */
+/** Unique crv id per call for distinct applications (Crockford ULID body). */
 let crvSeq = 0;
 function nextCrv(): string {
   crvSeq += 1;
-  const body = `01ARZ3NDEKTSV4RRFFQ69G${String(crvSeq).padStart(5, "0")}`.slice(
-    0,
-    26,
-  );
-  return `crv-${body}`;
+  // 26 crockford chars; pad seq into last digits
+  const n = String(crvSeq).padStart(4, "0");
+  return `crv-01ARZ3NDEKTSV4RRFFQ69G${n}`;
 }
 
 async function acceptClaim(
@@ -250,12 +245,10 @@ describe("dual gate + membership authority", () => {
     expect(staled.value.some((c) => c.id === claim.id)).toBe(true);
 
     const result = await pack.build(QUESTION, REVISION);
-    // Dual gate: must not seal stale as accepted pack member.
-    if (result.ok) {
-      expect(result.value.claimIds).not.toContain(claim.id);
-    } else {
-      expect(result.code).toBe("STALE_CLAIM");
-    }
+    // Dual gate: fail-closed STALE_CLAIM (not silent exclude-and-continue).
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("STALE_CLAIM");
   });
 
   it("never uses ClaimStore.list / repository.list for membership (spy)", async () => {

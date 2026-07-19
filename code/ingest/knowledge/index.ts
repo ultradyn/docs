@@ -99,6 +99,13 @@ export {
   type CreateClaimReviewServiceOptions,
   type PacketCreationIdentityReader,
 } from "./claim-review-service.js";
+// T-60-01 — sealed claim pack (on-demand build; pack-safe membership).
+export {
+  createClaimPackService,
+  type ClaimPackError,
+  type ClaimPackService,
+  type CreateClaimPackServiceOptions,
+} from "./claim-pack-service.js";
 export * from "./obligation-service.js";
 export * from "./question-admissibility.js";
 // Explicit re-exports (was `export *`) so a testing helper added to this module

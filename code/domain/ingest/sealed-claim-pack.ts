@@ -12,10 +12,9 @@ import {
   ClaimIdSchema,
   ClaimSchema,
   type Claim,
-  type ClaimId,
 } from "./claim.js";
 import { QuestionIdSchema } from "./id-schemas.js";
-import type { GraphRevision, Sha256 } from "./types.js";
+import type { ClaimId, GraphRevision, Sha256 } from "./types.js";
 
 const Sha256Schema = z
   .string()

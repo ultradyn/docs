@@ -140,9 +140,12 @@ export {
   GraphOperationSchema,
   GraphRevisionSchema,
 } from "./graph-event.js";
-export const SealedClaimPackSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
+// T-60-01: full sealed pack schema lives in sealed-claim-pack.ts.
+export {
+  SealedClaimPackSchema,
+  QualifierEdgeSchema,
+  PackCitationSchema,
+} from "./sealed-claim-pack.js";
 export const AnswerCompositionSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();
