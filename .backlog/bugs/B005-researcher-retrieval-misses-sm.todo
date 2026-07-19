@@ -1,0 +1,35 @@
+---
+complexity: medium
+created_at: "2026-07-19T15:38:12Z"
+depends_on: []
+estimate_hours: 3
+id: B005
+priority: high
+status: pending
+tags:
+    - retrieval
+    - recall
+    - known-gap
+title: Researcher retrieval misses small-unit-18 and small-unit-22 (known labeled gap)
+updated_at: "2026-07-19T15:38:12Z"
+---
+Filed from T-30-03 calibration. This is a CONTENT/RETRIEVAL gap, explicitly NOT a threshold to relax.
+
+MEASURED: the v1 Researcher retrieval profile (maxCandidates=8, maxOpenedUnits=8, queryExpansion=false) retrieves 7 of 9 labeled relevant pairs. Recall 0.7778.
+
+THE TWO MISSES, named so they cannot be rounded away:
+- small-question-local -> small-unit-18 (Machine index)
+- small-question-local -> small-unit-22 (Provider)
+
+WHY THIS MATTERS MORE THAN THE NUMBER: T-30-03 established that under-retrieval and false no-evidence are the WORST failures this system can commit — hidden evidence is indistinguishable from absent evidence to everything downstream. So this is the system committing its worst failure on 22 percent of the labeled set. The 0.70 floor accepts that deliberately and temporarily; it does not make it fine.
+
+NOT FIXABLE BY CALIBRATION: measured across cap3/cap8/cap20 and openedUnits 3/8/20, with and without query expansion. Every configuration produces the same two false negatives. Widening limits only adds false positives (46 FP at the chosen profile, precision 0.132). Query expansion — including synonyms for machine, index and local — does not recover them either. So the fix is in retrieval CONTENT or the lexical index, not in limits.
+
+DO NOT resolve this by lowering the recall floor or by removing units 18/22 from the labeled set. Either would convert a caught deficiency into an uncaught one. The exact TP pin (7) and falseNegative pin (2) exist to make that tampering visible.
+
+ACCEPTANCE:
+- Determine WHY 18 and 22 are unreachable under the current lexical index (tokenisation? locator section boundaries? term overlap?).
+- Fix retrieval so they surface, then RAISE the pins to match the new measurement.
+- Test must fail if either unit stops surfacing again.
+
+Evidence: docs/engineering/researcher-retrieval-profile.md
