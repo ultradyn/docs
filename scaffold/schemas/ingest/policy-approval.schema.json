@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ultradyn.dev/schemas/ingest/policy-approval.schema.json",
+  "title": "PolicyApproval",
+  "description": "Durable, append-only approval record binding a canonical DataRightsPolicyProfile to its content digest and human provenance. Self-contained so a cold process can decide run authority from this record alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "profileId",
+    "profile",
+    "profileSha256",
+    "approvedBy",
+    "approvedAt",
+    "reason"
+  ],
+  "$comment": "There is deliberately no revocation, supersession, expiry, or deletion field. Changed content takes a NEW profile id rather than retargeting an existing approval. Draft 2020-12 cannot express the profileId-matches-embedded-id invariant, which stays native-owned in the Zod schema.",
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "profileId": { "type": "string", "minLength": 1 },
+    "profile": {
+      "$ref": "https://ultradyn.dev/schemas/ingest/data-rights-policy-profile.schema.json"
+    },
+    "profileSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "approvedBy": { "type": "string", "minLength": 1 },
+    "approvedAt": {
+      "type": "string",
+      "$comment": "Pattern rather than \"format\": date-time so the portable schema validates under a strict Draft 2020-12 checker with no format vocabulary loaded.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "reason": { "type": "string", "minLength": 1 }
+  }
+}

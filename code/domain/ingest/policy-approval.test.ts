@@ -56,7 +56,15 @@ function portable(name: string) {
 
 function compile(name: string) {
   const Ajv2020 = Ajv2020Module.default;
-  return new Ajv2020({ allErrors: true, strict: true }).compile(portable(name));
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  // The portable approval schema $refs the portable profile schema by $id
+  // rather than duplicating it, so both must be registered to resolve.
+  ajv.addSchema(portable("data-rights-policy-profile.schema.json"));
+  return name === "data-rights-policy-profile.schema.json"
+    ? ajv.getSchema(
+        "https://ultradyn.dev/schemas/ingest/data-rights-policy-profile.schema.json",
+      )!
+    : ajv.compile(portable(name));
 }
 
 describe("the durable approval record is strict", () => {

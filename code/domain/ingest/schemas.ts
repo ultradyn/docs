@@ -1,5 +1,7 @@
 import { z } from "zod";
 export { CoverageObligationRecordSchema as CoverageObligationSchema } from "./coverage-obligation.js";
+export { DataRightsPolicyProfileSchema } from "./data-rights-policy-profile.js";
+export { PolicyApprovalSchema } from "./policy-approval.js";
 export { PolicyProfileSchema } from "./policy-profile.js";
 export { IngestionQuestionLinkSchema } from "./question-link.js";
 import {

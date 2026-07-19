@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { canonicalDataRightsPolicyProfile } from "../../domain/ingest/index.js";
+
 import {
   createFilePolicyApprovalStore,
   createInMemoryPolicyApprovalStore,
@@ -315,7 +317,12 @@ describe("run authority survives a process restart", () => {
     const allowed = await durable().assertRunAllowed(candidate.id);
     expect(allowed.ok).toBe(true);
     if (!allowed.ok) return;
-    expect(allowed.value.profile).toEqual(candidate);
+    // The record stores the CANONICAL profile, since that is what the digest
+    // commits to. Comparing against the raw candidate would assert storage
+    // order rather than self-containment.
+    expect(allowed.value.profile).toEqual(
+      canonicalDataRightsPolicyProfile(candidate),
+    );
   });
 
   it("still refuses an unapproved id after a restart", async () => {

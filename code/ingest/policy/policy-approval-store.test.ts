@@ -1,4 +1,12 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -123,15 +131,18 @@ describe.each(implementations)(
     });
 
     it("rejects a record whose embedded identity disagrees with its key", async () => {
+      // The leaf name is a hash of an untrusted id, so the embedded identity is
+      // what proves which profile a record describes. Binding one profile's
+      // approval under another's name must fail rather than store.
       const store = make();
       const mismatched = await store.publish(
         approval({ profileId: "policy-something-else" }),
       );
-      expect(mismatched.ok).toBe(true);
+      expect(mismatched.ok).toBe(false);
       const read = await store.read("policy-something-else");
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      expect(read.value?.profileId).toBe("policy-something-else");
+      expect(read.value).toBeUndefined();
     });
 
     it("returns records the caller cannot mutate in place", async () => {
@@ -223,15 +234,19 @@ describe("the file adapter fails closed on hostile custody", () => {
   it("keys an untrusted profile id safely rather than trusting it as a path", async () => {
     // Ids are attacker-influenced strings. The leaf name must be a hash, and
     // the record's embedded identity is what proves which profile it describes.
+    const hostileId = "policy with spaces and: colons";
     const store = createFilePolicyApprovalStore({ root });
     const published = await store.publish(
-      approval({ profileId: "policy with spaces and: colons" }),
+      approval({
+        profileId: hostileId,
+        profile: { ...canonicalProfile, id: hostileId },
+      }),
     );
     expect(published.ok).toBe(true);
-    const read = await store.read("policy with spaces and: colons");
+    const read = await store.read(hostileId);
     expect(read.ok).toBe(true);
     if (!read.ok) return;
-    expect(read.value?.profileId).toBe("policy with spaces and: colons");
+    expect(read.value?.profileId).toBe(hostileId);
   });
 
   it("refuses to publish through a symlinked approval root", async () => {
@@ -313,6 +328,42 @@ describe("the file adapter fails closed on hostile custody", () => {
     expect(read.ok).toBe(true);
     if (!read.ok) return;
     expect(read.value).toBeUndefined();
+  });
+
+  it("refuses a root swapped for a symlink between two operations", async () => {
+    // Deterministic root swap: the first publish binds a real directory, the
+    // root is then replaced with a link to attacker-controlled storage, and the
+    // second operation must refuse rather than follow it.
+    const store = createFilePolicyApprovalStore({ root: join(root, "live") });
+    await mkdir(join(root, "live"), { recursive: true });
+    const first = await store.publish(approval());
+    expect(first.ok).toBe(true);
+
+    const attacker = await mkdtemp(join(tmpdir(), "policy-attacker-"));
+    await rename(join(root, "live"), join(root, "live-real"));
+    await symlink(attacker, join(root, "live"));
+
+    const afterSwap = await store.read(canonicalProfile.id);
+    expect(afterSwap.ok).toBe(false);
+    if (afterSwap.ok) return;
+    expect(afterSwap.code).toBe("CUSTODY_UNAVAILABLE");
+
+    // Nothing may have been written into the attacker's tree.
+    expect(await readdir(attacker)).toEqual([]);
+    await rm(attacker, { recursive: true, force: true });
+  });
+
+  it("performs no I/O outside the root when descriptor binding is unavailable", async () => {
+    const attacker = await mkdtemp(join(tmpdir(), "policy-attacker-"));
+    const result = await createFilePolicyApprovalStore({
+      root,
+      capabilities: { openDirectory: async () => undefined },
+    }).publish(approval());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("CUSTODY_UNAVAILABLE");
+    expect(await readdir(attacker)).toEqual([]);
+    await rm(attacker, { recursive: true, force: true });
   });
 
   it("accepts a retry after an interrupted publication", async () => {

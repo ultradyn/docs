@@ -8,10 +8,12 @@ import {
   ClaimReviewSchema,
   ClaimSchema,
   CoverageObligationSchema,
+  DataRightsPolicyProfileSchema,
   EvidencePacketSchema,
   EvidenceVerdictSchema,
   GraphEventSchema,
   IngestionQuestionLinkSchema,
+  PolicyApprovalSchema,
   PolicyProfileSchema,
   SearchReceiptSchema,
   SealedClaimPackSchema,
@@ -22,6 +24,8 @@ import {
 
 const schemas = {
   PolicyProfile: PolicyProfileSchema,
+  DataRightsPolicyProfile: DataRightsPolicyProfileSchema,
+  PolicyApproval: PolicyApprovalSchema,
   SourceSnapshot: SourceSnapshotSchema,
   SourceFile: SourceFileSchema,
   SourceRepresentation: SourceRepresentationSchema,

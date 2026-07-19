@@ -4,6 +4,7 @@ import {
   DATA_RIGHTS_POLICY_LIMITS,
   DataRightsPolicyProfileSchema,
   canonicalDataRightsPolicyProfile,
+  type DataRightsPolicyProfile,
 } from "./data-rights-policy-profile.js";
 
 // Id vocabulary (binding for T-13-02, which must not invent ids).
@@ -44,6 +45,13 @@ const confidentialProfile = {
 
 function withField(overrides: Record<string, unknown>): unknown {
   return { ...confidentialProfile, ...overrides };
+}
+
+/** The canonicalization suite works on values that are valid by construction;
+ * withField is deliberately untyped because it is shared with the rejection
+ * suites, so this narrows at the call site rather than weakening the helper. */
+function profile(value: unknown): DataRightsPolicyProfile {
+  return value as DataRightsPolicyProfile;
 }
 
 function withoutField(field: string): unknown {
@@ -276,14 +284,18 @@ describe("canonicalization is digest-stable without disturbing stored order", ()
       allowedMediaTypes: ["text/markdown"],
       cache: ["principalId", "profileId"],
     });
-    expect(canonicalDataRightsPolicyProfile(confidentialProfile)).toEqual(
-      canonicalDataRightsPolicyProfile(reordered),
-    );
+    expect(
+      canonicalDataRightsPolicyProfile(profile(confidentialProfile)),
+    ).toEqual(canonicalDataRightsPolicyProfile(profile(reordered)));
   });
 
   it("produces different canonical forms when a value actually differs", () => {
-    expect(canonicalDataRightsPolicyProfile(confidentialProfile)).not.toEqual(
-      canonicalDataRightsPolicyProfile(withField({ retentionDays: 366 })),
+    expect(
+      canonicalDataRightsPolicyProfile(profile(confidentialProfile)),
+    ).not.toEqual(
+      canonicalDataRightsPolicyProfile(
+        profile(withField({ retentionDays: 366 })),
+      ),
     );
   });
 
@@ -296,7 +308,7 @@ describe("canonicalization is digest-stable without disturbing stored order", ()
       cache: ["profileId", "principalId"],
     };
     const before = structuredClone(input);
-    canonicalDataRightsPolicyProfile(input);
+    canonicalDataRightsPolicyProfile(profile(input));
     expect(input).toEqual(before);
   });
 });
