@@ -49,5 +49,6 @@ tasks:
       file: T004-t-12-04-benchmark-optional-sem.todo
       id: T004
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: T-12-04 — Benchmark optional semantic retrieval
