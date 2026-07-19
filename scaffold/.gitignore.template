@@ -20,3 +20,7 @@ playwright-report/
 
 # agent worktrees
 .worktrees/
+
+# agent tooling state
+.c2c/
+.pi/
