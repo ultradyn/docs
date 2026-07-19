@@ -393,6 +393,33 @@ export function createInMemoryCoverageObligationEventWriter(): CoverageObligatio
       return { status: "reserved" as const, obligationId: id };
     },
     append: async (command) => {
+      const prior = records.get(command.obligationId);
+      if (prior) {
+        // Idempotent same-key re-append of identical stream position
+        const hist = histories.get(command.obligationId) ?? [];
+        const sameKey = hist.some(
+          (e) =>
+            typeof e === "object" &&
+            e !== null &&
+            "idempotencyKey" in e &&
+            (e as { idempotencyKey: string }).idempotencyKey ===
+              command.idempotencyKey,
+        );
+        if (sameKey) {
+          return { status: "idempotent" as const, event: command.event };
+        }
+        if (command.expectedVersion !== prior.version) {
+          return {
+            status: "version_conflict" as const,
+            currentVersion: prior.version,
+          };
+        }
+      } else if (command.expectedVersion !== 0) {
+        return {
+          status: "version_conflict" as const,
+          currentVersion: 0,
+        };
+      }
       if (command.claimUnresolvedOwnerQuestionId) {
         const owner = command.claimUnresolvedOwnerQuestionId;
         const existing = unresolvedOwner.get(owner);
@@ -891,6 +918,27 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
     const decision = assessQuestionProposal(envelope);
     if (!decision.admitted) return failure("ADMISSION_REJECTED");
 
+    // Reserve obligation id FIRST so intent journals the store-authoritative id
+    const reserve = await deps.obligations.reserveCreate({
+      idempotencyKey: `reserve:${command.idempotencyKey}`,
+      commandDigest: digest,
+      allocateObligationId: () => obligationId,
+    });
+    let effectiveObligationId: ObligationId;
+    switch (reserve.status) {
+      case "reserved":
+      case "idempotent":
+        effectiveObligationId = reserve.obligationId;
+        break;
+      case "idempotency_conflict":
+        return failure("IDEMPOTENCY_CONFLICT");
+      default: {
+        const _exhaustive: never = reserve;
+        void _exhaustive;
+        return failure("COMMIT_FAILED");
+      }
+    }
+
     await deps.commits.writeIntent({
       key: intentKey,
       commandDigest: digest,
@@ -899,7 +947,7 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
       sourceUnitIds: op.sourceUnitIds,
       ...(op.parentQuestionId ? { parentQuestionId: op.parentQuestionId } : {}),
       precursorQuestionId: questionId,
-      precursorObligationId: obligationId,
+      precursorObligationId: effectiveObligationId,
       phase: "precursors",
     });
 
@@ -927,14 +975,9 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
     const linkOutcome = await adoptOrCreateLink(deps.links, link);
     if (linkOutcome === "exists_conflict") return failure("COMMIT_FAILED");
 
-    await deps.obligations.reserveCreate({
-      idempotencyKey: `reserve:${command.idempotencyKey}`,
-      commandDigest: digest,
-      allocateObligationId: () => obligationId,
-    });
     const obligationRecord = {
       schemaVersion: 1 as const,
-      id: obligationId,
+      id: effectiveObligationId,
       questionId: questionId as QuestionId,
       trigger: "source_unit",
       ownerQuestionId: questionId as QuestionId,
@@ -942,13 +985,13 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
       version: 1,
     };
     const appendResult = await deps.obligations.append({
-      obligationId,
+      obligationId: effectiveObligationId,
       expectedVersion: 0,
       idempotencyKey: `obl:${command.idempotencyKey}`,
       commandDigest: digest,
       claimUnresolvedOwnerQuestionId: questionId as QuestionId,
       event: {
-        obligationId,
+        obligationId: effectiveObligationId,
         idempotencyKey: `obl:${command.idempotencyKey}`,
         type: "assigned",
         version: 1,
@@ -958,8 +1001,22 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
         obligation: obligationRecord,
       },
     });
-    if (appendResult.status === "ownership_conflict") {
-      return failure("COMMIT_FAILED");
+    // Exhaustive arms — no fallthrough success (compile-enforced)
+    switch (appendResult.status) {
+      case "appended":
+      case "idempotent":
+        break;
+      case "version_conflict":
+        return failure("COMMIT_FAILED");
+      case "idempotency_conflict":
+        return failure("IDEMPOTENCY_CONFLICT");
+      case "ownership_conflict":
+        return failure("COMMIT_FAILED");
+      default: {
+        const _exhaustive: never = appendResult;
+        void _exhaustive;
+        return failure("COMMIT_FAILED");
+      }
     }
 
     if (hooks.afterPrecursorBeforeCommit) {
@@ -969,7 +1026,7 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
     return finalizeCommit({
       command,
       questionId,
-      obligationId,
+      obligationId: effectiveObligationId,
       intentKey,
     });
   }

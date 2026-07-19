@@ -252,14 +252,24 @@ describe("authoritative integration", () => {
     const retry = await g2.apply(cmd("ia-same-key", 0, CONCRETE_WORDING));
     expect(retry.ok).toBe(true);
     if (!retry.ok) return;
+    // Discriminating: commit must reference THIS resume's subject ids (not merely
+    // that an orphan count equals one — that would pass if append were a no-op).
     expect(await g2.listCommits()).toHaveLength(1);
-    expect(await g2.countGeneratedQuestions()).toBeGreaterThanOrEqual(1);
-    expect(await g2.countGeneratedLinks()).toBe(1);
-    expect(await g2.countSelfOwnedUnresolvedObligations()).toBeGreaterThanOrEqual(
-      1,
+    expect(retry.value.createdQuestionId).toMatch(/^q-/);
+    expect(retry.value.createdObligationId).toMatch(/^obl-/);
+    expect(await g2.isReachableViaCommit(retry.value.createdQuestionId!)).toBe(
+      true,
     );
+    expect(
+      await g2.isReachableViaCommit(retry.value.createdObligationId!),
+    ).toBe(true);
+    expect(await g2.countGeneratedLinks()).toBe(1);
+    expect(await g2.countSelfOwnedUnresolvedObligations()).toBe(1);
+    // Commit event subjectIds bind the obligation this resume finalized
+    const subjects = retry.value.events.flatMap((e) => e.subjectIds);
+    expect(subjects).toContain(retry.value.createdObligationId);
 
-    // Retry twice: still exactly one commit
+    // Retry twice: still exactly one commit (idempotent)
     const again = await g2.apply(cmd("ia-same-key", 0, CONCRETE_WORDING));
     expect(again.ok && again.value.commitId).toBe(retry.value.commitId);
     expect(await g2.listCommits()).toHaveLength(1);
