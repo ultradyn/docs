@@ -29,7 +29,8 @@ tasks:
       file: T002-t-12-02-build-exact-maps-and-a.todo
       id: T002
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: T-12-02 — Build exact maps and aliases
     - complexity: high
       depends_on:
