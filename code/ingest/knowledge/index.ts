@@ -62,9 +62,10 @@ export {
   type TypeSignal,
 } from "./claim-candidates.js";
 // Claim review application (T-22-03 authority boundary).
+// createInMemoryClaimReviewApplicationStore is testing-only — import from the
+// module path, not this barrel (same discipline as createInMemoryClaimStore).
 export {
   createClaimReviewService,
-  createInMemoryClaimReviewApplicationStore,
   isEligibleForAcceptedPack,
   listAcceptedClaimIds,
   normaliseRunIdentity,

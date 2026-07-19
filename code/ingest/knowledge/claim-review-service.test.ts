@@ -680,6 +680,45 @@ describe("hygiene", () => {
     expect(typeof barrel.createClaimReviewService).toBe("function");
     expect(typeof barrel.isEligibleForAcceptedPack).toBe("function");
     expect(typeof barrel.listAcceptedClaimIds).toBe("function");
+    // In-memory application store stays off the barrel (T-22-01 discipline).
+    expect(
+      (barrel as { createInMemoryClaimReviewApplicationStore?: unknown })
+        .createInMemoryClaimReviewApplicationStore,
+    ).toBeUndefined();
+  });
+
+  it("listAcceptedClaimIds is pure over its argument (partial set weakens exclusion)", () => {
+    const acceptedOnly = {
+      schemaVersion: 1 as const,
+      applicationId: "cra-partial-a",
+      reviewApplicationRef: "cra-partial-a",
+      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAV" as ClaimReview["id"],
+      claimId: "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV" as ClaimId,
+      decision: "accept" as const,
+      acceptedClaimIds: ["clm-01ARZ3NDEKTSV4RRFFQ69G5FAV" as ClaimId],
+      rejectedClaimIds: [] as ClaimId[],
+      splitClaimIds: [] as ClaimId[],
+      provenanceLinks: [],
+      reviewerRunId: REVIEWER_RUN,
+      idempotencyKey: "partial-a",
+    };
+    const rejectSame = {
+      ...acceptedOnly,
+      applicationId: "cra-partial-b",
+      reviewApplicationRef: "cra-partial-b",
+      decision: "reject" as const,
+      acceptedClaimIds: [] as ClaimId[],
+      rejectedClaimIds: ["clm-01ARZ3NDEKTSV4RRFFQ69G5FAV" as ClaimId],
+      idempotencyKey: "partial-b",
+    };
+    // Complete set: rejection wins
+    expect(listAcceptedClaimIds([acceptedOnly, rejectSame])).not.toContain(
+      "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    );
+    // Partial set (missing rejection): claim appears accepted — documents precondition
+    expect(listAcceptedClaimIds([acceptedOnly])).toContain(
+      "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    );
   });
 });
 

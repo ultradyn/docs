@@ -10,7 +10,10 @@
  * - Durable idempotency: ClaimReviewApplicationStore remembers the APPLICATION
  *   (not a claim); lookup MUST return the prior application and never re-apply.
  * - Split: multi-create under store.locked + operation-intent journal; incomplete
- *   splits never produce a durable application.
+ *   splits never produce a durable application. HONEST RESIDUAL: a crash mid-split
+ *   can leave unreferenced claim records (append-only custody cannot delete
+ *   orphans); no application points at them until recovery completes. Child task
+ *   may add orphan GC / intent-driven resume.
  * - qualify: FAIL CLOSED with QUALIFY_UNSUPPORTED (not silent no-op) until
  *   qualifierClaimIds linking is implemented (child task).
  *
@@ -250,10 +253,17 @@ export function isEligibleForAcceptedPack(
 }
 
 /**
- * SAFE DEFAULT accessor for pack builders: every id that appears in any
- * application's acceptedClaimIds, MINUS any id that appears in any
- * application's rejectedClaimIds. A rejected claim can never appear here
- * without a deliberate opt-out (there is none).
+ * Pack-safe accepted ids over the applications array you pass.
+ *
+ * PRECONDITION: `applications` MUST be the COMPLETE durable set of review
+ * applications. This function is pure over its argument — a PARTIAL set
+ * (e.g. in-process only after restart, or a filtered subset) silently weakens
+ * exclusion: a claim accepted in a supplied application but rejected in a
+ * missing one will still appear as accepted. Callers that cannot load the full
+ * durable set must not use this as an authority boundary.
+ *
+ * Given a complete set: every id in any acceptedClaimIds, MINUS any id in any
+ * rejectedClaimIds. There is no opt-out flag on the function itself.
  *
  * Residual: builders that ignore this API and read ClaimStore directly still
  * see proposed claims; that gap is T-32+ pack-builder scope.
