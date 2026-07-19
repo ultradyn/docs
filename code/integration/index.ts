@@ -18,6 +18,22 @@ export {
   type IngestMetrics,
 } from "./ingest-metrics.js";
 export {
+  compareRetrievalRuns,
+  renderSemanticBenchmarkResult,
+  runSemanticBenchmark,
+  SEMANTIC_BENCHMARK_LIMITS,
+  SEMANTIC_BENCHMARK_THRESHOLDS,
+  type BenchmarkCorpus,
+  type BenchmarkFixtureProvenance,
+  type RetrievalBenchmarkCase,
+  type RetrievalBenchmarkRun,
+  type RetrievalComparison,
+  type RetrievalRunMetrics,
+  type RetrievalStrategy,
+  type SemanticBenchmarkCandidateResult,
+  type SemanticBenchmarkResult,
+} from "./ingest-semantic-benchmark.js";
+export {
   nodeFileReader,
   validateIngestBundle,
   type BundleValidationReport,

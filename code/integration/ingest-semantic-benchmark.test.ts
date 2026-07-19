@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
@@ -10,7 +11,7 @@ import {
   renderSemanticBenchmarkResult,
   runSemanticBenchmark,
   type RetrievalBenchmarkRun,
-} from "./ingest-semantic-benchmark.js";
+} from "./index.js";
 
 const provenance = [
   {
@@ -33,46 +34,48 @@ function run(
   latencies: readonly number[],
   costs: readonly number[],
 ): RetrievalBenchmarkRun {
-  const cases = [
-    {
-      caseId: "tiny-purpose",
-      corpus: "tiny",
-      relevantUnitIds: ["tiny-unit-overview"],
-    },
-    {
-      caseId: "tiny-settings",
-      corpus: "tiny",
-      relevantUnitIds: [
-        "tiny-unit-procedure",
-        "tiny-unit-conflicting-procedure",
-      ],
-    },
-    {
-      caseId: "tiny-export",
-      corpus: "tiny",
-      relevantUnitIds: ["tiny-unit-legacy-export"],
-    },
-    {
-      caseId: "tiny-unsupported",
-      corpus: "tiny",
-      relevantUnitIds: [],
-    },
-    {
-      caseId: "small-custody",
-      corpus: "small",
-      relevantUnitIds: ["small-unit-04", "small-unit-09"],
-    },
-    {
-      caseId: "small-state",
-      corpus: "small",
-      relevantUnitIds: ["small-unit-15"],
-    },
-    {
-      caseId: "small-local",
-      corpus: "small",
-      relevantUnitIds: ["small-unit-18", "small-unit-22"],
-    },
-  ].map((fixtureCase, index) => ({
+  const cases = (
+    [
+      {
+        caseId: "tiny-purpose",
+        corpus: "tiny",
+        relevantUnitIds: ["tiny-unit-overview"],
+      },
+      {
+        caseId: "tiny-settings",
+        corpus: "tiny",
+        relevantUnitIds: [
+          "tiny-unit-procedure",
+          "tiny-unit-conflicting-procedure",
+        ],
+      },
+      {
+        caseId: "tiny-export",
+        corpus: "tiny",
+        relevantUnitIds: ["tiny-unit-legacy-export"],
+      },
+      {
+        caseId: "tiny-unsupported",
+        corpus: "tiny",
+        relevantUnitIds: [],
+      },
+      {
+        caseId: "small-custody",
+        corpus: "small",
+        relevantUnitIds: ["small-unit-04", "small-unit-09"],
+      },
+      {
+        caseId: "small-state",
+        corpus: "small",
+        relevantUnitIds: ["small-unit-15"],
+      },
+      {
+        caseId: "small-local",
+        corpus: "small",
+        relevantUnitIds: ["small-unit-18", "small-unit-22"],
+      },
+    ] as const
+  ).map((fixtureCase, index) => ({
     ...fixtureCase,
     selectedUnitIds: [...selections[index]!],
     latencyMs: latencies[index]!,
@@ -146,14 +149,14 @@ describe("offline semantic retrieval benchmark", () => {
 
   it("reports exact quality, nearest-rank p95 latency, and AUD cost deltas together", () => {
     expect(compareRetrievalRuns(lexical, dense)).toEqual({
-      recallDelta: 1 / 9,
+      recallDelta: 7 / 9 - 2 / 3,
       precisionDelta: 0.7 - 1,
       p95LatencyDeltaMs: 25,
       costDeltaAud: 0.007,
       activation: "disabled",
     });
     expect(compareRetrievalRuns(lexical, hybrid)).toEqual({
-      recallDelta: 1 / 9,
+      recallDelta: 7 / 9 - 2 / 3,
       precisionDelta: 0,
       p95LatencyDeltaMs: 11,
       costDeltaAud: 0.0035,
@@ -222,6 +225,36 @@ describe("offline semantic retrieval benchmark", () => {
     });
   });
 
+  it("still requires a future ADR rather than activating a qualifying candidate", () => {
+    const qualifying = run(
+      "hybrid",
+      [
+        ["tiny-unit-overview"],
+        ["tiny-unit-procedure", "tiny-unit-conflicting-procedure"],
+        ["tiny-unit-legacy-export"],
+        [],
+        ["small-unit-04", "small-unit-09"],
+        ["small-unit-15"],
+        ["small-unit-18", "small-unit-22"],
+      ],
+      [4, 5, 4, 5, 6, 5, 6],
+      [0, 0, 0, 0, 0, 0, 0],
+    );
+
+    const result = runSemanticBenchmark(lexical, [qualifying]);
+
+    expect(result.candidates[0]).toMatchObject({
+      thresholdMet: true,
+      activation: "disabled",
+    });
+    expect(result.decision).toEqual({
+      activation: "disabled",
+      migrationRequired: false,
+      futureAdrRequired: true,
+      reason: "future-adr-required",
+    });
+  });
+
   it("emits a stable portable receipt with metrics but no query or source text", () => {
     const rendered = renderSemanticBenchmarkResult(
       runSemanticBenchmark(lexical, [dense, hybrid]),
@@ -238,6 +271,45 @@ describe("offline semantic retrieval benchmark", () => {
     expect(rendered).not.toContain("relevantUnitIds");
   });
 
+  it("reproduces the committed machine result exactly from committed fake runs", async () => {
+    const directory = new URL("./fixtures/ingest-results/", import.meta.url);
+    const runs = JSON.parse(
+      await readFile(
+        new URL("semantic-benchmark-runs.json", directory),
+        "utf8",
+      ),
+    ) as {
+      lexical: RetrievalBenchmarkRun;
+      candidates: RetrievalBenchmarkRun[];
+    };
+    const expected = await readFile(
+      new URL("semantic-benchmark-result.json", directory),
+      "utf8",
+    );
+
+    expect(
+      renderSemanticBenchmarkResult(
+        runSemanticBenchmark(runs.lexical, runs.candidates),
+      ),
+    ).toBe(expected);
+  });
+
+  it("binds provenance to the current committed expected graphs", async () => {
+    const corpusDirectory = new URL(
+      "./fixtures/ingest-corpus/",
+      import.meta.url,
+    );
+
+    for (const fixture of provenance) {
+      const bytes = await readFile(
+        new URL(`${fixture.corpus}/expected-graph.json`, corpusDirectory),
+      );
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+        fixture.expectedGraphSha256,
+      );
+    }
+  });
+
   it("strictly rejects unknown, mismatched, duplicate, and unbounded input", () => {
     expect(() =>
       compareRetrievalRuns(
@@ -250,7 +322,7 @@ describe("offline semantic retrieval benchmark", () => {
         ...dense,
         cases: dense.cases.slice(1),
       }),
-    ).toThrow(/case.*match/i);
+    ).toThrow(/match.*case|case.*match/i);
     expect(() =>
       compareRetrievalRuns(lexical, {
         ...dense,
