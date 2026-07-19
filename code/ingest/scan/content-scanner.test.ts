@@ -114,9 +114,7 @@ describe("workflow — action selection", () => {
     expect(
       (store as { delete?: unknown; erase?: unknown; purge?: unknown }).delete,
     ).toBeUndefined();
-    expect(
-      (store as { erase?: unknown }).erase,
-    ).toBeUndefined();
+    expect((store as { erase?: unknown }).erase).toBeUndefined();
   });
 });
 
@@ -170,7 +168,9 @@ describe("AC3 — proposed commit with prohibited material fails", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(["PROHIBITED_MATERIAL", "PROHIBITED_CLASS"]).toContain(result.code);
+      expect(["PROHIBITED_MATERIAL", "PROHIBITED_CLASS"]).toContain(
+        result.code,
+      );
     }
   });
 
@@ -198,7 +198,11 @@ describe("workflow — detectors and bounds", () => {
         createSeededSecretAdapter(SEEDED_SECRET),
         createEmailPiiAdapter(),
       ],
-      policy: policy({ secret: "allow", pii: "redact", defaultAction: "allow" }),
+      policy: policy({
+        secret: "allow",
+        pii: "redact",
+        defaultAction: "allow",
+      }),
     });
     const result = await scanner.scanForModelExposure(
       "contact me at alice@example.com please",
@@ -229,15 +233,14 @@ describe("workflow — detectors and bounds", () => {
 
 describe("registry + barrel", () => {
   it("registers ScanPolicy / ScanVerdict in schema registry", async () => {
-    const { ingestSchemaRegistry } = await import(
-      "../../domain/ingest/schema-registry.js"
-    );
+    const { ingestSchemaRegistry } =
+      await import("../../domain/ingest/schema-registry.js");
     expect(() => ingestSchemaRegistry.get("ScanPolicy", 1)).not.toThrow();
     expect(() => ingestSchemaRegistry.get("ScanVerdict", 1)).not.toThrow();
     const policySchema = ingestSchemaRegistry.get("ScanPolicy", 1);
-    expect(
-      policySchema.safeParse({ schemaVersion: 1, id: "x" }).success,
-    ).toBe(false);
+    expect(policySchema.safeParse({ schemaVersion: 1, id: "x" }).success).toBe(
+      false,
+    );
   });
 
   it("domain barrel re-exports ScanPolicySchema", async () => {

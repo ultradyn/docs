@@ -63,7 +63,10 @@ describe("AC1 — seeded secret blocked before model event", () => {
   });
 
   it("blocks BEFORE a faked model event is invoked", async () => {
-    const modelEvent = vi.fn(async () => ({ tokens: 1 }));
+    const modelEvent = vi.fn(async (..._args: unknown[]) => {
+      void _args;
+      return { tokens: 1 };
+    });
     const scanner = createContentScanner({
       adapters: [createSeededSecretAdapter(SEEDED_SECRET)],
       policy: defaultPolicy(),
@@ -82,7 +85,10 @@ describe("AC1 — seeded secret blocked before model event", () => {
   });
 
   it("clean text does not block and allows model event path", async () => {
-    const modelEvent = vi.fn(async () => ({ tokens: 1 }));
+    const modelEvent = vi.fn(async (..._args: unknown[]) => {
+      void _args;
+      return { tokens: 1 };
+    });
     const scanner = createContentScanner({
       adapters: [createSeededSecretAdapter(SEEDED_SECRET)],
       policy: defaultPolicy(),
@@ -170,7 +176,8 @@ describe("public surface discipline", () => {
   it("scan testing fakes are not re-exported from content-scanner barrel path", async () => {
     const mod = await import("./content-scanner.js");
     expect(
-      (mod as { createSeededSecretAdapter?: unknown }).createSeededSecretAdapter,
+      (mod as { createSeededSecretAdapter?: unknown })
+        .createSeededSecretAdapter,
     ).toBeUndefined();
   });
 });

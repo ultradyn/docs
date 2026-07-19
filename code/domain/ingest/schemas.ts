@@ -118,6 +118,14 @@ export { SearchReceiptSchema } from "./search-receipt.js";
 export { EvidencePacketSchema } from "./evidence-packet.js";
 export { EvidenceVerdictSchema } from "./evidence-verdict.js";
 export { ClaimSchema } from "./claim.js";
+export {
+  ScanPolicySchema,
+  ScanVerdictSchema,
+  ScanFindingSchema,
+  ScanFindingKindSchema,
+  ScanActionSchema,
+  ScanSpanSchema,
+} from "./content-scan.js";
 export const ClaimReviewSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();

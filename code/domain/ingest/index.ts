@@ -1,4 +1,5 @@
 export * from "./claim.js";
+export * from "./content-scan.js";
 export * from "./coverage-obligation.js";
 export * from "./data-rights-policy-profile.js";
 export * from "./evidence-packet.js";

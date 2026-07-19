@@ -15,6 +15,8 @@ import {
   IngestionQuestionLinkSchema,
   PolicyApprovalSchema,
   PolicyProfileSchema,
+  ScanPolicySchema,
+  ScanVerdictSchema,
   SearchReceiptSchema,
   SealedClaimPackSchema,
   SourceFileSchema,
@@ -41,6 +43,8 @@ const schemas = {
   GraphEvent: GraphEventSchema,
   SealedClaimPack: SealedClaimPackSchema,
   AnswerComposition: AnswerCompositionSchema,
+  ScanPolicy: ScanPolicySchema,
+  ScanVerdict: ScanVerdictSchema,
 } satisfies Record<string, z.ZodType>;
 
 export type IngestSchemaName = keyof typeof schemas;

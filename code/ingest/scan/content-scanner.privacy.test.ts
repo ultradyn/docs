@@ -5,7 +5,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { SourceFileId, SourceRepresentationId } from "../../domain/ingest/index.js";
+import type {
+  SourceFileId,
+  SourceRepresentationId,
+} from "../../domain/ingest/index.js";
 import type { SourceRepresentation } from "../../domain/ingest/representation-records.js";
 
 import { createContentScanner } from "./content-scanner.js";
@@ -68,11 +71,12 @@ function sampleRepresentation(
 describe("AC2 — redaction preserves authorized source mapping", () => {
   it("exports redactRepresentation on content scanner", async () => {
     const mod = await import("./content-scanner.js");
-    const scanner = (mod as { createContentScanner: typeof createContentScanner })
-      .createContentScanner?.({
-        adapters: [createSeededSecretAdapter(SEEDED_SECRET)],
-        policy: policyRedact(),
-      });
+    const scanner = (
+      mod as { createContentScanner: typeof createContentScanner }
+    ).createContentScanner?.({
+      adapters: [createSeededSecretAdapter(SEEDED_SECRET)],
+      policy: policyRedact(),
+    });
     expect(scanner).toBeDefined();
     expect(typeof scanner?.redactRepresentation).toBe("function");
   });
