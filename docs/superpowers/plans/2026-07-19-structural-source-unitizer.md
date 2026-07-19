@@ -217,7 +217,7 @@ For each case write the test, verify it fails if not already covered, then imple
 - malformed/prototype-shaped top-level and nested input;
 - non-empty file with empty/unmappable representation.
 
-Expected `AUDIT_REQUIRED` for qualification/binding cases; `TEXT_DROPPED` for non-empty unmappable input.
+Expected `AUDIT_REQUIRED` for qualification/binding cases, including non-empty unmappable input that cannot produce an eligible audit. `TEXT_DROPPED` is reserved for structural/coverage failures reached after a fresh eligible audit.
 
 - [ ] **Step 7: Run and commit**
 

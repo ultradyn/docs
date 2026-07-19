@@ -97,7 +97,7 @@ Any failure returns `AUDIT_REQUIRED` without partial units. The message names th
 
 Every non-empty qualified representation produces one `document` root. Its range spans the first through last audited representation locator, including leading/trailing separators. It is a container and does not participate in selected-text accounting. This also gives a whitespace-only non-empty representation an honest document locator even though it has no atomic selected units.
 
-A genuinely empty source (`sourceFile.size === 0`, empty normalized text, empty locator map) produces one zero-length document unit at normalized/original offset 0, line 1, column 1. A non-empty source with empty normalized text or no usable locator fails `TEXT_DROPPED` because the unitizer cannot establish exact original provenance.
+A genuinely empty source (`sourceFile.size === 0`, empty normalized text, empty locator map) produces one zero-length document unit at normalized/original offset 0, line 1, column 1. A non-empty source with empty normalized text or no usable locator cannot have a claim-eligible fresh audit and therefore fails `AUDIT_REQUIRED` at qualification before structural parsing.
 
 ### Markdown adapter
 
@@ -211,8 +211,7 @@ Used when canonical qualification cannot be established:
 
 Used when qualified input cannot be represented completely and exactly:
 
-- non-empty input lacks usable locators;
-- malformed structural state such as unclosed Markdown fence;
+- malformed structural state such as unclosed Markdown fence after a fresh eligible audit;
 - locator composition is impossible;
 - required normalized text is uncovered or multiply selected;
 - derived IDs collide or tree/schema invariants fail.
