@@ -14,6 +14,14 @@
  *   grant and never sufficient for durable acceptance. Only
  *   ClaimAcceptanceAuthority on apply grants acceptance.
  * - Free-text reason → UntrustedProse after validate (B003).
+ * - Orchestrator join (T-22-03 ClaimReview.apply): ClaimReviewSchema.reason is a
+ *   plain optional string (.strict()). A validated proposal's reason is
+ *   UntrustedProse — Zod will refuse the class instance. Mapping requires
+ *   unwrapping via deliberatelyExposeUntrustedProseToModel. That hatch name is
+ *   model-shaped and MISLEADING for persistence: using it to fill ClaimReview
+ *   is not "model exposure", and grepping the hatch name will false-hit this
+ *   path. Documented residual — do not invent a second hatch here; rename only
+ *   when a real orchestrator caller justifies one rename with a real consumer.
  * - Fresh context is STRUCTURAL for NAMED TOP-LEVEL SLOTS only:
  *   ProposeContext has no extractorMessages / chat / transcript field, and
  *   runClaimReviewer refuses those keys (and symbols) at the top level before
