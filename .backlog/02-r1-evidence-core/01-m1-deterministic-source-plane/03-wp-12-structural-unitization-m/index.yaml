@@ -39,7 +39,7 @@ tasks:
       file: T003-t-12-03-build-lexical-index-an.todo
       id: T003
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: T-12-03 — Build lexical index and search receipts
     - complexity: medium
