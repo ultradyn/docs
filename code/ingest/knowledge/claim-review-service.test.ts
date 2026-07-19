@@ -168,6 +168,9 @@ describe("ClaimReview domain schema", () => {
       extractorRunId: EXTRACTOR_RUN,
     };
     expect(ClaimReviewSchema.safeParse(base).success).toBe(true);
+    // Closed decision set is still exactly accept|reject|qualify|split (T-22-01).
+    // T-22-06: qualify REQUIRES qualifierClaimIds (intended — bare qualify is
+    // invalid). Other decisions MUST NOT carry qualifierClaimIds.
     for (const decision of ["accept", "reject", "qualify", "split"] as const) {
       expect(
         ClaimReviewSchema.safeParse({
@@ -184,9 +187,26 @@ describe("ClaimReview domain schema", () => {
                 ],
               }
             : {}),
+          ...(decision === "qualify"
+            ? {
+                qualifierClaimIds: ["clm-01ARZ3NDEKTSV4RRFFQ69G5FB0"],
+              }
+            : {}),
         }).success,
       ).toBe(true);
     }
+    // Bare qualify without qualifierClaimIds is schema-invalid (T-22-06).
+    expect(
+      ClaimReviewSchema.safeParse({ ...base, decision: "qualify" }).success,
+    ).toBe(false);
+    // Accept/reject cannot smuggle qualifier links.
+    expect(
+      ClaimReviewSchema.safeParse({
+        ...base,
+        decision: "accept",
+        qualifierClaimIds: ["clm-01ARZ3NDEKTSV4RRFFQ69G5FB0"],
+      }).success,
+    ).toBe(false);
     expect(
       ClaimReviewSchema.safeParse({ ...base, decision: "approve" }).success,
     ).toBe(false);

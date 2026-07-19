@@ -19,8 +19,10 @@
  *   splits never produce a durable application. HONEST RESIDUAL: a crash mid-split
  *   can leave unreferenced claim records (append-only custody cannot delete
  *   orphans); no application points at them until recovery completes.
- * - qualify: FAIL CLOSED with QUALIFY_UNSUPPORTED (not silent no-op) until
- *   qualifierClaimIds linking is implemented (child task).
+ * - qualify (T-22-06): append-only qualifierClaimIds link on the subject claim
+ *   (same ClaimState); never accepts, never grants ClaimAcceptanceAuthority,
+ *   never puts the subject in acceptedClaimIds. Cycles/self-qualify fail typed.
+ *   SoD + durable application idempotency match accept/reject/split.
  *
  * Residual (honest, T-32+): a builder that bypasses applications entirely and
  * reads ClaimStore directly still sees proposed claims with no rejection bit —
@@ -69,7 +71,7 @@ export type ClaimReviewServiceError =
   | "EVIDENCE_UNVERIFIED"
   | "COMMIT_FAILED"
   | "SPLIT_INVALID"
-  | "QUALIFY_UNSUPPORTED";
+  | "CYCLE_DETECTED";
 
 const FIXED_MESSAGES: Record<ClaimReviewServiceError, string> = {
   INVALID_INPUT: "Claim review input is invalid.",
@@ -86,9 +88,7 @@ const FIXED_MESSAGES: Record<ClaimReviewServiceError, string> = {
   EVIDENCE_UNVERIFIED: "Evidence refs are not verified.",
   COMMIT_FAILED: "Claim review commit failed.",
   SPLIT_INVALID: "Split specification is invalid.",
-  // Qualify is schema-legal but not yet applied: refuse, never silent no-op.
-  QUALIFY_UNSUPPORTED:
-    "qualify decision is not yet applied; refused rather than ignored.",
+  CYCLE_DETECTED: "Qualifier self-link or cycle is forbidden.",
 };
 
 // ---------------------------------------------------------------------------
@@ -210,6 +210,8 @@ function parseReview(input: unknown): ClaimReview | undefined {
     "extractorRunId",
     "reason",
     "splits",
+    // T-22-06: qualify carries qualifierClaimIds
+    "qualifierClaimIds",
   ];
   const known = new Set(keys);
   for (const key of Reflect.ownKeys(input)) {
@@ -239,6 +241,7 @@ function reviewDigest(review: ClaimReview, key: string): string {
       extractorRunId: normaliseRunIdentity(review.extractorRunId),
       reason: review.reason ?? null,
       splits: review.splits ?? null,
+      qualifierClaimIds: review.qualifierClaimIds ?? null,
     }),
   );
 }
@@ -555,9 +558,81 @@ export function createClaimReviewService(
         // Outcome only — ClaimState stays proposed (decision a).
         rejectedClaimIds.push(claim.id);
       } else if (review.decision === "qualify") {
-        // Fail closed — never accept-and-ignore. Child task will implement
-        // qualifierClaimIds linking under the same SoD/idempotency rules.
-        return failure("QUALIFY_UNSUPPORTED");
+        // T-22-06: append-only qualifierClaimIds on the subject; never accept.
+        const qids = review.qualifierClaimIds;
+        if (!qids || qids.length < 1) return failure("INVALID_INPUT");
+        const uniqueQualifiers = [
+          ...new Set(qids.map((id) => id as string)),
+        ] as ClaimId[];
+        for (const qid of uniqueQualifiers) {
+          if (qid === claim.id) return failure("CYCLE_DETECTED");
+        }
+        // Cycle detect: walking each new qualifier's existing qualifier edges
+        // must not re-enter the subject (or form a cycle through it).
+        for (const qid of uniqueQualifiers) {
+          const seen = new Set<string>([claim.id as string]);
+          const frontier: string[] = [qid as string];
+          while (frontier.length > 0) {
+            const cur = frontier.pop()!;
+            if (seen.has(cur)) return failure("CYCLE_DETECTED");
+            seen.add(cur);
+            const node = await store.latest(cur);
+            if (!node) return failure("CLAIM_NOT_FOUND");
+            for (const next of node.relationships.qualifierClaimIds) {
+              frontier.push(next as string);
+            }
+          }
+        }
+
+        const mergedQualifiers = [
+          ...new Set([
+            ...claim.relationships.qualifierClaimIds.map((id) => id as string),
+            ...uniqueQualifiers.map((id) => id as string),
+          ]),
+        ] as ClaimId[];
+
+        const nextClaim = deepFreeze({
+          ...structuredClone(claim),
+          version: claim.version + 1,
+          // State UNCHANGED — qualify is not acceptance.
+          relationships: deepFreeze({
+            qualifierClaimIds: Object.freeze([...mergedQualifiers]),
+            contradictsClaimIds: Object.freeze([
+              ...claim.relationships.contradictsClaimIds,
+            ]),
+            supersedesClaimIds: Object.freeze([
+              ...claim.relationships.supersedesClaimIds,
+            ]),
+          }),
+        });
+
+        const qualifyWrite = await store.locked(async (): Promise<
+          | { ok: true }
+          | { ok: false; code: ClaimReviewServiceError }
+        > => {
+          const current = await store.latest(claim.id);
+          if (!current) return { ok: false, code: "CLAIM_NOT_FOUND" };
+          if (current.version !== review.expectedVersion) {
+            return { ok: false, code: "VERSION_CONFLICT" };
+          }
+          const outcome = await store.append(nextClaim as typeof claim);
+          if (outcome === "exists_conflict") {
+            return { ok: false, code: "COMMIT_FAILED" };
+          }
+          return { ok: true };
+        });
+        if (!qualifyWrite.ok) return failure(qualifyWrite.code);
+
+        for (const qid of uniqueQualifiers) {
+          provenanceLinks.push(
+            deepFreeze({
+              fromClaimId: claim.id,
+              toClaimId: qid,
+              relation: "qualified_by" as const,
+            }),
+          );
+        }
+        // Intentionally NOT pushing claim.id into acceptedClaimIds.
       } else if (review.decision === "split") {
         if (!review.splits || review.splits.length < 1) {
           return failure("SPLIT_INVALID");
