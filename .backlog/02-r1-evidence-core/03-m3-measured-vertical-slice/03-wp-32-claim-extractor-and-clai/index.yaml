@@ -30,7 +30,7 @@ tasks:
       file: T002-t-32-02-implement-claim-review.todo
       id: T002
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-32-02 — Implement Claim Reviewer agent
     - complexity: high
