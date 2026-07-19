@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-19T18:05:38Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-18T08:10:11Z"
 depends_on:
@@ -6,13 +9,11 @@ depends_on:
 estimate_hours: 5
 id: P2.M3.E4.T002
 priority: high
-status: pending
-tags:
-    - wp-60
-    - t-60-02
-    - ingest-v3
+started_at: "2026-07-19T18:05:38Z"
+status: in_progress
+tags: []
 title: T-60-02 — Implement Answer Composer agent
-updated_at: "2026-07-18T08:10:11Z"
+updated_at: "2026-07-19T18:05:38Z"
 ---
 Bundle provenance: WP-60 / T-60-02
 
