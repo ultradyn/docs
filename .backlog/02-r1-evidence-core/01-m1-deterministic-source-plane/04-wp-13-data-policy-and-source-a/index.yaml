@@ -21,7 +21,8 @@ tasks:
       file: T001-t-13-01-implement-data-and-rig.todo
       id: T001
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: T-13-01 — Implement data and rights policy profiles
     - complexity: high
       depends_on:

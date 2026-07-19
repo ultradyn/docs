@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-19T07:07:09Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
@@ -8,13 +11,11 @@ depends_on:
 estimate_hours: 5
 id: P2.M1.E4.T001
 priority: critical
-status: pending
-tags:
-    - wp-13
-    - t-13-01
-    - ingest-v3
+started_at: "2026-07-19T07:07:09Z"
+status: in_progress
+tags: []
 title: T-13-01 — Implement data and rights policy profiles
-updated_at: "2026-07-18T08:10:10Z"
+updated_at: "2026-07-19T07:07:09Z"
 ---
 Bundle provenance: WP-13 / T-13-01
 
