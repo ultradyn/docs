@@ -42,7 +42,7 @@ tasks:
       file: T003-t-13-03-implement-secret-pii-a.todo
       id: T003
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-13-03 — Implement secret/PII and publication scans
     - complexity: high
