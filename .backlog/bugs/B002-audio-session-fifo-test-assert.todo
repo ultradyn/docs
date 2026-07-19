@@ -1,0 +1,28 @@
+---
+complexity: low
+created_at: "2026-07-19T14:29:56Z"
+depends_on: []
+estimate_hours: 1
+id: B002
+priority: medium
+status: pending
+tags:
+    - flaky
+    - test-infra
+title: audio-session FIFO test asserts a wall-clock bound on a child process spawn (load-flaky)
+updated_at: "2026-07-19T14:29:56Z"
+---
+OBSERVED: 'rejects an existing FIFO promptly without blocking on open' (code/repository/audio-session.test.ts:588) FAILED at 2132ms during a full pnpm check, then passed in isolation on the same commit.
+
+CAUSE: the test spawns a child node process with --import tsx (a TypeScript transform on every run) and asserts:
+  execFile(..., { timeout: 2_000 })
+  expect(Date.now() - startedAt).toBeLessThan(2_000);
+That is a wall-clock bound on process spawn plus TS transform. It is inherently sensitive to machine load, not to the behaviour under test. Under concurrent test suites it exceeds 2s and fails.
+
+WHY IT MATTERS: the assertion's PURPOSE is to prove appendChunk rejects a FIFO promptly rather than blocking forever on open(). That is a real and worthwhile guarantee. But the current formulation conflates 'did not block indefinitely' with 'completed within 2s on a loaded machine', so it produces false failures that erode trust in the gate — and a gate people learn to re-run is a gate that stops catching things.
+
+FIX OPTIONS (prefer 1):
+1. Assert the OUTCOME, not the wall clock: the child must reject with a /regular file/ error. Keep execFile's timeout as the anti-hang backstop (a true block hits the timeout and fails), and drop the separate Date.now() assertion — the timeout already proves non-blocking.
+2. If a timing bound is genuinely wanted, raise it substantially and precompile the child rather than transforming TS in-process, so it measures the open() behaviour instead of the toolchain.
+
+Do NOT simply raise 2000 to a bigger number and leave the same shape; that defers the flake rather than fixing the conflation.
