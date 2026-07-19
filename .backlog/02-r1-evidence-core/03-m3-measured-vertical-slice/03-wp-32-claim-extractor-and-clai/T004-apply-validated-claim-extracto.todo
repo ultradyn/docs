@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-19T15:45:45Z"
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E3.T004
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: Apply validated Claim Extractor proposals via ClaimRepository.create
+updated_at: "2026-07-19T15:45:45Z"
+---
+Follow-up filed at T-32-01 RED, per the rule that a validator with no caller is a declared control with no enforcer.
+
+T-32-01 ships VALIDATE-ONLY because the plan Files list names only the scaffold, the agent, its tests, and the agents barrel — no repository path. That is the right scope call, but it means nothing yet TURNS a validated extractor proposal into a durable claim.
+
+SCOPE: apply validated proposals through the EXISTING ClaimRepository.create. Never a parallel creation path — that was the boundary T-20-04 drew for questions and the same reasoning applies here.
+
+THE LOAD-BEARING DETAIL, carried from the T-32-01 design decision: the agent supplies unit IDS ONLY. Snapshot ids, hashes and locators are mapped from the AUTHORITATIVE PACKET, never from agent output. That makes a forged evidence hash structurally impossible rather than merely validated. Do not relax this to accept a full evidenceRef shape from the agent even if it would pass schema — that is exactly the fail-open that B004 and T-30-01 both existed to close.
+
+CONSTRAINTS:
+- Extraction PROPOSES ONLY. State stays proposed. No acceptance, no ClaimState transition. T-22-01 froze the five-set; T-22-03 owns acceptance; an extractor that can accept bypasses separation of duties entirely.
+- Whole-batch fail-closed on unsupported evidence, matching T-32-01. A partial apply would reintroduce the silent-drop fail-open.
+- Deterministic ids derived from content, so a re-run does not duplicate.
+- Append-only custody; never add delete/erase/purge/unlink.
+
+ACCEPTANCE:
+- A validated proposal becomes durable claims via ClaimRepository.create, refs mapped from the packet.
+- An unsupported ref refuses the whole batch and writes nothing — assert absence on the store, not just the return value.
+- Re-applying the same proposal is idempotent (no duplicates), verified with a fresh service instance over shared stores.
+- Mutation-proof: removing the packet-mapping step must fail a certifying test.
