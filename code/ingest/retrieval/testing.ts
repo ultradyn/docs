@@ -7,7 +7,10 @@ import type {
   SnapshotId,
   SourceUnitId,
 } from "../../domain/ingest/index.js";
+import { createHash } from "node:crypto";
+
 import type { SearchReceipt } from "../../domain/ingest/search-receipt.js";
+import type { SearchReceiptAttestationAuthority } from "./receipt-attestation.js";
 import type {
   DeniedUnit,
   FilteredSearchResponse,
@@ -216,5 +219,80 @@ export function createFakePolicyGate(
   };
   return gate as unknown as PolicyGate & {
     filterCalls: Array<Record<string, unknown>>;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// T-30-04 — deterministic receipt attestation authority (TESTING ONLY)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic fake trust root for receipt authenticity.
+ *
+ * LOCAL TESTS ONLY. This exercises the attest/verify control path so the
+ * boundary is real in tests; it is NOT a production trust root and cannot
+ * satisfy production activation. The proof is a plain digest over a
+ * non-secret label — anyone reading this file can forge one. That is
+ * acceptable precisely because it never leaves the test process.
+ *
+ * Same posture as the policy attestation fake: exercise the path, defer the
+ * crypto, never let the fake be mistaken for the real thing.
+ */
+export interface FakeReceiptAttestationAuthority
+  extends SearchReceiptAttestationAuthority {
+  setUnavailable(unavailable: boolean): void;
+  readonly authorityId: string;
+}
+
+export function createFakeReceiptAttestationAuthority(
+  options: { authorityId?: string; authorityRevision?: number } = {},
+): FakeReceiptAttestationAuthority {
+  const authorityId = options.authorityId ?? "fake-receipt-authority";
+  const authorityRevision = options.authorityRevision ?? 1;
+  let unavailable = false;
+
+  const proofFor = (payloadSha256: string): string =>
+    createHash("sha256")
+      .update(`fake-receipt-attestation:${authorityId}:${authorityRevision}:${payloadSha256}`)
+      .digest("hex");
+
+  return {
+    authorityId,
+    setUnavailable(next: boolean) {
+      unavailable = next;
+    },
+    async attest(payloadSha256) {
+      if (unavailable) {
+        return { ok: false as const, code: "AUTHORITY_UNAVAILABLE" as const };
+      }
+      return {
+        ok: true as const,
+        attestation: Object.freeze({
+          version: 1 as const,
+          authorityId,
+          authorityRevision,
+          payloadSha256,
+          proof: proofFor(payloadSha256),
+        }),
+      };
+    },
+    async verify(attestation, payloadSha256) {
+      // Outage must never widen trust: refuse rather than pass.
+      if (unavailable) {
+        return { ok: false as const, code: "AUTHORITY_UNAVAILABLE" as const };
+      }
+      // Unknown trust root: an attestation from a different authority is not
+      // authentic here, even if its proof is internally well formed.
+      if (attestation.authorityId !== authorityId) {
+        return { ok: false as const, code: "RECEIPT_NOT_AUTHENTIC" as const };
+      }
+      if (attestation.payloadSha256 !== payloadSha256) {
+        return { ok: false as const, code: "RECEIPT_NOT_AUTHENTIC" as const };
+      }
+      if (attestation.proof !== proofFor(payloadSha256)) {
+        return { ok: false as const, code: "RECEIPT_NOT_AUTHENTIC" as const };
+      }
+      return { ok: true as const };
+    },
   };
 }
