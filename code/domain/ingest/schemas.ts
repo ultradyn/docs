@@ -126,9 +126,13 @@ export {
   ScanActionSchema,
   ScanSpanSchema,
 } from "./content-scan.js";
-export const ClaimReviewSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
+// T-22-03: full ClaimReview schema lives in claim-review.ts (registry re-export).
+export {
+  ClaimReviewSchema,
+  ClaimReviewApplicationSchema,
+  ClaimReviewDecisionSchema,
+  ClaimReviewIdSchema,
+} from "./claim-review.js";
 export const GraphEventSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();

@@ -61,6 +61,17 @@ export {
   type ScopeSignal,
   type TypeSignal,
 } from "./claim-candidates.js";
+// Claim review application (T-22-03 authority boundary).
+export {
+  createClaimReviewService,
+  isEligibleForAcceptedPack,
+  listAcceptedClaimIds,
+  normaliseRunIdentity,
+  type ClaimReviewService,
+  type ClaimReviewServiceError,
+  type CreateClaimReviewServiceOptions,
+  type PacketCreationIdentityReader,
+} from "./claim-review-service.js";
 export * from "./obligation-service.js";
 export * from "./question-admissibility.js";
 export * from "./question-link-service.js";

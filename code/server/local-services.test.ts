@@ -2162,10 +2162,18 @@ describe("persistent local HTTP workflow", () => {
     const agents = await app.inject({ method: "GET", url: "/api/agents" });
 
     expect(agents.statusCode).toBe(200);
-    expect(agents.json().agents).toHaveLength(12);
+    expect(agents.json().agents).toHaveLength(13);
     expect(agents.json().agents).toContainEqual(
       expect.objectContaining({
         id: "critic",
+        fixtureStatus: "passing",
+        fixtureCount: 3,
+        schemaStatus: "valid",
+      }),
+    );
+    expect(agents.json().agents).toContainEqual(
+      expect.objectContaining({
+        id: "researcher",
         fixtureStatus: "passing",
         fixtureCount: 3,
         schemaStatus: "valid",

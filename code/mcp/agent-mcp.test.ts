@@ -53,6 +53,7 @@ describe("agent MCP host", () => {
         "matcher",
         "prioritizer",
         "registrar",
+        "researcher",
         "reviewer",
         "simulated-asker",
         "structurer",
