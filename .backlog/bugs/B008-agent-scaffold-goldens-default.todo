@@ -1,0 +1,41 @@
+---
+complexity: medium
+created_at: "2026-07-19T16:32:40Z"
+depends_on: []
+estimate_hours: 3
+id: B008
+priority: medium
+status: pending
+tags:
+    - agents
+    - fixtures
+    - systemic
+title: Agent scaffold goldens default to shape-only; every new agent inherits the gap
+updated_at: "2026-07-19T16:32:40Z"
+---
+THIRD occurrence of the same residual. Filing the cause rather than continuing to fix instances.
+
+THE PATTERN:
+- validateAgentFixtures (code/agents/runtime.ts) validates NNN-input/NNN-expected pairs for input-policy projection and Ajv output-schema conformance. It does NOT execute the agent, and does NOT call the agent's domain validator.
+- So every agent scaffold ships goldens that look like behavioural coverage and check only shape.
+- Corrupting a golden's expected value to something schema-legal but WRONG leaves the registry pin green. Demonstrated empirically on T-31-01 (evidence-critic) and re-demonstrated on T-32-01 (claim-extractor).
+
+OCCURRENCES SO FAR:
+1. T-31-01 evidence-critic — merged with shape-only goldens; I reviewed it and missed it. Caught in T-31-02 and fixed there by executing 001-003.
+2. T-32-01 claim-extractor — same; caught in review, fixed by executing 001-003.
+3. T-32-02 claim-reviewer — same; caught by River as a Minor and confirmed by me. Being fixed in-task.
+
+Three for three. Every new agent inherits it because the default harness behaviour is shape-only and nothing prompts the author to add behavioural execution.
+
+WHY IT MATTERS: an agent registry pin that moves 14 to 15 to 16 reads as coverage growing. It is a count of DEFINITIONS that parse, not of behaviours that hold. A golden can cite evidence that would fail the agent's own fabrication gate and still ship green.
+
+FIX OPTIONS, prefer 1:
+1. Make validateAgentFixtures require a registered BEHAVIOURAL validator per agent and execute expected outcomes through it. Agents without one fail registration — fail-closed, and new agents cannot silently inherit the gap.
+2. Require a fixtures README per agent stating explicitly whether goldens are shape-only, checked by a test that greps for it. Weaker: documents the gap rather than closing it.
+
+ACCEPTANCE:
+- A schema-legal but behaviourally wrong golden must fail SOMETHING for every registered agent.
+- A newly added agent scaffold cannot reach green with shape-only goldens unless it explicitly declares that.
+- Existing three agents keep their current executed coverage.
+
+Do NOT resolve by deleting the shape pins — they legitimately guard schema conformance. The problem is that shape conformance is being read as behavioural coverage.
