@@ -75,5 +75,6 @@ tasks:
       file: T007-close-in-memory-store-barrel-l.todo
       id: T007
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Close in-memory store barrel leaks in knowledge package
