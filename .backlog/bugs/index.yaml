@@ -1,3 +1,4 @@
 bugs:
     - file: B001-markstale-discards-claimstore.todo
     - file: B002-audio-session-fifo-test-assert.todo
+    - file: B003-evidence-critic-free-text-reas.todo

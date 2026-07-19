@@ -1,0 +1,31 @@
+---
+complexity: medium
+created_at: "2026-07-19T14:34:29Z"
+depends_on: []
+estimate_hours: 2
+id: B003
+priority: medium
+status: pending
+tags:
+    - agents
+    - injection
+    - evidence-critic
+title: Evidence Critic free-text reason can carry child-question prose; must never become a model input
+updated_at: "2026-07-19T14:34:29Z"
+---
+Residual from T-31-01 (River dual-axis, Important, accepted for v1 by coordinator).
+
+T-31-01 makes child proposals STRUCTURALLY impossible: strict schema rejects unknown keys, plus a CHILD_SMUGGLING_KEYS denylist yielding CHILD_PROPOSAL_FORBIDDEN. Verified by mutation (removing the denylist fails 4 tests).
+
+BUT the free-text fields survive that guard. A reason (<=2000 chars, per classification and per facet state) and refinement.whyCurrentPacketFails can embed child-question prose — e.g. 'you should also ask what the retention policy is' — and the proposal still validates ok:true. River proved this, not hypothesised it.
+
+WHY IT IS SAFE TODAY: nothing consumes those strings as instructions. The validator never interprets them; they exist as human-readable justification, and a classification with no justification is unreviewable, so removing free text would cost real capability.
+
+WHY IT IS A TIME BOMB: safety here is a property of the CONSUMERS, not of the data. The moment any downstream component feeds a reason back into a model — a pack builder summarising rationale, an agent chain passing critic output to a planner, a UI that round-trips text through an LLM — the prose becomes a prompt-injection channel and the 'children are structurally impossible' guarantee quietly stops being true. Nobody making that change would notice they were doing it.
+
+REQUIRED:
+- Add an explicit contract note wherever critic output is consumed: reason / whyCurrentPacketFails are UNTRUSTED HUMAN-READABLE TEXT and MUST NOT be passed to a model as instructions or as question-proposal input.
+- When any consumer of EvidenceCriticProposal is built (pack builders T-32+, agent chaining), add a test proving reason text does not reach a model input path.
+- Consider a typed marker on the fields so the constraint travels with the data rather than living in a comment.
+
+Non-goal: removing free-text justification. That is the capability, not the defect.
