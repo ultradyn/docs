@@ -37,12 +37,14 @@ tasks:
       title: T-60-02 — Implement Answer Composer agent
     - complexity: medium
       depends_on:
+        - P2.M3.E3.T003
         - P2.M3.E4.T002
       estimate_hours: 5
       file: T003-t-60-03-implement-answer-citat.todo
       id: T003
       priority: critical
-      status: pending
+      status: in_progress
+      tags: []
       title: T-60-03 — Implement answer citation/validity review
     - complexity: medium
       depends_on: []
