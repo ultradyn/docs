@@ -400,6 +400,42 @@ describe("visibility gate", () => {
 // ---------------------------------------------------------------------------
 // crash abandon
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Discriminating tests for reserveCreate / append verdict handling
+// (mutation-tested: removing the production check MUST fail these)
+// ---------------------------------------------------------------------------
+describe("obligation primitive verdicts", () => {
+  it("append version_conflict fails closed with NO commit", async () => {
+    const deps = createInMemoryGraphGatewayDeps();
+    deps.obligationFake.setTestHooks({ forceAppendVersionConflict: 7 });
+    const gw = createGraphGateway(deps);
+    const result = await gw.apply(cmd("vc-fail", 0, CONCRETE_WORDING));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
+    expect(await gw.listCommits()).toHaveLength(0);
+    // Positive baseline: without the force hook, same command would commit
+    const ok = await gw.apply(cmd("vc-ok", 0, CONCRETE_WORDING));
+    expect(ok.ok).toBe(true);
+    expect(await gw.listCommits()).toHaveLength(1);
+  });
+
+  it("reserveCreate returned id (≠ local allocate) is used on the commit", async () => {
+    // Valid crockford ULID body (26); deliberately not equal to key-derived id
+    const validForced =
+      "obl-01ARZ3NDEKTSV4RRFFQ69G5FZZ" as import("../../domain/ingest/types.js").ObligationId;
+
+    const deps = createInMemoryGraphGatewayDeps();
+    deps.obligationFake.setTestHooks({ forceReservedId: validForced });
+    const gw = createGraphGateway(deps);
+    const result = await gw.apply(cmd("reserve-id", 0, CONCRETE_WORDING));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Downstream commit MUST use the reserved id, not a purely local derivation
+    expect(result.value.createdObligationId).toBe(validForced);
+    expect(await gw.isReachableViaCommit(validForced)).toBe(true);
+  });
+});
+
 describe("crash abandon", () => {
   it("mid-transaction crash leaves no commits; abandon clears intents", async () => {
     let crashed = false;

@@ -363,7 +363,19 @@ export function createInMemoryGeneratedWordingStore(): GeneratedWordingStore {
  * Fake CoverageObligationEventWriter using claimUnresolvedOwnerQuestionId
  * atomic single-owner check (mirrors production primitive; does not race).
  */
-export function createInMemoryCoverageObligationEventWriter(): CoverageObligationEventWriter & {
+export interface ObligationWriterTestHooks {
+  /**
+   * If set, reserveCreate returns this id on the idempotent arm (after first
+   * reserve), so tests can force reserve.obligationId ≠ local allocateObligationId.
+   */
+  forceReservedId?: ObligationId;
+  /** Force next append to return version_conflict with this currentVersion. */
+  forceAppendVersionConflict?: number;
+}
+
+export function createInMemoryCoverageObligationEventWriter(
+  testHooks: ObligationWriterTestHooks = {},
+): CoverageObligationEventWriter & {
   /** Test helper: unresolved self-owned count */
   countSelfOwnedUnresolved(): number;
   /** Test helper: all obligation records */
@@ -373,6 +385,8 @@ export function createInMemoryCoverageObligationEventWriter(): CoverageObligatio
     ownerQuestionId: string | null;
     status: string;
   }[];
+  /** Test helper: mutate hooks mid-test */
+  setTestHooks(hooks: ObligationWriterTestHooks): void;
 } {
   const records = new Map<
     string,
@@ -386,13 +400,36 @@ export function createInMemoryCoverageObligationEventWriter(): CoverageObligatio
   >();
   const histories = new Map<string, unknown[]>();
   const unresolvedOwner = new Map<string, string>(); // ownerQuestionId -> obligationId
+  const reservedKeys = new Map<string, { digest: string; id: ObligationId }>();
+  let hooks = { ...testHooks };
 
   return {
+    setTestHooks(next) {
+      hooks = { ...next };
+    },
     reserveCreate: async (command) => {
-      const id = command.allocateObligationId();
+      const prior = reservedKeys.get(command.idempotencyKey);
+      if (prior) {
+        if (prior.digest !== command.commandDigest) {
+          return { status: "idempotency_conflict" as const };
+        }
+        // Idempotent arm: may return a prior / forced id different from allocate()
+        const id = hooks.forceReservedId ?? prior.id;
+        return { status: "idempotent" as const, obligationId: id };
+      }
+      const id = hooks.forceReservedId ?? command.allocateObligationId();
+      reservedKeys.set(command.idempotencyKey, {
+        digest: command.commandDigest,
+        id,
+      });
       return { status: "reserved" as const, obligationId: id };
     },
     append: async (command) => {
+      if (hooks.forceAppendVersionConflict !== undefined) {
+        const v = hooks.forceAppendVersionConflict;
+        hooks = { ...hooks, forceAppendVersionConflict: undefined };
+        return { status: "version_conflict" as const, currentVersion: v };
+      }
       const prior = records.get(command.obligationId);
       if (prior) {
         // Idempotent same-key re-append of identical stream position
@@ -1001,7 +1038,12 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
         obligation: obligationRecord,
       },
     });
-    // Exhaustive arms — no fallthrough success (compile-enforced)
+    // Exhaustive arms — no fallthrough success (compile-enforced).
+    // NOTE: version_conflict is reachable on the FIRST-attempt path when the
+    // writer reports a stream mismatch (test-injected or real). The intent
+    // RESUME path above finalizes without re-append, so version_conflict is
+    // intentionally NOT used for same-key resume success — resume adopts
+    // precursors and commits. Ignoring version_conflict here would fail-open.
     switch (appendResult.status) {
       case "appended":
       case "idempotent":
