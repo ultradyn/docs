@@ -14,6 +14,7 @@ import { validateIngestManifests } from "../../agents/ingest-manifest.js";
 import {
   StructuredAnswerCompatibility,
   composeAnswerFromPack,
+  deriveAnswerCompositionId,
   validateAnswerComposition,
 } from "./answer-composer-agent.js";
 
@@ -213,9 +214,10 @@ describe("composeAnswerFromPack (deterministic)", () => {
 describe("validateAnswerComposition (independent boundary)", () => {
   it("UNMAPPED_ASSERTION when sentence cites claim not in pack", () => {
     const p = pack();
+    const goals = [{ goalId: "g1", text: "x" }];
     const bad = {
       schemaVersion: 1,
-      id: "cmp-test",
+      id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
       questionId: QUESTION,
       claimPackHash: p.hash,
       graphRevision: 1,
@@ -229,18 +231,61 @@ describe("validateAnswerComposition (independent boundary)", () => {
     };
     const result = validateAnswerComposition(bad, {
       pack: p,
-      goals: [{ goalId: "g1", text: "x" }],
+      goals,
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe("UNMAPPED_ASSERTION");
   });
 
-  it("PACK_HASH_MISMATCH when claimPackHash differs from pack.hash", () => {
+  it("UNMAPPED_ASSERTION when citation unitId is not in pack.citations", () => {
     const p = pack();
+    const goals = [{ goalId: "g1", text: "knowledge" }];
     const bad = {
       schemaVersion: 1,
-      id: "cmp-hash",
+      id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
+      questionId: QUESTION,
+      claimPackHash: p.hash,
+      graphRevision: 1,
+      answer: p.claims[0]!.statement,
+      claimOrder: [CLM_A],
+      sentenceClaims: [{ sentenceIndex: 0, claimIds: [CLM_A] }],
+      // claimId in pack, unitId NOT in pack.citations — provenance leak
+      citations: [{ claimId: CLM_A, unitId: "unit-01ARZ3NDEKTSV4RRFFQ69G5FZZ" }],
+      goalCoverage: [{ goalId: "g1", covered: true, claimIds: [CLM_A] }],
+      limitations: [],
+      state: "proposed",
+    };
+    const result = validateAnswerComposition(bad, { pack: p, goals });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("UNMAPPED_ASSERTION");
+  });
+
+  it("INVALID_INPUT when composition.id does not match pure re-derivation", () => {
+    const p = pack();
+    const goals = [{ goalId: "g1", text: "knowledge" }];
+    const composed = composeAnswerFromPack({
+      questionId: QUESTION,
+      pack: p,
+      goals,
+    });
+    expect(composed.ok).toBe(true);
+    if (!composed.ok) return;
+    const fabricated = { ...composed.value, id: "ans-fabricated-id-not-derived" };
+    const result = validateAnswerComposition(fabricated, { pack: p, goals });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_INPUT");
+  });
+
+  it("PACK_HASH_MISMATCH when claimPackHash differs from pack.hash", () => {
+    const p = pack();
+    const goals = [{ goalId: "g1", text: "x" }];
+    const bad = {
+      schemaVersion: 1,
+      // id re-derive uses pack.hash; hash mismatch fails first (before id)
+      id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
       questionId: QUESTION,
       claimPackHash: "b".repeat(64),
       graphRevision: 1,
@@ -254,7 +299,7 @@ describe("validateAnswerComposition (independent boundary)", () => {
     };
     const result = validateAnswerComposition(bad, {
       pack: p,
-      goals: [{ goalId: "g1", text: "x" }],
+      goals,
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -263,9 +308,10 @@ describe("validateAnswerComposition (independent boundary)", () => {
 
   it("INVENTED_PROSE when insufficient_pack has non-empty answer", () => {
     const p = pack();
+    const goals = [{ goalId: "g1", text: "unsupported goal" }];
     const bad = {
       schemaVersion: 1,
-      id: "cmp-invent",
+      id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
       questionId: QUESTION,
       claimPackHash: p.hash,
       graphRevision: 1,
@@ -279,7 +325,7 @@ describe("validateAnswerComposition (independent boundary)", () => {
     };
     const result = validateAnswerComposition(bad, {
       pack: p,
-      goals: [{ goalId: "g1", text: "unsupported goal" }],
+      goals,
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -288,25 +334,32 @@ describe("validateAnswerComposition (independent boundary)", () => {
 
   it("accepts a valid composition from composeAnswerFromPack", () => {
     const p = pack();
+    const goals = [{ goalId: "g-storage", text: "Where is knowledge stored?" }];
     const composed = composeAnswerFromPack({
       questionId: QUESTION,
       pack: p,
-      goals: [{ goalId: "g-storage", text: "Where is knowledge stored?" }],
+      goals,
     });
     expect(composed.ok).toBe(true);
     if (!composed.ok) return;
     const validated = validateAnswerComposition(composed.value, {
       pack: p,
-      goals: [{ goalId: "g-storage", text: "Where is knowledge stored?" }],
+      goals,
     });
     expect(validated.ok).toBe(true);
   });
 
-  it("mutation: drop unmapped gate → unmapped fixture no longer fails closed", () => {
+  /**
+   * Production pin: if the real UNMAPPED_ASSERTION loops are deleted from
+   * validateAnswerComposition, this test fails (Claude verifies by deleting
+   * the production gate). No inline stub — production path only.
+   */
+  it("production pin: unmapped claimOrder fails UNMAPPED_ASSERTION via real validate", () => {
     const p = pack();
+    const goals = [{ goalId: "g1", text: "x" }];
     const unmapped = {
       schemaVersion: 1 as const,
-      id: "cmp-mut-unmapped",
+      id: deriveAnswerCompositionId(QUESTION, p.hash, goals),
       questionId: QUESTION,
       claimPackHash: p.hash,
       graphRevision: 1,
@@ -318,66 +371,24 @@ describe("validateAnswerComposition (independent boundary)", () => {
       limitations: [],
       state: "proposed" as const,
     };
-    // Production validate refuses unmapped ids.
-    expect(
-      validateAnswerComposition(unmapped, {
-        pack: p,
-        goals: [{ goalId: "g1", text: "x" }],
-      }).ok,
-    ).toBe(false);
-    // Mutated gate that skips claimOrder/sentenceClaims pack membership.
-    const mutated = (
-      input: unknown,
-      options: { pack: SealedClaimPack; goals: { goalId: string; text: string }[] },
-    ) => {
-      const packParsed = options.pack;
-      if (typeof input !== "object" || input === null) {
-        return { ok: false as const, code: "INVALID_INPUT" as const };
-      }
-      const composition = input as {
-        claimPackHash: string;
-        state: string;
-        answer: string;
-      };
-      if (composition.claimPackHash !== packParsed.hash) {
-        return { ok: false as const, code: "PACK_HASH_MISMATCH" as const };
-      }
-      if (
-        composition.state === "insufficient_pack" &&
-        composition.answer.trim().length > 0
-      ) {
-        return { ok: false as const, code: "INVENTED_PROSE" as const };
-      }
-      // BUG: no UNMAPPED_ASSERTION check
-      return { ok: true as const, value: composition };
-    };
-    expect(
-      mutated(unmapped, { pack: p, goals: [{ goalId: "g1", text: "x" }] }).ok,
-    ).toBe(true);
+    const result = validateAnswerComposition(unmapped, { pack: p, goals });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("UNMAPPED_ASSERTION");
   });
 
-  it("mutation: validate refuse-everything → valid fixture fails", () => {
+  it("production pin: valid composition accepted; refuse would be INVALID_PROPOSAL class", () => {
     const p = pack();
+    const goals = [{ goalId: "g-storage", text: "Where is knowledge stored?" }];
     const composed = composeAnswerFromPack({
       questionId: QUESTION,
       pack: p,
-      goals: [{ goalId: "g-storage", text: "Where is knowledge stored?" }],
+      goals,
     });
     expect(composed.ok).toBe(true);
     if (!composed.ok) return;
-    expect(
-      validateAnswerComposition(composed.value, {
-        pack: p,
-        goals: [{ goalId: "g-storage", text: "Where is knowledge stored?" }],
-      }).ok,
-    ).toBe(true);
-    const refuseEverything = () =>
-      ({
-        ok: false as const,
-        code: "INVALID_PROPOSAL" as const,
-        message: "refuse all",
-      });
-    expect(refuseEverything().ok).toBe(false);
+    const result = validateAnswerComposition(composed.value, { pack: p, goals });
+    expect(result.ok).toBe(true);
   });
 });
 

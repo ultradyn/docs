@@ -276,6 +276,16 @@ export function validateAnswerComposition(
     return fail("PACK_HASH_MISMATCH");
   }
 
+  // Do not trust producer-supplied composition ids — re-derive pure material.
+  const expectedId = deriveAnswerCompositionId(
+    composition.questionId,
+    pack.hash,
+    options.goals,
+  );
+  if (composition.id !== expectedId) {
+    return fail("INVALID_INPUT");
+  }
+
   if (
     composition.state === "insufficient_pack" &&
     composition.answer.trim().length > 0
@@ -284,6 +294,10 @@ export function validateAnswerComposition(
   }
 
   const packIds = new Set(pack.claimIds.map((id) => id as string));
+  // Sealed pack citations are the only legal (claimId, unitId) pairs.
+  const packCitationKeys = new Set(
+    pack.citations.map((c) => `${c.claimId as string}\0${c.unitId}`),
+  );
 
   for (const id of composition.claimOrder) {
     if (!packIds.has(id as string)) return fail("UNMAPPED_ASSERTION");
@@ -296,6 +310,9 @@ export function validateAnswerComposition(
   }
   for (const cit of composition.citations) {
     if (!packIds.has(cit.claimId as string)) return fail("UNMAPPED_ASSERTION");
+    if (!packCitationKeys.has(`${cit.claimId as string}\0${cit.unitId}`)) {
+      return fail("UNMAPPED_ASSERTION");
+    }
   }
   for (const g of composition.goalCoverage) {
     for (const id of g.claimIds) {
