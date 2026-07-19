@@ -24,14 +24,13 @@ import {
   ClaimIdSchema,
   type Claim,
   type ClaimEvidenceRef,
-  type ClaimId,
   type ClaimRelationships,
 } from "../../domain/ingest/claim.js";
 import {
   EvidencePacketSchema,
   type EvidencePacket,
 } from "../../domain/ingest/evidence-packet.js";
-import type { IngestResult } from "../../domain/ingest/types.js";
+import type { ClaimId, IngestResult } from "../../domain/ingest/types.js";
 
 import {
   validateClaimExtractorProposal,
