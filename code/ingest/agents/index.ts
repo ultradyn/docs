@@ -34,3 +34,21 @@ export {
   type EvidenceCriticProposeContext,
   type ValidateEvidenceCriticOptions,
 } from "./evidence-critic-agent.js";
+
+// T-32-01 — Claim Extractor (validate-only; apply via ClaimRepository.create is a follow-up)
+export {
+  CLAIM_EXTRACTOR_LIMITS,
+  ClaimExtractorOutputSchema,
+  ClaimProposalSchema,
+  compileClaimExtractorOutputSchema,
+  createClaimExtractorAgent,
+  loadClaimExtractorOutputSchema,
+  validateClaimExtractorProposal,
+  type ClaimExtractorAgent,
+  type ClaimExtractorError,
+  type ClaimExtractorPropose,
+  type ClaimExtractorProposeContext,
+  type ClaimProposal,
+  type CreateClaimExtractorAgentOptions,
+  type ValidateClaimExtractorOptions,
+} from "./claim-extractor-agent.js";

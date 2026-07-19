@@ -1,0 +1,13 @@
+{
+  "claims": [
+    {
+      "text": "All Atlas deployments always store knowledge only in memory.",
+      "type": "requirement",
+      "scope": { "product": "atlas" },
+      "authority": "inferred",
+      "lifecycle": "current",
+      "evidenceReferenceIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"],
+      "candidateRelationships": {}
+    }
+  ]
+}

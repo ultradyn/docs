@@ -1,0 +1,271 @@
+/**
+ * T-32-01 — Claim Extractor (validate-only, Tier A).
+ */
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+import type { EvidencePacket } from "../../domain/ingest/evidence-packet.js";
+import type { SourceUnitId } from "../../domain/ingest/types.js";
+
+import {
+  CLAIM_EXTRACTOR_LIMITS,
+  ClaimExtractorOutputSchema,
+  ClaimProposalSchema,
+  createClaimExtractorAgent,
+  loadClaimExtractorOutputSchema,
+  validateClaimExtractorProposal,
+} from "./claim-extractor-agent.js";
+
+const QUESTION = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const PACKET = "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const UNIT_A = "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA" as SourceUnitId;
+const UNIT_B = "unit-01ARZ3NDEKTSV4RRFFQ69G5FAB" as SourceUnitId;
+const UNIT_OUT = "unit-01ARZ3NDEKTSV4RRFFQ69G5FZZ" as SourceUnitId;
+const SNAP = `snap-${"b".repeat(64)}`;
+const FILE = `file-${"c".repeat(64)}`;
+const SHA = "a".repeat(64);
+const RCPT = "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+function packet(
+  unitIds: readonly SourceUnitId[] = [UNIT_A, UNIT_B],
+): EvidencePacket {
+  return {
+    schemaVersion: 1,
+    id: PACKET as EvidencePacket["id"],
+    questionId: QUESTION as EvidencePacket["questionId"],
+    version: 1,
+    references: unitIds.map((unitId) => ({
+      snapshotId: SNAP as EvidencePacket["references"][0]["snapshotId"],
+      fileId: FILE as EvidencePacket["references"][0]["fileId"],
+      unitId,
+      fileSha256: SHA as EvidencePacket["references"][0]["fileSha256"],
+      unitSha256: SHA as EvidencePacket["references"][0]["unitSha256"],
+      role: "primary" as const,
+      facetIds: ["facet-definition"],
+    })),
+    receiptId: RCPT as EvidencePacket["receiptId"],
+    receiptDigest: SHA as EvidencePacket["receiptDigest"],
+    limits: { maxReferences: 256, maxFacetsPerReference: 32 },
+  };
+}
+
+function validClaim(overrides: Record<string, unknown> = {}) {
+  return {
+    text: "Atlas stores portable project knowledge in the Git repository.",
+    type: "definition",
+    scope: { product: "atlas" },
+    authority: "source-doc",
+    lifecycle: "current",
+    evidenceReferenceIds: [UNIT_A],
+    candidateRelationships: {},
+    ...overrides,
+  };
+}
+
+function validOutput(claims: unknown[] = [validClaim()]) {
+  return { claims };
+}
+
+describe("schema surface", () => {
+  it("exports limits and strict proposal schema", () => {
+    expect(CLAIM_EXTRACTOR_LIMITS.maxClaims).toBeGreaterThan(0);
+    expect(ClaimProposalSchema.safeParse(validClaim()).success).toBe(true);
+    expect(
+      ClaimProposalSchema.safeParse({
+        ...validClaim(),
+        state: "accepted",
+      }).success,
+    ).toBe(false);
+    expect(
+      ClaimProposalSchema.safeParse({
+        ...validClaim(),
+        id: "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      }).success,
+    ).toBe(false);
+    expect(
+      ClaimProposalSchema.safeParse({
+        ...validClaim(),
+        childQuestions: ["x"],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("fabrication / packet membership (whole-batch fail-closed)", () => {
+  it("accepts claims whose unitIds are all in the packet", () => {
+    const result = validateClaimExtractorProposal(validOutput(), {
+      packet: packet(),
+      verdictAccepted: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toHaveLength(1);
+    expect(result.value[0]!.evidenceReferenceIds).toEqual([UNIT_A]);
+  });
+
+  it("UNSUPPORTED_EVIDENCE when any claim cites a unit outside the packet", () => {
+    const result = validateClaimExtractorProposal(
+      validOutput([
+        validClaim(),
+        validClaim({
+          text: "Invented claim.",
+          evidenceReferenceIds: [UNIT_OUT],
+        }),
+      ]),
+      { packet: packet([UNIT_A]), verdictAccepted: true },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("UNSUPPORTED_EVIDENCE");
+  });
+
+  it("does not silently drop unsupported claims (whole batch refused)", () => {
+    const result = validateClaimExtractorProposal(
+      validOutput([
+        validClaim({ evidenceReferenceIds: [UNIT_A] }),
+        validClaim({
+          text: "Second claim with forged ref.",
+          evidenceReferenceIds: [UNIT_OUT],
+        }),
+      ]),
+      { packet: packet([UNIT_A]), verdictAccepted: true },
+    );
+    expect(result.ok).toBe(false);
+    // No partial value
+    expect("value" in result && result.ok).toBe(false);
+  });
+});
+
+describe("verdict gate", () => {
+  it("VERDICT_NOT_ACCEPTED when verdictAccepted is false", () => {
+    const result = validateClaimExtractorProposal(validOutput(), {
+      packet: packet(),
+      verdictAccepted: false,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("VERDICT_NOT_ACCEPTED");
+  });
+});
+
+describe("overgeneralisation fixture", () => {
+  it("rejects universal language on a strong type with a single evidence unit", () => {
+    const result = validateClaimExtractorProposal(
+      validOutput([
+        validClaim({
+          text: "All Atlas deployments always store knowledge only in memory.",
+          type: "requirement",
+          evidenceReferenceIds: [UNIT_A],
+        }),
+      ]),
+      { packet: packet(), verdictAccepted: true },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_PROPOSAL");
+  });
+
+  it("rejects inferred intent prose as documented rationale", () => {
+    const result = validateClaimExtractorProposal(
+      validOutput([
+        validClaim({
+          text: "We believe the authors intended offline-first forever.",
+          type: "rationale_documented",
+          evidenceReferenceIds: [UNIT_A],
+        }),
+      ]),
+      { packet: packet(), verdictAccepted: true },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_PROPOSAL");
+  });
+});
+
+describe("agent runtime", () => {
+  it("runClaimExtractor validates proposer output against packet", async () => {
+    const agent = createClaimExtractorAgent({
+      propose: async () => validOutput(),
+    });
+    const result = await agent.runClaimExtractor({
+      questionId: QUESTION,
+      packet: packet(),
+      verdictAccepted: true,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("PROPOSER_FAILED when propose throws", async () => {
+    const agent = createClaimExtractorAgent({
+      propose: async () => {
+        throw new Error("boom");
+      },
+    });
+    const result = await agent.runClaimExtractor({
+      questionId: QUESTION,
+      packet: packet(),
+      verdictAccepted: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("PROPOSER_FAILED");
+  });
+});
+
+describe("scaffold", () => {
+  it("loads claim-extractor JSON schema", async () => {
+    const root = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../scaffold/agents/claim-extractor",
+    );
+    const schema = await loadClaimExtractorOutputSchema(root);
+    expect(schema).toBeTypeOf("object");
+    expect(schema.additionalProperties).toBe(false);
+  });
+
+  it("valid fixture parses under ClaimExtractorOutputSchema", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const root = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../scaffold/agents/claim-extractor",
+    );
+    const raw = JSON.parse(
+      await readFile(join(root, "fixtures/valid.json"), "utf8"),
+    );
+    expect(ClaimExtractorOutputSchema.safeParse(raw).success).toBe(true);
+    const result = validateClaimExtractorProposal(raw, {
+      packet: packet([UNIT_A]),
+      verdictAccepted: true,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("invalid-generalisation fixture is refused", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const root = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../scaffold/agents/claim-extractor",
+    );
+    const raw = JSON.parse(
+      await readFile(
+        join(root, "fixtures/invalid-generalisation.json"),
+        "utf8",
+      ),
+    );
+    const result = validateClaimExtractorProposal(raw, {
+      packet: packet([UNIT_A]),
+      verdictAccepted: true,
+    });
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("barrel", () => {
+  it("agents index exports claim extractor surface", async () => {
+    const barrel = await import("./index.js");
+    expect(typeof barrel.createClaimExtractorAgent).toBe("function");
+    expect(typeof barrel.validateClaimExtractorProposal).toBe("function");
+  });
+});
