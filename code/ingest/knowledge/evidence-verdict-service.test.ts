@@ -34,6 +34,7 @@ import {
   createFileEvidenceVerdictStore,
   deriveEvidenceVerdictId,
   type EvidencePacketReader,
+  type PacketVerifier,
   type ReceiptFailureReader,
 } from "./evidence-verdict-service.js";
 
@@ -96,6 +97,7 @@ function ref(
   };
 }
 
+/** Default packet: UNIT_A primary (material), UNIT_B supporting. */
 function packet(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
   const rcpt = receipt();
   return {
@@ -122,9 +124,7 @@ function packet(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
   };
 }
 
-function packetReader(
-  p: EvidencePacket = packet(),
-): EvidencePacketReader {
+function packetReader(p: EvidencePacket = packet()): EvidencePacketReader {
   return {
     get: async (packetId, version) =>
       packetId === p.id && version === p.version ? p : undefined,
@@ -142,17 +142,46 @@ function receiptReader(
             id: healthy.id,
             failures: healthy.failures,
             selectedIds: healthy.selectedIds,
+            snapshotId: healthy.snapshotId,
+            query: healthy.query,
+            filters: healthy.filters,
+            candidateIds: healthy.candidateIds,
+            indexVersion: healthy.indexVersion,
+            indexedRepresentationsSha256: healthy.indexedRepresentationsSha256,
           }
         : undefined,
   };
 }
 
+function verifierOk(): PacketVerifier {
+  return {
+    verifyReferences: async () => ({ ok: true as const, value: true as const }),
+  };
+}
+
+function verifierFail(
+  code: string = "HASH_MISMATCH",
+): PacketVerifier {
+  return {
+    verifyReferences: async () => ({
+      ok: false as const,
+      code,
+      message: "verify failed",
+    }),
+  };
+}
+
+/**
+ * River §3.3: material = primary only. Reviews for supporting are optional
+ * unless product chooses require-all; RED documents supporting-unclassified
+ * as accept path when all primaries classified + facets satisfied.
+ */
 function acceptedInput(overrides: Record<string, unknown> = {}) {
   return {
     questionId: QUESTION,
-    evidencePacketId: PACKET_ID,
+    packetId: PACKET_ID,
     packetVersion: 1,
-    requiredFacets: ["purpose", "components"],
+    requiredFacetIds: ["purpose", "components"],
     referenceReviews: [
       {
         unitId: UNIT_A,
@@ -190,6 +219,7 @@ function service(
   overrides: {
     packets?: EvidencePacketReader;
     receipts?: ReceiptFailureReader;
+    verifier?: PacketVerifier;
     store?: ReturnType<typeof createInMemoryEvidenceVerdictStore>;
   } = {},
 ) {
@@ -197,37 +227,9 @@ function service(
     store: overrides.store ?? createInMemoryEvidenceVerdictStore(),
     packets: overrides.packets ?? packetReader(),
     receipts: overrides.receipts ?? receiptReader(),
+    verifier: overrides.verifier ?? verifierOk(),
   });
 }
-
-describe("EvidenceVerdictSchema (service surface)", () => {
-  it("accepts full accepted shape once domain is complete", () => {
-    // Soft: service tests primarily exercise apply; domain suite is authoritative.
-    const sample = {
-      schemaVersion: 1,
-      id: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      questionId: QUESTION,
-      evidencePacketId: PACKET_ID,
-      packetVersion: 1,
-      version: 1,
-      referenceReviews: [
-        {
-          unitId: UNIT_A,
-          classification: "necessary_primary",
-          reason: "x",
-        },
-      ],
-      facetStates: [
-        { facetId: "purpose", state: "satisfied", reason: "x" },
-      ],
-      verdict: "accepted",
-      criticisms: [],
-      followUpRequest: null,
-      packetDigest: "a".repeat(64),
-    };
-    expect(EvidenceVerdictSchema.safeParse(sample).success).toBe(true);
-  });
-});
 
 describe("createEvidenceVerdictService construction", () => {
   it("requires packets reader at construction", () => {
@@ -235,6 +237,7 @@ describe("createEvidenceVerdictService construction", () => {
       createEvidenceVerdictService({
         store: createInMemoryEvidenceVerdictStore(),
         receipts: receiptReader(),
+        verifier: verifierOk(),
       } as never),
     ).toThrow(/packets/i);
   });
@@ -244,22 +247,71 @@ describe("createEvidenceVerdictService construction", () => {
       createEvidenceVerdictService({
         store: createInMemoryEvidenceVerdictStore(),
         packets: packetReader(),
+        verifier: verifierOk(),
       } as never),
     ).toThrow(/receipts/i);
   });
+
+  it("requires packet verifier at construction", () => {
+    expect(() =>
+      createEvidenceVerdictService({
+        store: createInMemoryEvidenceVerdictStore(),
+        packets: packetReader(),
+        receipts: receiptReader(),
+      } as never),
+    ).toThrow(/verifier/i);
+  });
 });
 
-describe("apply — accepted lifecycle", () => {
-  it("accepts when every required facet is satisfied and every packet ref classified", async () => {
+describe("apply — accepted lifecycle (River §3.3–3.4)", () => {
+  it("accepts when required facets satisfied and every primary classified", async () => {
     const result = await service().apply(acceptedInput());
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe("accepted");
     expect(result.value.version).toBe(1);
+    expect(result.value.packetId).toBe(PACKET_ID);
     expect(result.value.id).toBe(deriveEvidenceVerdictId(QUESTION, PACKET_ID));
-    expect(result.value.referenceReviews).toHaveLength(2);
     expect(Object.isFrozen(result.value)).toBe(true);
     expect(result.value.followUpRequest).toBeNull();
+    expect(result.transition).toEqual({
+      done: true,
+      activateP1: false,
+      kind: "accepted",
+    });
+  });
+
+  it("accepts with supporting ref unclassified when all primaries classified", async () => {
+    // River: material = primary only; supporting reviews optional.
+    const result = await service().apply(
+      acceptedInput({
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "necessary_primary",
+            reason: "Primary only.",
+          },
+        ],
+        // facets still cite supporting unit for evidence — allowed as long as ⊆ packet
+        facetStates: [
+          {
+            facetId: "purpose",
+            state: "satisfied",
+            sourceUnitIds: [UNIT_A],
+            reason: "Covered by primary.",
+          },
+          {
+            facetId: "components",
+            state: "satisfied",
+            sourceUnitIds: [UNIT_A],
+            reason: "Also covered by primary text.",
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.verdict).toBe("accepted");
   });
 
   it("rejects accepted when a required facet is not satisfied", async () => {
@@ -289,7 +341,7 @@ describe("apply — accepted lifecycle", () => {
   it("rejects accepted when a required facet is omitted entirely", async () => {
     const result = await service().apply(
       acceptedInput({
-        requiredFacets: ["purpose", "components", "boundary"],
+        requiredFacetIds: ["purpose", "components", "boundary"],
         facetStates: [
           {
             facetId: "purpose",
@@ -311,22 +363,72 @@ describe("apply — accepted lifecycle", () => {
     expect(result.code).toBe("FACET_UNSATISFIED");
   });
 
-  it("rejects accepted when a material packet reference is unclassified", async () => {
+  it("rejects accepted when a required facet is not_applicable", async () => {
+    const result = await service().apply(
+      acceptedInput({
+        facetStates: [
+          {
+            facetId: "purpose",
+            state: "satisfied",
+            sourceUnitIds: [UNIT_A],
+            reason: "ok",
+          },
+          {
+            facetId: "components",
+            state: "not_applicable",
+            reason: "claimed N/A",
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("FACET_REQUIRED_NA");
+  });
+
+  it("rejects accepted when a primary (material) reference is unclassified", async () => {
     const result = await service().apply(
       acceptedInput({
         referenceReviews: [
+          // only supporting classified — primary UNIT_A missing
           {
-            unitId: UNIT_A,
-            classification: "necessary_primary",
-            reason: "ok",
+            unitId: UNIT_B,
+            classification: "necessary_qualifying",
+            reason: "supporting only",
           },
-          // UNIT_B missing
         ],
       }),
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe("REFERENCE_UNCLASSIFIED");
+  });
+
+  it("rejects accepted when material review is conflicting or unverifiable", async () => {
+    for (const classification of ["conflicting", "unverifiable"] as const) {
+      const result = await service().apply(
+        acceptedInput({
+          referenceReviews: [
+            {
+              unitId: UNIT_A,
+              classification,
+              reason: "cannot accept",
+            },
+            {
+              unitId: UNIT_B,
+              classification: "necessary_qualifying",
+              reason: "ok",
+            },
+          ],
+        }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(["REFERENCE_INVALID", "FACET_UNSATISFIED", "INVALID_INPUT"]).toContain(
+          result.code,
+        );
+      }
+    }
   });
 
   it("rejects review of a unit not present on the packet", async () => {
@@ -337,11 +439,6 @@ describe("apply — accepted lifecycle", () => {
           {
             unitId: UNIT_A,
             classification: "necessary_primary",
-            reason: "ok",
-          },
-          {
-            unitId: UNIT_B,
-            classification: "necessary_qualifying",
             reason: "ok",
           },
           {
@@ -356,13 +453,36 @@ describe("apply — accepted lifecycle", () => {
     if (result.ok) return;
     expect(result.code).toBe("INVALID_INPUT");
   });
+
+  it("rejects accepted on empty-ref packet", async () => {
+    const empty = packet({ references: [] });
+    const result = await service({ packets: packetReader(empty) }).apply(
+      acceptedInput({
+        referenceReviews: [],
+        facetStates: [
+          { facetId: "purpose", state: "satisfied", reason: "bogus" },
+          { facetId: "components", state: "satisfied", reason: "bogus" },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("EMPTY_PACKET");
+  });
+
+  it("rejects apply when packet verifyReferences fails", async () => {
+    const result = await service({ verifier: verifierFail() }).apply(
+      acceptedInput(),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("PACKET_UNVERIFIED");
+  });
 });
 
-describe("apply — retrieval outage cannot become no_supported_answer", () => {
+describe("apply — retrieval outage cannot become no_supported_answer (River §3.6)", () => {
   it("rejects no_supported_answer when receipt carries INDEX_UNAVAILABLE", async () => {
-    const p = packet();
     const result = await service({
-      packets: packetReader(p),
       receipts: receiptReader(["INDEX_UNAVAILABLE"]),
     }).apply(
       acceptedInput({
@@ -385,38 +505,43 @@ describe("apply — retrieval outage cannot become no_supported_answer", () => {
             classification: "unverifiable",
             reason: "outage",
           },
-          {
-            unitId: UNIT_B,
-            classification: "unverifiable",
-            reason: "outage",
-          },
         ],
         criticisms: ["index unavailable"],
       }),
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.code).toBe("RETRIEVAL_OUTAGE");
+    expect(["OUTAGE_NOT_GAP", "RECEIPT_INVALID"]).toContain(result.code);
   });
 
-  it("rejects no_supported_answer for generic retrieval failure codes", async () => {
-    const result = await service({
-      receipts: receiptReader(["RETRIEVAL_UNAVAILABLE"]),
-    }).apply(
-      acceptedInput({
-        verdict: "no_supported_answer",
-        facetStates: [
-          { facetId: "purpose", state: "missing", reason: "x" },
-          { facetId: "components", state: "missing", reason: "x" },
-        ],
-      }),
-    );
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.code).toBe("RETRIEVAL_OUTAGE");
+  it("rejects no_supported_answer for SEARCH_UNAVAILABLE / PROVIDER_OUTAGE codes", async () => {
+    for (const code of ["SEARCH_UNAVAILABLE", "PROVIDER_OUTAGE", "RETRIEVAL_UNAVAILABLE"]) {
+      const result = await service({
+        receipts: receiptReader([code]),
+      }).apply(
+        acceptedInput({
+          verdict: "no_supported_answer",
+          facetStates: [
+            { facetId: "purpose", state: "missing", reason: "x" },
+            { facetId: "components", state: "missing", reason: "x" },
+          ],
+          referenceReviews: [
+            {
+              unitId: UNIT_A,
+              classification: "unverifiable",
+              reason: "outage",
+            },
+          ],
+        }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(["OUTAGE_NOT_GAP", "RECEIPT_INVALID"]).toContain(result.code);
+      }
+    }
   });
 
-  it("allows no_supported_answer only with a healthy receipt and full classification", async () => {
+  it("allows no_supported_answer only with a healthy receipt and zero material refs", async () => {
     const emptyPacket = packet({ references: [] });
     const healthy = receipt({ selectedIds: [], candidateIds: [] });
     const result = await service({
@@ -426,13 +551,19 @@ describe("apply — retrieval outage cannot become no_supported_answer", () => {
           id: healthy.id,
           failures: [],
           selectedIds: [],
+          snapshotId: healthy.snapshotId,
+          query: healthy.query,
+          filters: healthy.filters,
+          candidateIds: [],
+          indexVersion: healthy.indexVersion,
+          indexedRepresentationsSha256: healthy.indexedRepresentationsSha256,
         }),
       },
     }).apply({
       questionId: QUESTION,
-      evidencePacketId: PACKET_ID,
+      packetId: PACKET_ID,
       packetVersion: 1,
-      requiredFacets: ["purpose"],
+      requiredFacetIds: ["purpose"],
       referenceReviews: [],
       facetStates: [
         {
@@ -448,6 +579,11 @@ describe("apply — retrieval outage cannot become no_supported_answer", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe("no_supported_answer");
+    expect(result.transition).toEqual({
+      done: true,
+      activateP1: false,
+      kind: "no_supported_answer",
+    });
   });
 
   it("allows search_incomplete under retrieval outage (not no_supported_answer)", async () => {
@@ -460,17 +596,29 @@ describe("apply — retrieval outage cannot become no_supported_answer", () => {
           { facetId: "purpose", state: "partial", reason: "outage" },
           { facetId: "components", state: "partial", reason: "outage" },
         ],
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "unverifiable",
+            reason: "outage",
+          },
+        ],
         criticisms: ["index outage"],
       }),
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe("search_incomplete");
+    expect(result.transition).toEqual({
+      done: true,
+      activateP1: false,
+      kind: "search_incomplete",
+    });
   });
 });
 
-describe("apply — needs_more_evidence and contradiction", () => {
-  it("requires bounded followUpRequest for needs_more_evidence", async () => {
+describe("apply — needs_more_evidence and contradiction (River §3.5 / §3.7)", () => {
+  it("requires strict BoundedFollowUp for needs_more_evidence", async () => {
     const missing = await service().apply(
       acceptedInput({
         verdict: "needs_more_evidence",
@@ -479,10 +627,40 @@ describe("apply — needs_more_evidence and contradiction", () => {
           { facetId: "components", state: "missing", reason: "gap" },
         ],
         followUpRequest: null,
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "necessary_primary",
+            reason: "ok",
+          },
+        ],
       }),
     );
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.code).toBe("FOLLOW_UP_REQUIRED");
+
+    const emptyBody = await service().apply(
+      acceptedInput({
+        verdict: "needs_more_evidence",
+        facetStates: [
+          { facetId: "purpose", state: "partial", reason: "thin" },
+          { facetId: "components", state: "missing", reason: "gap" },
+        ],
+        followUpRequest: {
+          missingFacetIds: [],
+          requiredSearch: { subject: "" },
+          whyCurrentPacketFails: "x",
+        },
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "necessary_primary",
+            reason: "ok",
+          },
+        ],
+      }),
+    );
+    expect(emptyBody.ok).toBe(false);
 
     const ok = await service().apply(
       acceptedInput({
@@ -492,7 +670,7 @@ describe("apply — needs_more_evidence and contradiction", () => {
           { facetId: "components", state: "missing", reason: "gap" },
         ],
         followUpRequest: {
-          missingFacets: ["components"],
+          missingFacetIds: ["components"],
           requiredSearch: {
             subject: "component list",
             scope: "docs",
@@ -500,15 +678,27 @@ describe("apply — needs_more_evidence and contradiction", () => {
           },
           whyCurrentPacketFails: "components facet unsupported",
         },
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "necessary_primary",
+            reason: "ok",
+          },
+        ],
       }),
     );
     expect(ok.ok).toBe(true);
     if (!ok.ok) return;
     expect(ok.value.verdict).toBe("needs_more_evidence");
     expect(ok.value.followUpRequest).not.toBeNull();
+    expect(ok.transition).toEqual({
+      done: false,
+      activateP1: false,
+      kind: "refine",
+    });
   });
 
-  it("conflicting_or_deprecated yields P1 activation done:false without child proposals", async () => {
+  it("conflicting_or_deprecated yields activateP1 + done:false without child proposals", async () => {
     const result = await service().apply(
       acceptedInput({
         verdict: "conflicting_or_deprecated",
@@ -543,10 +733,9 @@ describe("apply — needs_more_evidence and contradiction", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe("conflicting_or_deprecated");
-    // Activation command is a sibling of the durable verdict, not a child proposal.
-    expect(result.activation).toEqual({
-      priority: "P1",
+    expect(result.transition).toEqual({
       done: false,
+      activateP1: true,
       kind: "contradiction",
     });
     expect(
@@ -558,12 +747,80 @@ describe("apply — needs_more_evidence and contradiction", () => {
     ).toBe(false);
   });
 
-  it("accepted must not carry follow-up or activation", async () => {
+  it("any required facet state conflicting yields contradiction transition", async () => {
+    const result = await service().apply(
+      acceptedInput({
+        verdict: "ambiguous_scope",
+        facetStates: [
+          {
+            facetId: "purpose",
+            state: "conflicting",
+            reason: "two scopes",
+          },
+          {
+            facetId: "components",
+            state: "partial",
+            reason: "thin",
+          },
+        ],
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "conflicting",
+            reason: "scope clash",
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.transition).toEqual({
+      done: false,
+      activateP1: true,
+      kind: "contradiction",
+    });
+  });
+
+  it("blocked terminals yield done:false activateP1:false kind blocked", async () => {
+    for (const verdict of [
+      "human_authority_required",
+      "source_processing_blocked",
+      "ambiguous_scope",
+    ] as const) {
+      const result = await service().apply(
+        acceptedInput({
+          verdict,
+          facetStates: [
+            { facetId: "purpose", state: "ambiguous_scope", reason: "x" },
+            { facetId: "components", state: "partial", reason: "x" },
+          ],
+          referenceReviews: [
+            {
+              unitId: UNIT_A,
+              classification: "necessary_primary",
+              reason: "ok",
+            },
+          ],
+          criticisms: [verdict],
+        }),
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.transition).toEqual({
+        done: false,
+        activateP1: false,
+        kind: "blocked",
+      });
+    }
+  });
+
+  it("accepted must not carry follow-up", async () => {
     const result = await service().apply(acceptedInput());
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.followUpRequest).toBeNull();
-    expect(result.activation).toBeUndefined();
+    expect(result.transition.activateP1).toBe(false);
+    expect(result.transition.done).toBe(true);
   });
 });
 
@@ -592,9 +849,9 @@ describe("apply — packet binding and input hygiene", () => {
     let accessed = false;
     const hostile = {
       questionId: QUESTION,
-      evidencePacketId: PACKET_ID,
+      packetId: PACKET_ID,
       packetVersion: 1,
-      requiredFacets: ["purpose", "components"],
+      requiredFacetIds: ["purpose", "components"],
       get referenceReviews() {
         accessed = true;
         throw new Error("should not run");
@@ -616,6 +873,12 @@ describe("apply — packet binding and input hygiene", () => {
     });
     expect(unknown.ok).toBe(false);
     if (!unknown.ok) expect(unknown.code).toBe("INVALID_INPUT");
+
+    const children = await service().apply({
+      ...acceptedInput(),
+      childQuestions: ["nope"],
+    });
+    expect(children.ok).toBe(false);
   });
 
   it("binds packetDigest from stored packet and freezes nested arrays", async () => {
@@ -627,9 +890,18 @@ describe("apply — packet binding and input hygiene", () => {
     expect(Object.isFrozen(result.value.facetStates)).toBe(true);
     expect(Object.isFrozen(result.value.criticisms)).toBe(true);
   });
+
+  it("rejects empty requiredFacetIds", async () => {
+    const result = await service().apply(
+      acceptedInput({ requiredFacetIds: [] }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_INPUT");
+  });
 });
 
-describe("append-only versions, CAS, idempotency", () => {
+describe("append-only versions, CAS, idempotency (River §3.8)", () => {
   it("appends v2 without overwriting v1", async () => {
     const store = createInMemoryEvidenceVerdictStore();
     const svc = service({ store });
@@ -643,6 +915,13 @@ describe("append-only versions, CAS, idempotency", () => {
         expectedVersion: 1,
       }),
     );
+    // River: one logical critic decision per packet version for success path —
+    // different terminal/payload on same packetVersion without new packet → conflict
+    // OR allow append-only history with expectedVersion. Prefer VERSION_CONFLICT
+    // when different digest on same packetVersion without explicit supersede.
+    // Binding: re-apply identical is replay; different → VERSION_CONFLICT when
+    // prior exists without expectedVersion advancing stream carefully.
+    // We lock: with expectedVersion:1, v2 append is allowed (audit history).
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.value.version).toBe(2);
@@ -668,6 +947,19 @@ describe("append-only versions, CAS, idempotency", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe("VERSION_CONFLICT");
+  });
+
+  it("rejects second different verdict on same packetVersion without expectedVersion bump", async () => {
+    const svc = service();
+    const first = await svc.apply(acceptedInput());
+    expect(first.ok).toBe(true);
+    // No expectedVersion → cannot overwrite/replace accepted with different payload
+    const second = await svc.apply(
+      acceptedInput({ criticisms: ["sneaky upgrade"] }),
+    );
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.code).toBe("VERSION_CONFLICT");
   });
 
   it("is idempotent for the same key and payload", async () => {
@@ -697,7 +989,7 @@ describe("append-only versions, CAS, idempotency", () => {
   });
 });
 
-describe("durable store / crash / custody seams", () => {
+describe("durable store / crash / custody seams (River §3.9)", () => {
   it("exports createFileEvidenceVerdictStore", async () => {
     const mod = await import("./evidence-verdict-service.js");
     expect(typeof mod.createFileEvidenceVerdictStore).toBe("function");
@@ -712,6 +1004,7 @@ describe("durable store / crash / custody seams", () => {
         store,
         packets: packetReader(),
         receipts: receiptReader(),
+        verifier: verifierOk(),
       });
       const first = await svc.apply(acceptedInput());
       expect(first.ok).toBe(true);
@@ -725,11 +1018,11 @@ describe("durable store / crash / custody seams", () => {
         );
         expect(next.ok).toBe(true);
       }
-      const fresh = createFileEvidenceVerdictStore(root);
       const freshSvc = createEvidenceVerdictService({
-        store: fresh,
+        store: createFileEvidenceVerdictStore(root),
         packets: packetReader(),
         receipts: receiptReader(),
+        verifier: verifierOk(),
       });
       const latest = await freshSvc.latest(first.value.id);
       expect(latest.ok).toBe(true);
@@ -757,6 +1050,7 @@ describe("durable store / crash / custody seams", () => {
         store,
         packets: packetReader(),
         receipts: receiptReader(),
+        verifier: verifierOk(),
       });
       await expect(svc.apply(acceptedInput())).rejects.toThrow(/injected-crash/);
       const fresh = createFileEvidenceVerdictStore(root);
@@ -778,6 +1072,7 @@ describe("durable store / crash / custody seams", () => {
         store,
         packets: packetReader(),
         receipts: receiptReader(),
+        verifier: verifierOk(),
       });
       const first = await svc.apply({
         ...acceptedInput(),
@@ -788,6 +1083,7 @@ describe("durable store / crash / custody seams", () => {
         store: createFileEvidenceVerdictStore(root),
         packets: packetReader(),
         receipts: receiptReader(),
+        verifier: verifierOk(),
       });
       const replay = await freshSvc.apply({
         ...acceptedInput(),
@@ -801,6 +1097,7 @@ describe("durable store / crash / custody seams", () => {
         store: createFileEvidenceVerdictStore(root),
         packets: packetReader(),
         receipts: receiptReader(),
+        verifier: verifierOk(),
       }).apply({
         ...acceptedInput({ criticisms: ["different"] }),
         idempotencyKey: "dur-1",
@@ -825,7 +1122,7 @@ describe("durable store / crash / custody seams", () => {
         schemaVersion: 1,
         id: deriveEvidenceVerdictId(QUESTION, PACKET_ID),
         questionId: QUESTION,
-        evidencePacketId: PACKET_ID,
+        packetId: PACKET_ID,
         packetVersion: 1,
         version: 1,
         referenceReviews: [],
@@ -848,17 +1145,16 @@ describe("durable store / crash / custody seams", () => {
         store,
         packets: packetReader(),
         receipts: receiptReader(),
+        verifier: verifierOk(),
       });
       const first = await svc.apply(acceptedInput());
       expect(first.ok).toBe(true);
       if (!first.ok) return;
-      // Corrupt by writing a gap file / malformed sibling under the stream dir.
-      // Implementation places records under .ultradyn/evidence/verdicts/<id>/
+      // Path: .ultradyn/evidence-verdicts/<id>/ (River §3.9)
       const streamDir = join(
         root,
         ".ultradyn",
-        "evidence",
-        "verdicts",
+        "evidence-verdicts",
         first.value.id,
       );
       await writeFile(join(streamDir, "3.json"), "{not-json", "utf8");
@@ -872,11 +1168,85 @@ describe("durable store / crash / custody seams", () => {
   }, 60_000);
 });
 
-describe("public seams and registry", () => {
-  it("registry EvidenceVerdict rejects legacy placeholder alone", async () => {
+describe("public seams — full schema not placeholder (genuine RED)", () => {
+  it("EvidenceVerdictSchema from domain module rejects legacy placeholder alone", () => {
+    expect(
+      EvidenceVerdictSchema.safeParse({
+        schemaVersion: 1,
+        id: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("EvidenceVerdictSchema from domain module accepts a complete verdict", () => {
+    expect(
+      EvidenceVerdictSchema.safeParse({
+        schemaVersion: 1,
+        id: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        questionId: QUESTION,
+        packetId: PACKET_ID,
+        packetVersion: 1,
+        version: 1,
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "necessary_primary",
+            reason: "x",
+          },
+        ],
+        facetStates: [
+          { facetId: "purpose", state: "satisfied", reason: "x" },
+        ],
+        verdict: "accepted",
+        criticisms: [],
+        followUpRequest: null,
+        packetDigest: "a".repeat(64),
+      }).success,
+    ).toBe(true);
+  });
+
+  it("registry EvidenceVerdict rejects legacy placeholder and accepts full shape", async () => {
     const { ingestSchemaRegistry } =
       await import("../../domain/ingest/schema-registry.js");
     const schema = ingestSchemaRegistry.get("EvidenceVerdict", 1);
+    expect(
+      schema.safeParse({
+        schemaVersion: 1,
+        id: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        schemaVersion: 1,
+        id: "evv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        questionId: QUESTION,
+        packetId: PACKET_ID,
+        packetVersion: 1,
+        version: 1,
+        referenceReviews: [
+          {
+            unitId: UNIT_A,
+            classification: "necessary_primary",
+            reason: "x",
+          },
+        ],
+        facetStates: [
+          { facetId: "purpose", state: "satisfied", reason: "x" },
+        ],
+        verdict: "accepted",
+        criticisms: [],
+        followUpRequest: null,
+        packetDigest: "a".repeat(64),
+      }).success,
+    ).toBe(true);
+  });
+
+  it("domain barrel EvidenceVerdictSchema rejects placeholder (not soft typeof)", async () => {
+    const barrel = await import("../../domain/ingest/index.js");
+    const schema = (
+      barrel as { EvidenceVerdictSchema: { safeParse: (v: unknown) => { success: boolean } } }
+    ).EvidenceVerdictSchema;
+    expect(typeof schema?.safeParse).toBe("function");
     expect(
       schema.safeParse({
         schemaVersion: 1,
@@ -890,14 +1260,6 @@ describe("public seams and registry", () => {
     expect(
       typeof (barrel as { createEvidenceVerdictService?: unknown })
         .createEvidenceVerdictService,
-    ).toBe("function");
-  });
-
-  it("domain barrel re-exports EvidenceVerdictSchema", async () => {
-    const barrel = await import("../../domain/ingest/index.js");
-    expect(
-      typeof (barrel as { EvidenceVerdictSchema?: { safeParse?: unknown } })
-        .EvidenceVerdictSchema?.safeParse,
     ).toBe("function");
   });
 });

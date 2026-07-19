@@ -6,7 +6,7 @@ import {
   ReferenceClassificationSchema,
   FacetStateSchema,
   TerminalVerdictSchema,
-  FollowUpRequestSchema,
+  BoundedFollowUpSchema,
   canonicalVerdictPayloadDigest,
 } from "./evidence-verdict.js";
 
@@ -16,12 +16,16 @@ const QUESTION_ID = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const UNIT_A = "unit-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const DIGEST = "a".repeat(64);
 
+/**
+ * River T-21-02 binding: protocol/schema enums win over plan shorthand.
+ * material = packet role primary (not a classification token).
+ */
 function baseVerdict(overrides: Record<string, unknown> = {}) {
   return {
     schemaVersion: 1 as const,
     id: VALID_ID,
     questionId: QUESTION_ID,
-    evidencePacketId: PACKET_ID,
+    packetId: PACKET_ID,
     packetVersion: 1,
     version: 1,
     referenceReviews: [
@@ -47,28 +51,28 @@ function baseVerdict(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("EvidenceVerdict domain exports", () => {
-  it("exports EvidenceVerdictSchema", () => {
+describe("EvidenceVerdict domain exports (River protocol enums)", () => {
+  it("exports EvidenceVerdictSchema with safeParse", () => {
     expect(typeof EvidenceVerdictSchema?.safeParse).toBe("function");
   });
 
-  it("exports EvidenceVerdictIdSchema with evv- brand", () => {
+  it("exports EvidenceVerdictIdSchema with evv- brand only", () => {
     expect(EvidenceVerdictIdSchema.safeParse(VALID_ID).success).toBe(true);
     expect(
       EvidenceVerdictIdSchema.safeParse("pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV")
         .success,
     ).toBe(false);
     expect(
-      EvidenceVerdictIdSchema.safeParse("evr-01ARZ3NDEKTSV4RRFFQ69G5FAV")
+      EvidenceVerdictIdSchema.safeParse("evp-01ARZ3NDEKTSV4RRFFQ69G5FAV")
         .success,
     ).toBe(false);
     expect(
-      EvidenceVerdictIdSchema.safeParse("ev-01ARZ3NDEKTSV4RRFFQ69G5FAV")
+      EvidenceVerdictIdSchema.safeParse("evr-01ARZ3NDEKTSV4RRFFQ69G5FAV")
         .success,
     ).toBe(false);
   });
 
-  it("reference classification enum is closed protocol set", () => {
+  it("reference classification enum is closed protocol set (not plan shorthand)", () => {
     const allowed = [
       "necessary_primary",
       "necessary_qualifying",
@@ -84,16 +88,9 @@ describe("EvidenceVerdict domain exports", () => {
     for (const value of allowed) {
       expect(ReferenceClassificationSchema.safeParse(value).success).toBe(true);
     }
-    // Plan-draft simplifications are not accepted.
-    expect(ReferenceClassificationSchema.safeParse("material").success).toBe(
-      false,
-    );
-    expect(ReferenceClassificationSchema.safeParse("supporting").success).toBe(
-      false,
-    );
-    expect(ReferenceClassificationSchema.safeParse("obsolete").success).toBe(
-      false,
-    );
+    for (const bad of ["material", "supporting", "obsolete", "primary"]) {
+      expect(ReferenceClassificationSchema.safeParse(bad).success).toBe(false);
+    }
   });
 
   it("facet state enum is closed protocol set", () => {
@@ -113,7 +110,7 @@ describe("EvidenceVerdict domain exports", () => {
     expect(FacetStateSchema.safeParse("uncertain").success).toBe(false);
   });
 
-  it("terminal verdict enum is closed protocol set", () => {
+  it("terminal verdict enum is closed protocol set (includes search_incomplete)", () => {
     const allowed = [
       "accepted",
       "needs_more_evidence",
@@ -127,15 +124,21 @@ describe("EvidenceVerdict domain exports", () => {
     for (const value of allowed) {
       expect(TerminalVerdictSchema.safeParse(value).success).toBe(true);
     }
-    // Plan-draft aliases are not accepted.
     expect(TerminalVerdictSchema.safeParse("refine").success).toBe(false);
     expect(TerminalVerdictSchema.safeParse("contradiction").success).toBe(
       false,
     );
   });
 
-  it("accepts a complete valid accepted verdict", () => {
+  it("accepts a complete valid accepted verdict with packetId (not evidencePacketId only)", () => {
     expect(EvidenceVerdictSchema.safeParse(baseVerdict()).success).toBe(true);
+    // snake_case agent fields are not durable TS shape
+    expect(
+      EvidenceVerdictSchema.safeParse({
+        ...baseVerdict(),
+        evidence_packet_id: PACKET_ID,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects legacy placeholder {schemaVersion,id} alone", () => {
@@ -147,25 +150,25 @@ describe("EvidenceVerdict domain exports", () => {
     ).toBe(false);
   });
 
-  it("requires packet binding fields and packetDigest", () => {
-    const withoutPacket = baseVerdict();
-    delete (withoutPacket as { evidencePacketId?: string }).evidencePacketId;
-    expect(EvidenceVerdictSchema.safeParse(withoutPacket).success).toBe(false);
-
-    const withoutDigest = baseVerdict();
-    delete (withoutDigest as { packetDigest?: string }).packetDigest;
-    expect(EvidenceVerdictSchema.safeParse(withoutDigest).success).toBe(false);
+  it("requires packetId, packetVersion, packetDigest binding", () => {
+    for (const key of ["packetId", "packetVersion", "packetDigest"] as const) {
+      const copy = baseVerdict();
+      delete (copy as Record<string, unknown>)[key];
+      expect(EvidenceVerdictSchema.safeParse(copy).success).toBe(false);
+    }
   });
 
-  it("rejects unknown keys and child-proposal fields", () => {
-    expect(
-      EvidenceVerdictSchema.safeParse(
-        baseVerdict({ childQuestionProposals: [{ text: "why?" }] }),
-      ).success,
-    ).toBe(false);
-    expect(
-      EvidenceVerdictSchema.safeParse(baseVerdict({ evil: true })).success,
-    ).toBe(false);
+  it("rejects unknown keys and child-proposal smuggling fields", () => {
+    for (const bad of [
+      { childQuestionProposals: [{ text: "why?" }] },
+      { childQuestions: ["spawn"] },
+      { proposedChildren: [] },
+      { evil: true },
+    ]) {
+      expect(
+        EvidenceVerdictSchema.safeParse(baseVerdict(bad)).success,
+      ).toBe(false);
+    }
   });
 
   it("requires non-empty reason strings on reviews and facet states", () => {
@@ -187,9 +190,9 @@ describe("EvidenceVerdict domain exports", () => {
     ).toBe(false);
   });
 
-  it("FollowUpRequestSchema accepts bounded refinement shape", () => {
+  it("BoundedFollowUpSchema is strict (no additionalProperties / children)", () => {
     const ok = {
-      missingFacets: ["auth-failure"],
+      missingFacetIds: ["auth-failure"],
       requiredSearch: {
         subject: "token validation errors",
         scope: "public API v2",
@@ -197,12 +200,19 @@ describe("EvidenceVerdict domain exports", () => {
       },
       whyCurrentPacketFails: "No unit covers failure modes.",
     };
-    expect(FollowUpRequestSchema.safeParse(ok).success).toBe(true);
-    expect(FollowUpRequestSchema.safeParse({}).success).toBe(false);
+    expect(BoundedFollowUpSchema.safeParse(ok).success).toBe(true);
+    expect(BoundedFollowUpSchema.safeParse({}).success).toBe(false);
     expect(
-      FollowUpRequestSchema.safeParse({
+      BoundedFollowUpSchema.safeParse({
         ...ok,
         childQuestions: ["spawn?"],
+      }).success,
+    ).toBe(false);
+    // JSON-schema-open freeform keys rejected
+    expect(
+      BoundedFollowUpSchema.safeParse({
+        ...ok,
+        arbitraryAgentField: true,
       }).success,
     ).toBe(false);
   });
@@ -210,7 +220,7 @@ describe("EvidenceVerdict domain exports", () => {
   it("canonicalVerdictPayloadDigest is fixed-field not key-order sensitive", () => {
     const a = {
       questionId: QUESTION_ID,
-      evidencePacketId: PACKET_ID,
+      packetId: PACKET_ID,
       packetVersion: 1,
       packetDigest: DIGEST,
       referenceReviews: [
@@ -253,19 +263,15 @@ describe("EvidenceVerdict domain exports", () => {
       ],
       packetDigest: DIGEST,
       packetVersion: 1,
-      evidencePacketId: PACKET_ID,
+      packetId: PACKET_ID,
       questionId: QUESTION_ID,
     };
     expect(canonicalVerdictPayloadDigest(a)).toBe(
       canonicalVerdictPayloadDigest(b),
     );
     expect(canonicalVerdictPayloadDigest(a)).toMatch(/^[a-f0-9]{64}$/);
-    const different = {
-      ...a,
-      criticisms: ["different"],
-    };
     expect(canonicalVerdictPayloadDigest(a)).not.toBe(
-      canonicalVerdictPayloadDigest(different),
+      canonicalVerdictPayloadDigest({ ...a, criticisms: ["different"] }),
     );
   });
 });
