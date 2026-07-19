@@ -52,6 +52,89 @@ function emptyInput(): {
   return { sourceFile, representation, audit: audited.value };
 }
 
+function textInput(
+  text: string,
+  kind: SourceRepresentation["kind"] = "text",
+): UnitizeInput {
+  const base = emptyInput();
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  let offset = 0;
+  const locatorMap: SourceRepresentation["locatorMap"] = lines.map(
+    (line, index) => {
+      const start = offset;
+      const end = start + line.length;
+      offset = end + 1;
+      return {
+        kind: "line",
+        normalized: {
+          utf16Start: start,
+          utf16End: end,
+          lineStart: index + 1,
+          columnStart: 1,
+          lineEnd: index + 1,
+          columnEnd: line.length + 1,
+        },
+        original: {
+          byteStart: start,
+          byteEnd: end,
+          lineStart: index + 1,
+          columnStart: 1,
+          lineEnd: index + 1,
+          columnEnd: line.length + 1,
+        },
+      };
+    },
+  );
+  const representation: SourceRepresentation = {
+    ...base.representation,
+    kind,
+    normalizedText: text,
+    locatorMap,
+  };
+  const audited = auditRepresentation(representation);
+  if (!audited.ok) throw new Error(audited.message);
+  return {
+    sourceFile: {
+      ...base.sourceFile,
+      size: Buffer.byteLength(text),
+      sha256: sha256(text),
+    },
+    representation,
+    audit: audited.value,
+  };
+}
+
+function csvCell(
+  row: number,
+  column: number,
+  start: number,
+  end: number,
+  line: number,
+  columnStart: number,
+): SourceRepresentation["locatorMap"][number] {
+  return {
+    kind: "cell",
+    cell: { row, column },
+    normalized: {
+      utf16Start: start,
+      utf16End: end,
+      lineStart: line,
+      columnStart,
+      lineEnd: line,
+      columnEnd: columnStart + (end - start),
+    },
+    original: {
+      byteStart: start,
+      byteEnd: end,
+      lineStart: line,
+      columnStart,
+      lineEnd: line,
+      columnEnd: columnStart + (end - start),
+    },
+  };
+}
+
 function expectDeepFrozen(value: unknown): void {
   expect(Object.isFrozen(value)).toBe(true);
   if (Array.isArray(value)) {
@@ -103,6 +186,173 @@ describe("unitizeRepresentation", () => {
       expect(SourceUnitSchema.parse(first.value[0])).toEqual(first.value[0]);
       expectDeepFrozen(first.value);
     }
+  });
+
+  it("creates document and paragraph units with exact composed locators", () => {
+    const input = textInput("Alpha line\ncontinued\n\nBeta\n");
+    const result = unitizeRepresentation(input);
+
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(
+      result.value.map((unit) => ({
+        kind: unit.kind,
+        parentId: unit.parentId,
+        headingPath: unit.headingPath,
+        normalizedLocator: unit.normalizedLocator,
+        originalLocator: unit.originalLocator,
+        textSha256: unit.textSha256,
+      })),
+    ).toEqual([
+      {
+        kind: "document",
+        parentId: undefined,
+        headingPath: [],
+        normalizedLocator: {
+          utf16Start: 0,
+          utf16End: 26,
+          lineStart: 1,
+          columnStart: 1,
+          lineEnd: 4,
+          columnEnd: 5,
+        },
+        originalLocator: {
+          byteStart: 0,
+          byteEnd: 26,
+          lineStart: 1,
+          columnStart: 1,
+          lineEnd: 4,
+          columnEnd: 5,
+        },
+        textSha256: sha256("Alpha line\ncontinued\n\nBeta"),
+      },
+      {
+        kind: "paragraph",
+        parentId: result.value[0]!.id,
+        headingPath: [],
+        normalizedLocator: {
+          utf16Start: 0,
+          utf16End: 20,
+          lineStart: 1,
+          columnStart: 1,
+          lineEnd: 2,
+          columnEnd: 10,
+        },
+        originalLocator: {
+          byteStart: 0,
+          byteEnd: 20,
+          lineStart: 1,
+          columnStart: 1,
+          lineEnd: 2,
+          columnEnd: 10,
+        },
+        textSha256: sha256("Alpha line\ncontinued"),
+      },
+      {
+        kind: "paragraph",
+        parentId: result.value[0]!.id,
+        headingPath: [],
+        normalizedLocator: {
+          utf16Start: 22,
+          utf16End: 26,
+          lineStart: 4,
+          columnStart: 1,
+          lineEnd: 4,
+          columnEnd: 5,
+        },
+        originalLocator: {
+          byteStart: 22,
+          byteEnd: 26,
+          lineStart: 4,
+          columnStart: 1,
+          lineEnd: 4,
+          columnEnd: 5,
+        },
+        textSha256: sha256("Beta"),
+      },
+    ]);
+    expect(new Set(result.value.map((unit) => unit.id)).size).toBe(3);
+    expectDeepFrozen(result.value);
+  });
+
+  it("preserves unaffected paragraph IDs across unrelated edits", () => {
+    const before = unitizeRepresentation(textInput("Alpha\n\nBeta\n"));
+    const after = unitizeRepresentation(textInput("New\n\nAlpha\n\nBeta\n"));
+    expect(before.ok).toBe(true);
+    expect(after.ok).toBe(true);
+    if (!before.ok || !after.ok) return;
+
+    const byHash = (
+      units: readonly { kind: string; id: string; textSha256: string }[],
+    ) =>
+      new Map(
+        units
+          .filter((unit) => unit.kind === "paragraph")
+          .map((unit) => [unit.textSha256, unit.id]),
+      );
+    const beforeIds = byHash(before.value);
+    const afterIds = byHash(after.value);
+    expect(afterIds.get(sha256("Alpha"))).toBe(beforeIds.get(sha256("Alpha")));
+    expect(afterIds.get(sha256("Beta"))).toBe(beforeIds.get(sha256("Beta")));
+    expect(after.value[0]!.id).not.toBe(before.value[0]!.id);
+  });
+
+  it("emits only a document for non-empty whitespace-only text", () => {
+    const result = unitizeRepresentation(textInput("  \n\n"));
+    expect(result).toMatchObject({
+      ok: true,
+      value: [expect.objectContaining({ kind: "document" })],
+    });
+  });
+
+  it.each(["code", "json", "yaml"] as const)(
+    "emits one code unit for %s representations",
+    (kind) => {
+      const result = unitizeRepresentation(textInput("alpha\nbeta\n", kind));
+      expect(result).toMatchObject({
+        ok: true,
+        value: [
+          expect.objectContaining({ kind: "document" }),
+          expect.objectContaining({ kind: "code" }),
+        ],
+      });
+    },
+  );
+
+  it("emits one table unit for a CSV representation", () => {
+    const base = emptyInput();
+    const representation: SourceRepresentation = {
+      ...base.representation,
+      kind: "csv",
+      normalizedText: "a,b\n1,2\n",
+      locatorMap: [
+        csvCell(1, 1, 0, 1, 1, 1),
+        csvCell(1, 2, 2, 3, 1, 3),
+        csvCell(2, 1, 4, 5, 2, 1),
+        csvCell(2, 2, 6, 7, 2, 3),
+      ],
+    };
+    const audited = auditRepresentation(representation);
+    expect(audited.ok).toBe(true);
+    if (!audited.ok) return;
+    const result = unitizeRepresentation({
+      sourceFile: { ...base.sourceFile, size: 8, sha256: sha256("a,b\n1,2\n") },
+      representation,
+      audit: audited.value,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: [
+        expect.objectContaining({ kind: "document" }),
+        expect.objectContaining({
+          kind: "table",
+          normalizedLocator: expect.objectContaining({
+            utf16Start: 0,
+            utf16End: 7,
+          }),
+        }),
+      ],
+    });
   });
 
   it("requires exact canonical provenance and a fresh matching built-in audit", () => {

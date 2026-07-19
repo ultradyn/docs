@@ -115,6 +115,206 @@ function textDropped(message: string): IngestResult<never, "TEXT_DROPPED"> {
   return { ok: false, code: "TEXT_DROPPED", message };
 }
 
+interface UnitDraft {
+  readonly kind: SourceUnitKind;
+  readonly headingPath: readonly string[];
+  readonly anchor: readonly {
+    readonly heading: string;
+    readonly occurrence: number;
+  }[];
+  readonly firstLocator: number;
+  readonly lastLocator: number;
+  readonly parentDraft?: number;
+}
+
+function composedUnit(
+  input: UnitizeRepresentationInput,
+  draft: UnitDraft,
+  parentId: SourceUnitId | undefined,
+  duplicateOrdinal: number,
+): SourceUnit {
+  const first = input.representation.locatorMap[draft.firstLocator]!;
+  const last = input.representation.locatorMap[draft.lastLocator]!;
+  const normalizedLocator = {
+    utf16Start: first.normalized.utf16Start,
+    utf16End: last.normalized.utf16End,
+    lineStart: first.normalized.lineStart,
+    columnStart: first.normalized.columnStart,
+    lineEnd: last.normalized.lineEnd,
+    columnEnd: last.normalized.columnEnd,
+  };
+  const originalLocator = {
+    byteStart: first.original.byteStart,
+    byteEnd: last.original.byteEnd,
+    lineStart: first.original.lineStart,
+    columnStart: first.original.columnStart,
+    lineEnd: last.original.lineEnd,
+    columnEnd: last.original.columnEnd,
+  };
+  const selected = input.representation.normalizedText.slice(
+    normalizedLocator.utf16Start,
+    normalizedLocator.utf16End,
+  );
+  const textSha256 = sha256(selected);
+  return SourceUnitSchema.parse({
+    schemaVersion: 1,
+    id: unitId({
+      logicalPath: input.sourceFile.logicalPath,
+      anchor: draft.anchor,
+      kind: draft.kind,
+      textSha256,
+      duplicateOrdinal,
+    }),
+    snapshotId: input.sourceFile.snapshotId,
+    sourceFileId: input.sourceFile.id,
+    representationId: input.representation.id,
+    kind: draft.kind,
+    ...(parentId === undefined ? {} : { parentId }),
+    headingPath: [...draft.headingPath],
+    normalizedLocator,
+    originalLocator,
+    textSha256,
+  }) as SourceUnit;
+}
+
+function textDrafts(representation: SourceRepresentation): UnitDraft[] {
+  const drafts: UnitDraft[] = [];
+  let start: number | undefined;
+  for (const [index, locator] of representation.locatorMap.entries()) {
+    const text = representation.normalizedText.slice(
+      locator.normalized.utf16Start,
+      locator.normalized.utf16End,
+    );
+    if (text.trim() === "") {
+      if (start !== undefined) {
+        drafts.push({
+          kind: "paragraph",
+          headingPath: [],
+          anchor: [],
+          firstLocator: start,
+          lastLocator: index - 1,
+          parentDraft: 0,
+        });
+        start = undefined;
+      }
+    } else if (start === undefined) start = index;
+  }
+  if (start !== undefined) {
+    drafts.push({
+      kind: "paragraph",
+      headingPath: [],
+      anchor: [],
+      firstLocator: start,
+      lastLocator: representation.locatorMap.length - 1,
+      parentDraft: 0,
+    });
+  }
+  return drafts;
+}
+
+function wholeRepresentationDraft(kind: "code" | "table"): UnitDraft[] {
+  return [
+    {
+      kind,
+      headingPath: [],
+      anchor: [],
+      firstLocator: 0,
+      lastLocator: Number.MAX_SAFE_INTEGER,
+      parentDraft: 0,
+    },
+  ];
+}
+
+function coveragePass(
+  representation: SourceRepresentation,
+  units: readonly SourceUnit[],
+): boolean {
+  const covered = new Uint8Array(representation.normalizedText.length);
+  for (const unit of units) {
+    if (unit.kind === "document") continue;
+    for (
+      let offset = unit.normalizedLocator.utf16Start;
+      offset < unit.normalizedLocator.utf16End;
+      offset += 1
+    ) {
+      if (!/\s/u.test(representation.normalizedText[offset]!)) {
+        if (covered[offset] !== 0) return false;
+        covered[offset] = 1;
+      }
+    }
+  }
+  for (
+    let offset = 0;
+    offset < representation.normalizedText.length;
+    offset += 1
+  ) {
+    if (
+      !/\s/u.test(representation.normalizedText[offset]!) &&
+      covered[offset] !== 1
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function buildUnits(
+  input: UnitizeRepresentationInput,
+  atomicDrafts: readonly UnitDraft[],
+): IngestResult<readonly SourceUnit[], "TEXT_DROPPED"> {
+  const drafts: UnitDraft[] = [
+    {
+      kind: "document",
+      headingPath: [],
+      anchor: [],
+      firstLocator: 0,
+      lastLocator: input.representation.locatorMap.length - 1,
+    },
+    ...atomicDrafts,
+  ];
+  const units: SourceUnit[] = [];
+  const duplicateCounts = new Map<string, number>();
+  for (const draft of drafts) {
+    const parentId =
+      draft.parentDraft === undefined
+        ? undefined
+        : units[draft.parentDraft]?.id;
+    if (draft.parentDraft !== undefined && parentId === undefined) {
+      return textDropped("Structural unit parent does not precede its child.");
+    }
+    const lastLocator =
+      draft.lastLocator === Number.MAX_SAFE_INTEGER
+        ? input.representation.locatorMap.length - 1
+        : draft.lastLocator;
+    const resolvedDraft = { ...draft, lastLocator };
+    const first = input.representation.locatorMap[resolvedDraft.firstLocator];
+    const last = input.representation.locatorMap[resolvedDraft.lastLocator];
+    if (!first || !last) {
+      return textDropped("Structural locator composition failed.");
+    }
+    const selected = input.representation.normalizedText.slice(
+      first.normalized.utf16Start,
+      last.normalized.utf16End,
+    );
+    const duplicateKey = JSON.stringify({
+      parentId,
+      anchor: draft.anchor,
+      kind: draft.kind,
+      textSha256: sha256(selected),
+    });
+    const ordinal = (duplicateCounts.get(duplicateKey) ?? 0) + 1;
+    duplicateCounts.set(duplicateKey, ordinal);
+    units.push(composedUnit(input, resolvedDraft, parentId, ordinal));
+  }
+  if (new Set(units.map((unit) => unit.id)).size !== units.length) {
+    return textDropped("Structural unit identities collide.");
+  }
+  if (!coveragePass(input.representation, units)) {
+    return textDropped("Selected source text is not covered exactly once.");
+  }
+  return { ok: true, value: freezeUnits(units) };
+}
+
 function freezeUnits(units: readonly SourceUnit[]): readonly SourceUnit[] {
   for (const unit of units) {
     Object.freeze(unit.headingPath);
@@ -188,9 +388,25 @@ export function unitizeRepresentation(
     representation.normalizedText !== "" ||
     representation.locatorMap.length !== 0
   ) {
-    return textDropped(
-      "Structural units cannot yet account for the qualified text.",
-    );
+    if (representation.locatorMap.length === 0) {
+      return textDropped(
+        "Structural units cannot account for text without locators.",
+      );
+    }
+    const drafts =
+      representation.kind === "text"
+        ? textDrafts(representation)
+        : representation.kind === "csv"
+          ? wholeRepresentationDraft("table")
+          : ["code", "json", "yaml"].includes(representation.kind)
+            ? wholeRepresentationDraft("code")
+            : undefined;
+    if (!drafts) {
+      return textDropped(
+        "Structural adapter is not available for this qualified kind.",
+      );
+    }
+    return buildUnits({ sourceFile, representation, audit }, drafts);
   }
 
   const textSha256 = sha256("");
