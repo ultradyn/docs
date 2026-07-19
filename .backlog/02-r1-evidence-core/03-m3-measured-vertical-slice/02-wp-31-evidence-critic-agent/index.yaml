@@ -31,7 +31,7 @@ tasks:
       file: T002-t-31-02-build-evidence-critici.todo
       id: T002
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-31-02 — Build evidence-criticism fixtures
     - complexity: medium
