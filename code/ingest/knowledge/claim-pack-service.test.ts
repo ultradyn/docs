@@ -198,17 +198,29 @@ describe("happy path + seal purity", () => {
   });
 
   it("identical logical input different order yields identical hash", async () => {
-    const { service, pack } = makeHarness();
+    const { service, pack, applicationStore } = makeHarness();
     const a = await seedProposed(service, { statement: "Alpha claim text." });
     const b = await seedProposed(service, { statement: "Beta claim text." });
     await acceptClaim(service, a, "ord-a");
     await acceptClaim(service, b, "ord-b");
+
+    // Force opposite traversal orders from listAcceptedClaimIds (T-23-02 trap).
+    const forward = [a.id, b.id] as ClaimId[];
+    const reverse = [b.id, a.id] as ClaimId[];
+    const spy = vi
+      .spyOn(applicationStore, "listAcceptedClaimIds")
+      .mockResolvedValueOnce(forward)
+      .mockResolvedValueOnce(reverse);
+
     const r1 = await pack.build(QUESTION, REVISION);
     const r2 = await pack.build(QUESTION, REVISION);
     expect(r1.ok && r2.ok).toBe(true);
     if (!r1.ok || !r2.ok) return;
     expect(r1.value.hash).toBe(r2.value.hash);
+    // Canonical claimIds must be sorted, not input order.
+    expect(r1.value.claimIds).toEqual([...r1.value.claimIds].sort());
     expect(r1.value.claimIds).toEqual(r2.value.claimIds);
+    spy.mockRestore();
   });
 });
 
