@@ -1,0 +1,32 @@
+---
+complexity: medium
+created_at: "2026-07-19T16:28:20Z"
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E4.T004
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Embed application refs in the sealed pack so selection is auditable, not just reproducible
+updated_at: "2026-07-19T16:28:20Z"
+---
+Follow-up from the T-60-01 design brief. Proposed by River, refined by pi, deferred out of T-60-01 by the coordinator because it changes the committed pack shape.
+
+WHAT T-60-01 GIVES YOU: a content-addressed seal over the pack contents — questionId, graphRevision, sorted claims with versions and evidence refs, qualifier edges, citations, gaps. A verifier can recompute the hash and confirm the pack is a faithful snapshot of THOSE claims.
+
+WHAT IT DOES NOT GIVE YOU: any way to check that the SELECTION was justified. The seal proves what is in the pack. It does not prove those claims were the ones the review decisions actually accepted. A builder with a bug, or a future builder taking a shortcut, could produce a perfectly valid seal over a wrong selection and nothing downstream could tell.
+
+THE UPGRADE: include the sorted ClaimReviewApplication refs that produced the accepted set, as a FIELD on the pack. Then a verifier can re-derive accepted-minus-rejected from those applications and confirm the claimIds match. That moves the seal from REPRODUCIBLE to AUDITABLE.
+
+WHY IT MUST BE A FIELD, NOT JUST HASH MATERIAL: if the refs are folded into the hash but absent from the pack, nobody can recompute the hash to verify it — the seal becomes unverifiable rather than more trustworthy. This is the same trap as any commitment scheme that omits the thing it commits to.
+
+WHY IT WAS DEFERRED: it extends the pack shape named in the plan Files list for T-60-01. The plan Files list governed every task in this session and widening it inside an adjacent task is how committed interfaces drift. This deserves its own task, its own review, and an explicit decision.
+
+ACCEPTANCE:
+- Pack carries sorted, deduplicated application refs.
+- A verifier can re-derive the accepted set from those refs alone and match claimIds exactly.
+- Seal hash covers the refs, so swapping them invalidates the seal.
+- Test: a pack whose claimIds do NOT match the set derivable from its own application refs must be detectable — that is the whole point.
+- Honest header: this proves the selection matches the recorded decisions; it does not prove the decisions were correct.

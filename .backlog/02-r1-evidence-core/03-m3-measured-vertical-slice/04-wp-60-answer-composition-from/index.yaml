@@ -42,3 +42,11 @@ tasks:
       priority: critical
       status: pending
       title: T-60-03 — Implement answer citation/validity review
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T004-embed-application-refs-in-the.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Embed application refs in the sealed pack so selection is auditable, not just reproducible
