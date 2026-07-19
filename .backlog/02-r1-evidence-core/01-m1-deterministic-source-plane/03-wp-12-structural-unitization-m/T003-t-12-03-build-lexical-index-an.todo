@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-19T05:19:10Z"
+claimed_by: pi-coordinator
+completed_at: null
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
@@ -6,13 +9,11 @@ depends_on:
 estimate_hours: 8
 id: P2.M1.E3.T003
 priority: high
-status: pending
-tags:
-    - wp-12
-    - t-12-03
-    - ingest-v3
+started_at: "2026-07-19T05:19:10Z"
+status: in_progress
+tags: []
 title: T-12-03 — Build lexical index and search receipts
-updated_at: "2026-07-18T08:10:10Z"
+updated_at: "2026-07-19T05:19:10Z"
 ---
 Bundle provenance: WP-12 / T-12-03
 
