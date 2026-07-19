@@ -1,4 +1,7 @@
 ---
+claimed_at: "2026-07-19T14:38:58Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-19T13:19:24Z"
 depends_on:
@@ -6,12 +9,11 @@ depends_on:
 estimate_hours: 2
 id: P2.M2.E3.T006
 priority: medium
-status: pending
-tags:
-    - claim
-    - review
+started_at: "2026-07-19T14:38:58Z"
+status: in_progress
+tags: []
 title: Implement qualify decision in ClaimReview application
-updated_at: "2026-07-19T13:19:24Z"
+updated_at: "2026-07-19T14:38:58Z"
 ---
 Follow-up from T-22-03. The ClaimReview decision enum includes 'qualify' and the task description names qualifier outcomes, but T-22-03 ships qualify as FAIL-CLOSED (QUALIFY_UNSUPPORTED) rather than accepted-and-ignored.
 

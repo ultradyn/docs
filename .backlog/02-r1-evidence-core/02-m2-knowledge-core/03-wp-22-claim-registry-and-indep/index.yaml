@@ -69,7 +69,8 @@ tasks:
       file: T006-implement-qualify-decision-in.todo
       id: T006
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement qualify decision in ClaimReview application
     - complexity: low
       depends_on: []
