@@ -18,3 +18,22 @@ export {
   type PolicyService,
   type PolicyServiceDependencies,
 } from "./policy-service.js";
+export {
+  createPolicyGate,
+  type AuthoriseModelInput,
+  type DenialReason,
+  type DeniedUnit,
+  type FilterRetrievalInput,
+  type FilteredSearchResponse,
+  type ModelExposure,
+  type PolicyGate,
+  type PolicyGateDependencies,
+  type PolicyGateFailure,
+  type PolicyIdentity,
+  type PolicyNamespaceInput,
+  type ProjectUnitPreviewInput,
+  type UnitAccessRecord,
+  type UnitAccessResolution,
+  type UnitAccessResolver,
+  type UnitPreview,
+} from "./policy-gate.js";

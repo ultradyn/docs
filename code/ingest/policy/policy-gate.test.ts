@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type {
   DataRightsPolicyProfile,
+  SearchReceipt,
   SnapshotId,
   SourceUnitId,
 } from "../../domain/ingest/index.js";
+import type { SearchResponse } from "../retrieval/lexical-index.js";
 
 import {
   createInMemoryPolicyApprovalStore,
@@ -71,22 +73,27 @@ function unit(
 function receipt(
   selectedIds: readonly string[],
   candidateIds: readonly string[],
-) {
+): SearchReceipt {
   return {
-    schemaVersion: 1 as const,
-    id: `rcpt-${"c".repeat(26)}`,
+    schemaVersion: 1,
+    id: `rcpt-${"c".repeat(26)}` as SearchReceipt["id"],
     snapshotId: SNAPSHOT,
     indexVersion: "lexical-1",
-    indexedRepresentationsSha256: "d".repeat(64),
+    indexedRepresentationsSha256: "d".repeat(
+      64,
+    ) as SearchReceipt["indexedRepresentationsSha256"],
     query: "example",
     filters: {},
-    candidateIds,
-    selectedIds,
+    candidateIds: candidateIds as readonly SourceUnitId[],
+    selectedIds: selectedIds as readonly SourceUnitId[],
     failures: [],
   };
 }
 
-function response(selected: readonly string[], candidate: readonly string[]) {
+function response(
+  selected: readonly string[],
+  candidate: readonly string[],
+): SearchResponse {
   return {
     selectedIds: selected as readonly SourceUnitId[],
     candidateIds: candidate as readonly SourceUnitId[],
@@ -134,6 +141,41 @@ const RUN_PROFILE = profile("policy-docs");
 
 async function readyGate(records: ReadonlyMap<string, UnitAccessRecord>) {
   return gate(await approve(RUN_PROFILE), records);
+}
+
+// Seed a real approval under a healthy authority, then hand the gate a service
+// over the SAME ledger whose authority is now unavailable. assertRunAllowed
+// reaches the record and calls verify(), which reports the outage — so an
+// unavailable authority denies with AUTHORITY_UNAVAILABLE, distinct from the
+// POLICY_UNAPPROVED an empty ledger would give.
+async function outageGate(records: ReadonlyMap<string, UnitAccessRecord>) {
+  const store = createInMemoryPolicyApprovalStore();
+  const healthy = createFakeAttestationAuthority({
+    authorityId: "authority-1",
+    eligible: (actor) => actor === HUMAN,
+  });
+  const seed = createPolicyService({
+    store,
+    authority: healthy,
+    now: () => APPROVED_AT,
+  });
+  const seeded = await seed.approve({
+    profile: RUN_PROFILE,
+    actor: HUMAN,
+    reason: "Reviewed for gate tests.",
+  });
+  if (!seeded.ok) throw new Error(`approve failed: ${seeded.code}`);
+  const broken = createFakeAttestationAuthority({
+    authorityId: "authority-1",
+    eligible: (actor) => actor === HUMAN,
+  });
+  broken.setUnavailable(true);
+  const brokenService = createPolicyService({
+    store,
+    authority: broken,
+    now: () => APPROVED_AT,
+  });
+  return gate(brokenService, records);
 }
 
 describe("filterRetrieval drops units before any text is opened", () => {
@@ -315,23 +357,9 @@ describe("filterRetrieval requires fresh run authority", () => {
   });
 
   it("fails closed with a distinct code when the authority is unavailable", async () => {
-    const service = await approve(RUN_PROFILE);
-    const authority = createFakeAttestationAuthority({
-      authorityId: "authority-1",
-      eligible: () => true,
-    });
-    authority.setUnavailable(true);
     // A gate wired to an unavailable authority must never allow a run, and the
     // outage must be distinguishable from a deliberate denial.
-    const brokenService = createPolicyService({
-      store: createInMemoryPolicyApprovalStore(),
-      authority,
-      now: () => APPROVED_AT,
-    });
-    const instance = createPolicyGate({
-      policyService: brokenService,
-      units: createFakeUnitAccessResolver(new Map()),
-    });
+    const { instance } = await outageGate(new Map());
     const filtered = await instance.filterRetrieval({
       response: response([], []),
       profileId: RUN_PROFILE.id,
@@ -342,7 +370,6 @@ describe("filterRetrieval requires fresh run authority", () => {
     // An outage is not equivalent to "never approved": the codes must differ so
     // a caller can tell a broken authority from a policy refusal.
     expect(filtered.code).toBe("AUTHORITY_UNAVAILABLE");
-    void service;
   });
 });
 
@@ -751,21 +778,8 @@ describe("River RED-map additions: fresh authority on every method", () => {
     if (unapproved.ok) return;
     expect(unapproved.code).toBe("POLICY_UNAPPROVED");
 
-    const withApproval = await approve(RUN_PROFILE);
-    const authority2 = createFakeAttestationAuthority({
-      authorityId: "authority-1",
-      eligible: () => true,
-    });
-    authority2.setUnavailable(true);
-    const outageService = createPolicyService({
-      store: createInMemoryPolicyApprovalStore(),
-      authority: authority2,
-      now: () => APPROVED_AT,
-    });
-    const outage = await gate(
-      outageService,
-      new Map(),
-    ).instance.policyNamespace({
+    const { instance } = await outageGate(new Map());
+    const outage = await instance.policyNamespace({
       profileId: RUN_PROFILE.id,
       principalId: PRINCIPAL,
       snapshotId: SNAPSHOT,
@@ -773,7 +787,6 @@ describe("River RED-map additions: fresh authority on every method", () => {
     expect(outage.ok).toBe(false);
     if (outage.ok) return;
     expect(outage.code).toBe("AUTHORITY_UNAVAILABLE");
-    void withApproval;
   });
 
   it("projectUnitPreview fails closed for an unapproved profile", async () => {
@@ -795,30 +808,6 @@ describe("River RED-map additions: fresh authority on every method", () => {
     if (preview.ok) return;
     expect(preview.code).toBe("POLICY_UNAPPROVED");
   });
-
-  // A helper that approves a profile, then hands the gate a broken authority
-  // over an empty ledger. Fail-closed ordering means an unavailable authority
-  // must surface as an outage regardless of what the ledger holds.
-  async function outageGate(records: ReadonlyMap<string, UnitAccessRecord>) {
-    const approved = await approve(RUN_PROFILE);
-    const authority = createFakeAttestationAuthority({
-      authorityId: "authority-1",
-      eligible: () => true,
-    });
-    authority.setUnavailable(true);
-    const brokenService = createPolicyService({
-      store: createInMemoryPolicyApprovalStore(),
-      authority,
-      now: () => APPROVED_AT,
-    });
-    return {
-      instance: createPolicyGate({
-        policyService: brokenService,
-        units: createFakeUnitAccessResolver(records),
-      }),
-      approved,
-    };
-  }
 
   it("authoriseModel fails closed with AUTHORITY_UNAVAILABLE, not a policy code", async () => {
     const { instance } = await outageGate(
