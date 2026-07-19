@@ -585,7 +585,7 @@ describe("audio session public seam", () => {
     );
   });
 
-  it("rejects an existing FIFO promptly without blocking on open", async () => {
+  it("rejects an existing FIFO without blocking on open", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-audio-fifo-"));
     const store = new FileAudioSessionStore(root, {
       now: () => "2026-07-17T00:00:00.000Z",
