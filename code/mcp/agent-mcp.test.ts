@@ -45,6 +45,7 @@ describe("agent MCP host", () => {
       const listed = await client.listTools();
       expect(listed.tools.map((tool) => tool.name).sort()).toEqual([
         "agent-smith",
+        "claim-extractor",
         "critic",
         "diff-summarizer",
         "evidence-critic",

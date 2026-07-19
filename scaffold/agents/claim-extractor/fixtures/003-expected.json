@@ -1,0 +1,13 @@
+{
+  "claims": [
+    {
+      "text": "Legacy export uses the documented bundle format for archival transfer.",
+      "type": "behavior",
+      "scope": { "product": "atlas", "surface": "export" },
+      "authority": "source-doc",
+      "lifecycle": "legacy",
+      "evidenceReferenceIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAC"],
+      "candidateRelationships": {}
+    }
+  ]
+}

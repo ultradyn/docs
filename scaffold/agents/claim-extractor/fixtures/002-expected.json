@@ -1,0 +1,13 @@
+{
+  "claims": [
+    {
+      "text": "Project settings are applied through the documented maintainer procedure.",
+      "type": "procedure_step",
+      "scope": { "product": "atlas", "surface": "settings" },
+      "authority": "source-doc",
+      "lifecycle": "current",
+      "evidenceReferenceIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAB"],
+      "candidateRelationships": {}
+    }
+  ]
+}

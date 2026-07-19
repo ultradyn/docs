@@ -1,0 +1,13 @@
+{
+  "claims": [
+    {
+      "text": "Atlas stores portable project knowledge in the Git repository.",
+      "type": "definition",
+      "scope": { "product": "atlas" },
+      "authority": "source-doc",
+      "lifecycle": "current",
+      "evidenceReferenceIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"],
+      "candidateRelationships": {}
+    }
+  ]
+}
