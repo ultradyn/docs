@@ -47,6 +47,7 @@ describe("agent MCP host", () => {
         "agent-smith",
         "critic",
         "diff-summarizer",
+        "evidence-critic",
         "goal-clerk",
         "integrator",
         "librarian",

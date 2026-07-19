@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "referenceClassifications": [
+    {"unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA", "classification": "necessary_primary", "reason": "Partial support for definition only."},
+    {"unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAQ", "classification": "context_only", "reason": "Context without constraint satisfaction."}
+  ],
+  "facetStates": [
+    {"facetId": "facet-definition", "state": "partial", "reason": "Incomplete definition coverage.", "sourceUnitIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"]},
+    {"facetId": "facet-constraint", "state": "missing", "reason": "No unit satisfies constraint.", "sourceUnitIds": []}
+  ],
+  "verdict": "needs_more_evidence",
+  "refinement": {
+    "missingFacetIds": ["facet-constraint"],
+    "whyCurrentPacketFails": "Constraint facet has no supporting unit."
+  }
+}

@@ -20,3 +20,17 @@ export {
   type ResearcherReference,
   type ValidateResearcherProposalOptions,
 } from "./researcher-agent.js";
+export {
+  EVIDENCE_CRITIC_LIMITS,
+  EvidenceCriticProposalSchema,
+  createEvidenceCriticAgent,
+  runEvidenceCritic,
+  validateEvidenceCriticProposal,
+  type CreateEvidenceCriticAgentOptions,
+  type EvidenceCriticAgent,
+  type EvidenceCriticError,
+  type EvidenceCriticProposal,
+  type EvidenceCriticPropose,
+  type EvidenceCriticProposeContext,
+  type ValidateEvidenceCriticOptions,
+} from "./evidence-critic-agent.js";

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "childQuestions": [{"question": "What is the retention policy for archived units?"}],
+  "referenceClassifications": [
+    {"unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA", "classification": "necessary_primary", "reason": "Defines the primary behavior under review."},
+    {"unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAQ", "classification": "necessary_qualifying", "reason": "Qualifies the scope of the primary claim."}
+  ],
+  "facetStates": [
+    {"facetId": "facet-definition", "state": "satisfied", "reason": "Primary unit supports the definition facet.", "sourceUnitIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"]},
+    {"facetId": "facet-constraint", "state": "satisfied", "reason": "Qualifier unit supports the constraint facet.", "sourceUnitIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAQ"]}
+  ],
+  "verdict": "accepted",
+  "refinement": null
+}

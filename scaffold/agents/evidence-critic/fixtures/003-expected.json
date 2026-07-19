@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "packetId": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "referenceClassifications": [
+    {"unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA", "classification": "conflicting", "reason": "Contradicts another unit on retry policy."},
+    {"unitId": "unit-01ARZ3NDEKTSV4RRFFQ69G5FAQ", "classification": "necessary_qualifying", "reason": "Qualifies but under conflict."}
+  ],
+  "facetStates": [
+    {"facetId": "facet-definition", "state": "conflicting", "reason": "Sources disagree on definition.", "sourceUnitIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAA"]},
+    {"facetId": "facet-constraint", "state": "satisfied", "reason": "Constraint still holds.", "sourceUnitIds": ["unit-01ARZ3NDEKTSV4RRFFQ69G5FAQ"]}
+  ],
+  "verdict": "conflicting_or_deprecated",
+  "refinement": null
+}

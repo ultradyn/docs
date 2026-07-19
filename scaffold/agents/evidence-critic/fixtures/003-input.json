@@ -1,0 +1,6 @@
+{
+  "questionId": "q-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "question": "How does the delivery worker retry failed endpoints?",
+  "facets": ["facet-definition", "facet-constraint"],
+  "packet": {"id": "pkt-01ARZ3NDEKTSV4RRFFQ69G5FAV"}
+}

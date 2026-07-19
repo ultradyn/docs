@@ -22,6 +22,7 @@ export const AgentInputPolicySchema = z.enum([
   "simulated-asker",
   "agent-smith",
   "researcher",
+  "evidence-critic",
 ]);
 export type AgentInputPolicy = z.infer<typeof AgentInputPolicySchema>;
 
@@ -113,6 +114,18 @@ const policyFields: Record<
       "receipts",
     ],
     required: ["questionId", "question"],
+  },
+  // Evidence Critic: packet + facets as DATA; tools from allowlist only.
+  "evidence-critic": {
+    allowed: [
+      "questionId",
+      "question",
+      "facets",
+      "packet",
+      "goals",
+      "documentation",
+    ],
+    required: ["questionId", "question", "facets", "packet"],
   },
 };
 

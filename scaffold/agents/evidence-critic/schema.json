@@ -1,0 +1,138 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "questionId",
+    "packetId",
+    "referenceClassifications",
+    "facetStates",
+    "verdict"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "questionId": {
+      "type": "string",
+      "pattern": "^q-[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "packetId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "referenceClassifications": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unitId", "classification", "reason"],
+        "properties": {
+          "unitId": {
+            "type": "string",
+            "pattern": "^unit-[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "classification": {
+            "enum": [
+              "necessary_primary",
+              "necessary_qualifying",
+              "useful_example",
+              "context_only",
+              "redundant",
+              "irrelevant",
+              "wrong_scope",
+              "deprecated_for_scope",
+              "conflicting",
+              "unverifiable"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        }
+      }
+    },
+    "facetStates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["facetId", "state", "reason"],
+        "properties": {
+          "facetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "state": {
+            "enum": [
+              "satisfied",
+              "partial",
+              "missing",
+              "conflicting",
+              "ambiguous_scope",
+              "unsupported_in_snapshot",
+              "not_applicable"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "sourceUnitIds": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "string",
+              "pattern": "^unit-[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        }
+      }
+    },
+    "verdict": {
+      "enum": [
+        "accepted",
+        "needs_more_evidence",
+        "ambiguous_scope",
+        "conflicting_or_deprecated",
+        "no_supported_answer",
+        "human_authority_required",
+        "source_processing_blocked",
+        "search_incomplete"
+      ]
+    },
+    "refinement": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["missingFacetIds", "whyCurrentPacketFails"],
+          "properties": {
+            "missingFacetIds": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "whyCurrentPacketFails": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          }
+        }
+      ]
+    }
+  }
+}
