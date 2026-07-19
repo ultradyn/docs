@@ -221,10 +221,11 @@ function deepFreeze<T>(value: T): T {
 }
 
 /** Reject an input object that carries any key beyond the expected set, so a
- * smuggled extra field can never alter a decision unnoticed. */
+ * smuggled extra field can never alter a decision unnoticed. `Reflect.ownKeys`
+ * also catches symbol keys, which `Object.keys` would silently ignore. */
 function hasOnlyKeys(input: object, allowed: readonly string[]): boolean {
-  for (const key of Object.keys(input)) {
-    if (!allowed.includes(key)) return false;
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key !== "string" || !allowed.includes(key)) return false;
   }
   return true;
 }
@@ -332,12 +333,16 @@ export function createPolicyGate(
     const allowedHits: SearchHit[] = [];
     const deniedIds: DeniedUnit[] = [];
     for (const hit of input.response.hits) {
-      const resolution = await units.resolve(hit.unitId);
+      // Read each scored hit's fields exactly once, so an exotic hit object
+      // with a value-changing getter cannot return one id to the resolver and a
+      // different one to the output (a time-of-check/time-of-use swap).
+      const { unitId, score } = hit;
+      const resolution = await units.resolve(unitId);
       if (!resolution.ok) {
         if (resolution.code === "UNIT_METADATA_UNAVAILABLE") {
           return fail("UNIT_METADATA_UNAVAILABLE");
         }
-        deniedIds.push({ unitId: hit.unitId, reason: "unit-unknown" });
+        deniedIds.push({ unitId, reason: "unit-unknown" });
         continue;
       }
       const record = resolution.value;
@@ -350,9 +355,9 @@ export function createPolicyGate(
         reason = pathDenial(profile, record.logicalPath);
       }
       if (reason === null) {
-        allowedHits.push({ unitId: hit.unitId, score: hit.score });
+        allowedHits.push({ unitId, score });
       } else {
-        deniedIds.push({ unitId: hit.unitId, reason });
+        deniedIds.push({ unitId, reason });
       }
     }
 
@@ -467,15 +472,18 @@ export function createPolicyGate(
     // canonical profile id, profile digest, principal and snapshot. Two runs
     // may share a cache namespace only when all of these are identical, so a
     // changed profile digest can never collide with the profile it replaced.
+    // JSON.stringify gives an unambiguous, injection-proof encoding: a newline
+    // or quote inside a caller-supplied principal cannot shift a field boundary
+    // and collide two distinct (principal, snapshot) pairs into one namespace.
     const digest = createHash("sha256")
       .update(
-        [
+        JSON.stringify([
           "ultradyn.policy-namespace.v1",
           profile.id,
           authorised.value.profileSha256,
           input.principalId,
           input.snapshotId,
-        ].join("\n"),
+        ]),
       )
       .digest("hex");
     return { ok: true, value: `ns-${digest}` };
