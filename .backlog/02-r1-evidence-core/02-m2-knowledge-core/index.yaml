@@ -18,7 +18,7 @@ epics:
       locked: false
       name: WP-21 — Evidence packet and verdict model
       path: 02-wp-21-evidence-packet-and-verd
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-22. Implement reusable claims between evidence and answers/documents. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-22 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
