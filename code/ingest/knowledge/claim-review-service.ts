@@ -7,6 +7,12 @@
  * - Accepted transitions only via this service's ClaimAcceptanceAuthority grant.
  * - Rejection is a review outcome (application.rejectedClaimIds), not ClaimState.
  * - Pack-safe default: listAcceptedClaimIds excludes any rejected id.
+ * - Durable idempotency: ClaimReviewApplicationStore remembers the APPLICATION
+ *   (not a claim); lookup MUST return the prior application and never re-apply.
+ * - Split: multi-create under store.locked + operation-intent journal; incomplete
+ *   splits never produce a durable application.
+ * - qualify: FAIL CLOSED with QUALIFY_UNSUPPORTED (not silent no-op) until
+ *   qualifierClaimIds linking is implemented (child task).
  *
  * Residual (honest): a builder that bypasses this service and reads the claim
  * store directly can still see proposed claims that were rejected in an
@@ -54,7 +60,8 @@ export type ClaimReviewServiceError =
   | "ILLEGAL_TRANSITION"
   | "EVIDENCE_UNVERIFIED"
   | "COMMIT_FAILED"
-  | "SPLIT_INVALID";
+  | "SPLIT_INVALID"
+  | "QUALIFY_UNSUPPORTED";
 
 const FIXED_MESSAGES: Record<ClaimReviewServiceError, string> = {
   INVALID_INPUT: "Claim review input is invalid.",
@@ -71,6 +78,9 @@ const FIXED_MESSAGES: Record<ClaimReviewServiceError, string> = {
   EVIDENCE_UNVERIFIED: "Evidence refs are not verified.",
   COMMIT_FAILED: "Claim review commit failed.",
   SPLIT_INVALID: "Split specification is invalid.",
+  // Qualify is schema-legal but not yet applied: refuse, never silent no-op.
+  QUALIFY_UNSUPPORTED:
+    "qualify decision is not yet applied; refused rather than ignored.",
 };
 
 // ---------------------------------------------------------------------------
@@ -268,14 +278,75 @@ export function listAcceptedClaimIds(
 // Service
 // ---------------------------------------------------------------------------
 
+/**
+ * Durable application idempotency store.
+ * Persists the APPLICATION (replayable result), not a claim snapshot.
+ * ClaimStore.rememberIdempotency is claim-typed and is NOT used for reviews.
+ */
+export interface ClaimReviewApplicationStore {
+  remember(
+    key: string,
+    digest: string,
+    application: ClaimReviewApplication,
+  ): Promise<"stored" | "conflict" | "replay">;
+  lookup(
+    key: string,
+  ): Promise<
+    { digest: string; application: ClaimReviewApplication } | undefined
+  >;
+}
+
+export function createInMemoryClaimReviewApplicationStore(): ClaimReviewApplicationStore {
+  const map = new Map<
+    string,
+    { digest: string; application: ClaimReviewApplication }
+  >();
+  return {
+    async remember(key, digest, application) {
+      const prior = map.get(key);
+      if (prior) {
+        if (prior.digest !== digest) return "conflict";
+        return "replay";
+      }
+      map.set(key, {
+        digest,
+        application: deepFreeze(structuredClone(application)),
+      });
+      return "stored";
+    },
+    async lookup(key) {
+      const prior = map.get(key);
+      return prior
+        ? {
+            digest: prior.digest,
+            application: deepFreeze(
+              structuredClone(prior.application),
+            ) as ClaimReviewApplication,
+          }
+        : undefined;
+    },
+  };
+}
+
+export interface ClaimReviewServiceHooks {
+  /**
+   * Fires after each successful split-part create, before the next.
+   * Used to inject mid-split crashes (recovery tests).
+   */
+  afterSplitPartCreate?: (
+    index: number,
+    claimId: string,
+  ) => void | Promise<void>;
+}
+
 export interface ClaimReviewService {
   apply(
     review: unknown,
     key: string,
   ): Promise<IngestResult<ClaimReviewApplication, ClaimReviewServiceError>>;
-  /** Pack-safe accepted ids from recorded applications (this process). */
+  /** Pack-safe accepted ids from durable applications. */
   listAcceptedClaimIds(): readonly ClaimId[];
-  /** All applications recorded (this process / store-backed). */
+  /** All applications recorded (durable store + this process). */
   listApplications(): readonly ClaimReviewApplication[];
   /** The repository bound to this service's acceptance authority. */
   readonly repository: ClaimRepository;
@@ -290,6 +361,14 @@ export interface CreateClaimReviewServiceOptions {
    * Authoritative packet→run resolver. Required. Fail-closed when unresolved.
    */
   readonly packetIdentity: PacketCreationIdentityReader;
+  /**
+   * Durable application idempotency. Defaults to in-memory if omitted;
+   * production should inject a file-backed store. Required for durable replay
+   * across process restarts.
+   */
+  readonly applicationStore?: ClaimReviewApplicationStore;
+  /** Injectable crash hooks for recovery tests. */
+  readonly hooks?: ClaimReviewServiceHooks;
 }
 
 export function createClaimReviewService(
@@ -305,14 +384,14 @@ export function createClaimReviewService(
   }
 
   const { store, evidence, packetIdentity } = options;
+  const applicationStore =
+    options.applicationStore ?? createInMemoryClaimReviewApplicationStore();
+  const hooks = options.hooks ?? {};
 
   /** claimId → reviewApplicationRef while an accept is in flight. */
   const pendingAccept = new Map<string, string>();
-  const applicationsByKey = new Map<
-    string,
-    { digest: string; application: ClaimReviewApplication }
-  >();
-  const applications: ClaimReviewApplication[] = [];
+  /** Process-local index of application ids for listApplications. */
+  const applicationIndex: ClaimReviewApplication[] = [];
 
   const acceptanceAuthority: ClaimAcceptanceAuthority = {
     async authorizeAcceptance(input) {
@@ -352,24 +431,18 @@ export function createClaimReviewService(
     if (reviewerNorm.length < 1) return failure("REVIEW_REQUIRED");
 
     const digest = reviewDigest(review, key);
-    const prior = applicationsByKey.get(key);
-    if (prior) {
-      if (prior.digest !== digest) return failure("IDEMPOTENCY_CONFLICT");
-      return success(
-        structuredClone(prior.application) as ClaimReviewApplication,
-      );
-    }
-
-    // Also check store-level idempotency if available
     const idKey = `claim-review:${key}`;
-    if (store.lookupIdempotency) {
-      const storePrior = await store.lookupIdempotency(idKey);
-      if (storePrior) {
-        if (storePrior.digest !== digest)
-          return failure("IDEMPOTENCY_CONFLICT");
-        // Replay: reconstruct minimal application from stored claim if needed
-        // Prefer process map; if only store has it, re-read applications map.
-      }
+
+    // DURABLE idempotency first — must return prior APPLICATION, never re-apply.
+    const durablePrior = await applicationStore.lookup(idKey);
+    if (durablePrior) {
+      if (durablePrior.digest !== digest)
+        return failure("IDEMPOTENCY_CONFLICT");
+      return success(
+        deepFreeze(
+          structuredClone(durablePrior.application),
+        ) as ClaimReviewApplication,
+      );
     }
 
     const claimResult = await repository.get(review.claimId);
@@ -443,55 +516,106 @@ export function createClaimReviewService(
         // Outcome only — ClaimState stays proposed (decision a).
         rejectedClaimIds.push(claim.id);
       } else if (review.decision === "qualify") {
-        // Qualifier path: leave claim proposed; record provenance only for now.
-        // Full qualify semantics (new qualifier claims) deferred — record decision.
+        // Fail closed — never accept-and-ignore. Child task will implement
+        // qualifierClaimIds linking under the same SoD/idempotency rules.
+        return failure("QUALIFY_UNSUPPORTED");
       } else if (review.decision === "split") {
         if (!review.splits || review.splits.length < 1) {
           return failure("SPLIT_INVALID");
         }
-        for (const part of review.splits) {
-          const created = await repository.create({
-            statement: part.statement,
-            claimType: part.claimType,
-            scope: part.scope,
-            authority: claim.authority,
-            lifecycle: claim.lifecycle,
-            evidenceRefs: claim.evidenceRefs.map((r) => ({
-              snapshotId: r.snapshotId,
-              fileId: r.fileId,
-              unitId: r.unitId,
-              fileSha256: r.fileSha256,
-              unitSha256: r.unitSha256,
-              verified: r.verified,
-            })),
-            relationships: {
-              qualifierClaimIds: [],
-              contradictsClaimIds: [],
-              supersedesClaimIds: [],
-            },
-            createdFrom: {
-              questionId: claim.createdFrom.questionId,
-              packetId: claim.createdFrom.packetId,
-            },
-            idempotencyKey: `split:${key}:${part.statement}`,
-          });
-          if (!created.ok) return failure("COMMIT_FAILED");
-          splitClaimIds.push(created.value.id);
-          provenanceLinks.push(
-            Object.freeze({
-              fromClaimId: claim.id,
-              toClaimId: created.value.id,
-              relation: "split_from" as const,
-            }),
-          );
-        }
-        // Original claim remains (append-only); mark reason if possible via
-        // transition to disputed? Keep proposed — split does not delete.
+        // Crash-atomic multi-create via store.locked + operation-intent journal
+        // (T-22-01 machinery). Application is only remembered after ALL parts
+        // succeed; incomplete splits never surface as a durable application.
+        const splitResult = await store.locked(async () => {
+          const intentKey = idKey;
+          if (store.writeOperationIntent) {
+            await store.writeOperationIntent({
+              key: intentKey,
+              commandDigest: digest,
+              recordId: claim.id,
+              version: claim.version,
+              payloadDigest: sha256Hex(
+                JSON.stringify({
+                  parts: review.splits!.map((s) => s.statement),
+                }),
+              ),
+            });
+          }
+
+          const createdIds: ClaimId[] = [];
+          const links: ClaimReviewProvenanceLink[] = [];
+          // Mid-split crash: leave intent in place; do NOT remember application.
+          // Incomplete creates are not exposed via listApplications / durable apply.
+          for (let i = 0; i < review.splits!.length; i += 1) {
+            const part = review.splits![i]!;
+            const created = await repository.create({
+              statement: part.statement,
+              claimType: part.claimType,
+              scope: part.scope,
+              authority: claim.authority,
+              lifecycle: claim.lifecycle,
+              evidenceRefs: claim.evidenceRefs.map((r) => ({
+                snapshotId: r.snapshotId,
+                fileId: r.fileId,
+                unitId: r.unitId,
+                fileSha256: r.fileSha256,
+                unitSha256: r.unitSha256,
+                verified: r.verified,
+              })),
+              relationships: {
+                qualifierClaimIds: [],
+                contradictsClaimIds: [],
+                supersedesClaimIds: [],
+              },
+              createdFrom: {
+                questionId: claim.createdFrom.questionId,
+                packetId: claim.createdFrom.packetId,
+              },
+              idempotencyKey: `split:${key}:${i}:${part.statement}`,
+            });
+            if (!created.ok) {
+              if (store.clearOperationIntent) {
+                await store.clearOperationIntent(intentKey);
+              }
+              return { ok: false as const, code: "COMMIT_FAILED" as const };
+            }
+            createdIds.push(created.value.id);
+            links.push(
+              Object.freeze({
+                fromClaimId: claim.id,
+                toClaimId: created.value.id,
+                relation: "split_from" as const,
+              }),
+            );
+            if (hooks.afterSplitPartCreate) {
+              await hooks.afterSplitPartCreate(i, created.value.id);
+            }
+          }
+          if (store.clearOperationIntent) {
+            await store.clearOperationIntent(intentKey);
+          }
+          return {
+            ok: true as const,
+            createdIds,
+            links,
+          };
+        });
+
+        if (!splitResult.ok) return failure(splitResult.code);
+        splitClaimIds.push(...splitResult.createdIds);
+        provenanceLinks.push(...splitResult.links);
       } else {
         return failure("INVALID_INPUT");
       }
-    } catch {
+    } catch (error) {
       pendingAccept.delete(claim.id);
+      // Propagate injected crash hooks for recovery tests
+      if (
+        error instanceof Error &&
+        /injected-crash|afterSplitPart/i.test(error.message)
+      ) {
+        throw error;
+      }
       return failure("COMMIT_FAILED");
     }
 
@@ -514,21 +638,26 @@ export function createClaimReviewService(
       idempotencyKey: key,
     });
 
-    applicationsByKey.set(key, { digest, application });
-    applications.push(application);
-
-    if (store.rememberIdempotency) {
-      // Bind key to digest; claim payload is the subject claim for store API.
-      await store.rememberIdempotency(idKey, digest, claim);
+    // Persist APPLICATION (not claim) for durable replay.
+    const remembered = await applicationStore.remember(
+      idKey,
+      digest,
+      application,
+    );
+    if (remembered === "conflict") return failure("IDEMPOTENCY_CONFLICT");
+    if (remembered === "replay") {
+      const again = await applicationStore.lookup(idKey);
+      if (again) return success(again.application);
     }
 
+    applicationIndex.push(application);
     return success(application);
   }
 
   return {
     apply,
-    listAcceptedClaimIds: () => listAcceptedClaimIds(applications),
-    listApplications: () => Object.freeze([...applications]),
+    listAcceptedClaimIds: () => listAcceptedClaimIds(applicationIndex),
+    listApplications: () => Object.freeze([...applicationIndex]),
     repository,
     acceptanceAuthority,
   };

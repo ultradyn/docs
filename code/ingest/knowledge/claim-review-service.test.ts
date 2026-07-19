@@ -22,10 +22,12 @@ import type { ClaimId, Sha256 } from "../../domain/ingest/types.js";
 
 import {
   createClaimReviewService,
+  createInMemoryClaimReviewApplicationStore,
   isEligibleForAcceptedPack,
   listAcceptedClaimIds,
   normaliseRunIdentity,
   type ClaimReviewApplication,
+  type ClaimReviewApplicationStore,
   type ClaimReviewService,
   type ClaimReviewServiceError,
   type PacketCreationIdentityReader,
@@ -87,15 +89,26 @@ function makeService(
   overrides: {
     store?: ReturnType<typeof createInMemoryClaimStore>;
     identity?: PacketCreationIdentityReader;
+    applicationStore?: ClaimReviewApplicationStore;
+    hooks?: {
+      afterSplitPartCreate?: (
+        index: number,
+        claimId: string,
+      ) => void | Promise<void>;
+    };
   } = {},
 ) {
   const store = overrides.store ?? createInMemoryClaimStore();
+  const applicationStore =
+    overrides.applicationStore ?? createInMemoryClaimReviewApplicationStore();
   const service = createClaimReviewService({
     store,
     evidence: verifierOk(),
     packetIdentity: overrides.identity ?? packetIdentity(),
+    applicationStore,
+    ...(overrides.hooks ? { hooks: overrides.hooks } : {}),
   });
-  return { service, store, repo: service.repository };
+  return { service, store, repo: service.repository, applicationStore };
 }
 
 async function seedProposed(
@@ -286,7 +299,7 @@ describe("separation of duties", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Idempotency (AC2)
+// Idempotency (AC2) — including DURABLE path across service instances
 // ---------------------------------------------------------------------------
 describe("idempotency", () => {
   it("retry with same key produces one logical application (replay)", async () => {
@@ -314,6 +327,74 @@ describe("idempotency", () => {
     );
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.code).toBe("IDEMPOTENCY_CONFLICT");
+  });
+
+  it("DURABLE path: new service instance replays APPLICATION via store (no re-apply)", async () => {
+    const store = createInMemoryClaimStore();
+    const applicationStore = createInMemoryClaimReviewApplicationStore();
+    const identity = packetIdentity();
+    const s1 = createClaimReviewService({
+      store,
+      evidence: verifierOk(),
+      packetIdentity: identity,
+      applicationStore,
+    });
+    const claim = await seedProposed(s1);
+    const draft = reviewDraft(claim.id);
+    const first = await s1.apply(draft, "idem-durable-1");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const versionAfterFirst = (await s1.repository.get(claim.id)).ok
+      ? ((await s1.repository.get(claim.id)) as { ok: true; value: Claim })
+          .value.version
+      : -1;
+
+    // Fresh process-equivalent service: empty process maps, same durable stores
+    const s2 = createClaimReviewService({
+      store,
+      evidence: verifierOk(),
+      packetIdentity: identity,
+      applicationStore,
+    });
+    const second = await s2.apply(draft, "idem-durable-1");
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.value.applicationId).toBe(first.value.applicationId);
+    expect(second.value.acceptedClaimIds).toEqual(first.value.acceptedClaimIds);
+    expect(second.value.reviewApplicationRef).toBe(
+      first.value.reviewApplicationRef,
+    );
+    // No new claim version — authority decision not double-applied
+    const latest = await s2.repository.get(claim.id);
+    expect(latest.ok && latest.value.version).toBe(versionAfterFirst);
+  });
+
+  it("DURABLE path: same key different payload is IDEMPOTENCY_CONFLICT across instances", async () => {
+    const store = createInMemoryClaimStore();
+    const applicationStore = createInMemoryClaimReviewApplicationStore();
+    const identity = packetIdentity();
+    const s1 = createClaimReviewService({
+      store,
+      evidence: verifierOk(),
+      packetIdentity: identity,
+      applicationStore,
+    });
+    const claim = await seedProposed(s1);
+    expect(
+      (await s1.apply(reviewDraft(claim.id), "idem-durable-conflict")).ok,
+    ).toBe(true);
+    const s2 = createClaimReviewService({
+      store,
+      evidence: verifierOk(),
+      packetIdentity: identity,
+      applicationStore,
+    });
+    const conflict = await s2.apply(
+      reviewDraft(claim.id, { reason: "Other reason for conflict." }),
+      "idem-durable-conflict",
+    );
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.code).toBe("IDEMPOTENCY_CONFLICT");
   });
 });
 
@@ -381,6 +462,91 @@ describe("split preserves provenance", () => {
     );
     const still = await repo.get(claim.id);
     expect(still.ok).toBe(true);
+  });
+
+  it("mid-split crash leaves no durable application; recovery can complete", async () => {
+    const store = createInMemoryClaimStore();
+    const applicationStore = createInMemoryClaimReviewApplicationStore();
+    const identity = packetIdentity();
+    let crashAfter = 0;
+    const crashing = createClaimReviewService({
+      store,
+      evidence: verifierOk(),
+      packetIdentity: identity,
+      applicationStore,
+      hooks: {
+        afterSplitPartCreate: async (index) => {
+          if (index === 0 && crashAfter === 0) {
+            crashAfter = 1;
+            throw new Error("injected-crash afterSplitPartCreate");
+          }
+        },
+      },
+    });
+    const claim = await seedProposed(crashing);
+    const draft = reviewDraft(claim.id, {
+      decision: "split",
+      splits: [
+        {
+          statement: "Split part one for crash test.",
+          claimType: "behavior",
+          scope: { component: "delivery-worker" },
+        },
+        {
+          statement: "Split part two for crash test.",
+          claimType: "behavior",
+          scope: { component: "delivery-worker" },
+        },
+      ],
+    });
+    await expect(crashing.apply(draft, "idem-split-crash")).rejects.toThrow(
+      /injected-crash/,
+    );
+    // No durable application after crash
+    const orphan = await applicationStore.lookup(
+      "claim-review:idem-split-crash",
+    );
+    expect(orphan).toBeUndefined();
+    expect(crashing.listApplications()).toHaveLength(0);
+
+    // Recovery: fresh service, same stores, no crash hook — completes once
+    const recovered = createClaimReviewService({
+      store,
+      evidence: verifierOk(),
+      packetIdentity: identity,
+      applicationStore,
+    });
+    const result = await recovered.apply(draft, "idem-split-crash");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.splitClaimIds.length).toBe(2);
+    // Replay does not create more
+    const replay = await recovered.apply(draft, "idem-split-crash");
+    expect(replay.ok && replay.value.applicationId).toBe(
+      result.value.applicationId,
+    );
+    expect(replay.ok && replay.value.splitClaimIds).toEqual(
+      result.value.splitClaimIds,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Qualify fail-closed (never silent no-op)
+// ---------------------------------------------------------------------------
+describe("qualify decision", () => {
+  it("qualify is refused with QUALIFY_UNSUPPORTED (not accepted-and-ignored)", async () => {
+    const { service, repo } = makeService();
+    const claim = await seedProposed(service);
+    const result = await service.apply(
+      reviewDraft(claim.id, { decision: "qualify" }),
+      "idem-qualify-1",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("QUALIFY_UNSUPPORTED");
+    const latest = await repo.get(claim.id);
+    expect(latest.ok && latest.value.state).toBe("proposed");
+    expect(service.listApplications()).toHaveLength(0);
   });
 });
 

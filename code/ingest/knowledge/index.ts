@@ -64,11 +64,14 @@ export {
 // Claim review application (T-22-03 authority boundary).
 export {
   createClaimReviewService,
+  createInMemoryClaimReviewApplicationStore,
   isEligibleForAcceptedPack,
   listAcceptedClaimIds,
   normaliseRunIdentity,
+  type ClaimReviewApplicationStore,
   type ClaimReviewService,
   type ClaimReviewServiceError,
+  type ClaimReviewServiceHooks,
   type CreateClaimReviewServiceOptions,
   type PacketCreationIdentityReader,
 } from "./claim-review-service.js";
