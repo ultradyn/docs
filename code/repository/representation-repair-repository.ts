@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, rm } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
-
-import writeFileAtomic from "write-file-atomic";
+import {
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  rename,
+  rm,
+  type FileHandle,
+} from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
 
 import { ULID_PATTERN } from "../domain/ingest/id-schemas.js";
 import { withRepositoryLock } from "./knowledge-repository.js";
@@ -41,9 +47,20 @@ interface Journal {
 
 const EMPTY: Journal = { revision: 1, entries: [], outbox: {} };
 
+const DIRECTORY_FLAGS =
+  constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+const FD_BOUND = process.platform === "linux";
+const REPAIR_COMPONENTS = [".ultradyn", "repair"] as const;
+const RECORDS_COMPONENT = "records";
+
 export interface RepresentationRepairRepositoryOptions {
   readonly root: string;
   readonly hooks?: Hooks;
+}
+
+interface BoundDirectory {
+  readonly at: (name: string) => string;
+  readonly close: () => Promise<void>;
 }
 
 function digest(value: unknown): string {
@@ -67,24 +84,107 @@ function validIdentity(value: unknown, prefix: string): value is string {
   );
 }
 
-async function assertNotSymlink(path: string): Promise<void> {
+function errorCode(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException | undefined)?.code;
+}
+
+async function assertNotSymlinkComponent(path: string): Promise<void> {
   try {
     const metadata = await lstat(path);
     if (metadata.isSymbolicLink()) {
-      throw new Error(`Refusing symbolic link at ${path}.`);
+      throw new Error(`Refusing symbolic-link path component at ${path}.`);
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(`Expected directory at ${path}.`);
     }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if (errorCode(error) === "ENOENT") return;
     throw error;
   }
 }
 
+/**
+ * Open a directory by walking each path component with O_DIRECTORY|O_NOFOLLOW
+ * (Linux: via /proc/self/fd so later opens stay descriptor-bound). Creating
+ * missing components uses mkdir through the same bound parent path.
+ */
+async function openComponentDirectory(
+  root: string,
+  components: readonly string[],
+): Promise<BoundDirectory> {
+  if (!FD_BOUND) {
+    // Non-Linux residual: reject symlink components then use pathnames.
+    let current = resolve(root);
+    await assertNotSymlinkComponent(current);
+    for (const component of components) {
+      current = join(current, component);
+      try {
+        await mkdir(current, { recursive: false, mode: 0o700 });
+      } catch (error) {
+        if (errorCode(error) !== "EEXIST") throw error;
+      }
+      await assertNotSymlinkComponent(current);
+    }
+    return {
+      at: (name) => join(current, name),
+      close: async () => undefined,
+    };
+  }
+
+  const handles = new Set<FileHandle>();
+  const canonicalRoot = await realpath(root);
+  let handle = await open(canonicalRoot, DIRECTORY_FLAGS);
+  handles.add(handle);
+  try {
+    for (const component of components) {
+      const componentPath = `/proc/self/fd/${handle.fd}/${component}`;
+      try {
+        await mkdir(componentPath, { mode: 0o700 });
+      } catch (error) {
+        if (errorCode(error) !== "EEXIST") throw error;
+      }
+      let child: FileHandle;
+      try {
+        child = await open(componentPath, DIRECTORY_FLAGS);
+      } catch (error) {
+        const code = errorCode(error);
+        if (code === "ELOOP" || code === "ENOTDIR") {
+          throw new Error(
+            `Refusing symbolic-link path component ${component} under ${root}.`,
+            { cause: error },
+          );
+        }
+        throw error;
+      }
+      handles.add(child);
+      const parent = handle;
+      handle = child;
+      await parent.close();
+      handles.delete(parent);
+    }
+  } catch (error) {
+    for (const openHandle of handles) {
+      try {
+        await openHandle.close();
+      } catch {
+        // Best-effort cleanup must not mask the primary traversal failure.
+      }
+    }
+    throw error;
+  }
+  const bound = handle;
+  return {
+    at: (name) => `/proc/self/fd/${bound.fd}/${name}`,
+    close: () => bound.close(),
+  };
+}
+
 async function readNoFollowText(path: string): Promise<string> {
-  let handle;
+  let handle: FileHandle;
   try {
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+    if (errorCode(error) === "ELOOP") {
       throw new Error(`Refusing symbolic link at ${path}.`, { cause: error });
     }
     throw error;
@@ -101,8 +201,6 @@ async function readNoFollowText(path: string): Promise<string> {
 }
 
 async function writeExclusive(path: string, bytes: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await assertNotSymlink(path);
   try {
     const file = await open(
       path,
@@ -119,12 +217,11 @@ async function writeExclusive(path: string, bytes: string): Promise<void> {
       await file.close();
     }
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
+    const code = errorCode(error);
     if (code === "ELOOP") {
       throw new Error(`Refusing symbolic link at ${path}.`, { cause: error });
     }
     if (code !== "EEXIST") throw error;
-    await assertNotSymlink(path);
     if ((await readNoFollowText(path)) !== bytes) {
       throw new Error(
         "Immutable repair record conflicts with existing bytes.",
@@ -136,39 +233,114 @@ async function writeExclusive(path: string, bytes: string): Promise<void> {
   }
 }
 
-export function createRepresentationRepairRepository(
-  options: RepresentationRepairRepositoryOptions,
-) {
-  const directory = join(options.root, ".ultradyn", "repair");
-  const journalPath = join(directory, "journal.json");
-
-  async function load(): Promise<Journal> {
-    try {
-      await assertNotSymlink(journalPath);
-      const parsed = JSON.parse(await readNoFollowText(journalPath)) as Journal;
-      if (
-        !Number.isInteger(parsed.revision) ||
-        parsed.revision < 1 ||
-        !Array.isArray(parsed.entries) ||
-        parsed.outbox === null ||
-        typeof parsed.outbox !== "object"
-      ) {
-        throw new Error("Invalid repair journal.");
-      }
-      return parsed;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return EMPTY;
+async function writeAtomicNoFollow(path: string, bytes: string): Promise<void> {
+  const temporary = `${path}.${process.pid}-${Date.now()}.tmp`;
+  // Temp must not follow a pre-planted symlink either.
+  try {
+    await lstat(temporary);
+    // Existing path: refuse if symlink, otherwise remove only the leaf name.
+    const meta = await lstat(temporary);
+    if (meta.isSymbolicLink()) {
+      throw new Error(`Refusing symbolic link at ${temporary}.`);
+    }
+    await rm(temporary, { force: true });
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") throw error;
+  }
+  const file = await open(
+    temporary,
+    constants.O_WRONLY |
+      constants.O_CREAT |
+      constants.O_EXCL |
+      constants.O_NOFOLLOW,
+    0o600,
+  );
+  try {
+    await file.writeFile(bytes);
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  // rename of temp onto destination: reject if destination is a symlink leaf
+  // by trying O_NOFOLLOW open first when it exists.
+  try {
+    await lstat(path);
+    const existing = await lstat(path);
+    if (existing.isSymbolicLink()) {
+      await rm(temporary, { force: true });
+      throw new Error(`Refusing symbolic link at ${path}.`);
+    }
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") {
+      await rm(temporary, { force: true }).catch(() => undefined);
       throw error;
     }
   }
+  await rename(temporary, path);
+}
+
+export function createRepresentationRepairRepository(
+  options: RepresentationRepairRepositoryOptions,
+) {
+  async function withRepairDir<T>(
+    operation: (repair: BoundDirectory) => Promise<T>,
+  ): Promise<T> {
+    const repair = await openComponentDirectory(
+      options.root,
+      REPAIR_COMPONENTS,
+    );
+    try {
+      return await operation(repair);
+    } finally {
+      await repair.close();
+    }
+  }
+
+  async function withRecordsDir<T>(
+    operation: (records: BoundDirectory) => Promise<T>,
+  ): Promise<T> {
+    const records = await openComponentDirectory(options.root, [
+      ...REPAIR_COMPONENTS,
+      RECORDS_COMPONENT,
+    ]);
+    try {
+      return await operation(records);
+    } finally {
+      await records.close();
+    }
+  }
+
+  async function load(): Promise<Journal> {
+    return withRepairDir(async (repair) => {
+      const journalPath = repair.at("journal.json");
+      try {
+        const parsed = JSON.parse(
+          await readNoFollowText(journalPath),
+        ) as Journal;
+        if (
+          !Number.isInteger(parsed.revision) ||
+          parsed.revision < 1 ||
+          !Array.isArray(parsed.entries) ||
+          parsed.outbox === null ||
+          typeof parsed.outbox !== "object"
+        ) {
+          throw new Error("Invalid repair journal.");
+        }
+        return parsed;
+      } catch (error) {
+        if (errorCode(error) === "ENOENT") return EMPTY;
+        throw error;
+      }
+    });
+  }
 
   async function commit(next: Journal): Promise<void> {
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await assertNotSymlink(journalPath);
-    await assertNotSymlink(directory);
-    await writeFileAtomic(journalPath, `${JSON.stringify(next, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
+    await withRepairDir(async (repair) => {
+      const journalPath = repair.at("journal.json");
+      await writeAtomicNoFollow(
+        journalPath,
+        `${JSON.stringify(next, null, 2)}\n`,
+      );
     });
   }
 
@@ -232,32 +404,40 @@ export function createRepresentationRepairRepository(
       record: structuredClone(record),
     };
     const bytes = `${JSON.stringify(entry, null, 2)}\n`;
+    const recordName = `${String(nextRevision).padStart(8, "0")}-${repairId}.json`;
+    const pendingName = `.pending-${nextRevision}-${repairId}.json`;
     try {
       await options.hooks?.beforeJournalWrite?.();
       await options.hooks?.afterJournalWrite?.();
       await options.hooks?.beforeRecordWrite?.();
-      const pending = join(
-        directory,
-        `.pending-${nextRevision}-${repairId}.json`,
-      );
-      await writeExclusive(pending, bytes);
+      await withRepairDir(async (repair) => {
+        await writeExclusive(repair.at(pendingName), bytes);
+      });
       await options.hooks?.afterRecordWrite?.();
       // Historical fault point: under the single-transaction path this fires
       // before the journal publish that carries entry and optional outbox.
       await options.hooks?.afterApprovalEntryBeforeOutbox?.();
       await options.hooks?.beforeRevisionBump?.();
-      await writeExclusive(absolutePath, bytes);
+      await withRecordsDir(async (records) => {
+        await writeExclusive(records.at(recordName), bytes);
+      });
       await commit({
         revision: nextRevision,
         entries: [...journal.entries, entry],
         outbox: outboxUpdate ?? journal.outbox,
       });
-      await rm(pending, { force: true });
+      await withRepairDir(async (repair) => {
+        await rm(repair.at(pendingName), { force: true });
+      });
       return { ok: true as const, value: { ...entry, replayed: false } };
     } catch {
-      await rm(join(directory, `.pending-${nextRevision}-${repairId}.json`), {
-        force: true,
-      });
+      try {
+        await withRepairDir(async (repair) => {
+          await rm(repair.at(pendingName), { force: true });
+        });
+      } catch {
+        // cleanup best-effort
+      }
       return { ok: false as const, code: "COMMIT_FAILED" as const };
     }
   }
@@ -270,8 +450,9 @@ export function createRepresentationRepairRepository(
       } catch (error) {
         if (
           error instanceof Error &&
-          (error.message.startsWith("Refusing symbolic link") ||
-            error.message.startsWith("Expected regular file"))
+          (error.message.startsWith("Refusing symbolic") ||
+            error.message.startsWith("Expected regular file") ||
+            error.message.startsWith("Expected directory"))
         ) {
           return { ok: false as const, code: "COMMIT_FAILED" as const };
         }

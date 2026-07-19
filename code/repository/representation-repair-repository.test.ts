@@ -401,3 +401,77 @@ describe("repair repository refuses symlink custody paths", () => {
     await expect(repository().currentRevision()).rejects.toBeDefined();
   });
 });
+
+describe("repair repository refuses ancestor directory symbolic links", () => {
+  async function outsideProbe(name: string): Promise<{
+    dir: string;
+    marker: string;
+    before: string;
+  }> {
+    const dir = join(root, name);
+    await mkdir(dir, { recursive: true });
+    const marker = join(dir, "PROBE");
+    await writeFile(marker, "outside-before\n");
+    return { dir, marker, before: "outside-before\n" };
+  }
+
+  it("fails closed when .ultradyn is a directory symlink and does not write outside", async () => {
+    const outside = await outsideProbe("outside-ultradyn");
+    await symlink(outside.dir, join(root, ".ultradyn"));
+    const result = await repository().append(proposalRecord());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
+    expect(await readFile(outside.marker, "utf8")).toBe(outside.before);
+    // No journal materialised through the redirected tree.
+    await expect(
+      readFile(join(outside.dir, "repair", "journal.json")),
+    ).rejects.toBeDefined();
+  });
+
+  it("fails closed when .ultradyn/repair is a directory symlink and does not write outside", async () => {
+    const outside = await outsideProbe("outside-repair");
+    await mkdir(join(root, ".ultradyn"), { recursive: true });
+    await symlink(outside.dir, join(root, ".ultradyn", "repair"));
+    const result = await repository().append(proposalRecord());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
+    expect(await readFile(outside.marker, "utf8")).toBe(outside.before);
+    await expect(
+      readFile(join(outside.dir, "journal.json")),
+    ).rejects.toBeDefined();
+  });
+
+  it("fails closed when records is a directory symlink and does not write outside", async () => {
+    const outside = await outsideProbe("outside-records");
+    await mkdir(join(root, ".ultradyn", "repair"), { recursive: true });
+    await symlink(outside.dir, join(root, ".ultradyn", "repair", "records"));
+    const result = await repository().append(proposalRecord());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("COMMIT_FAILED");
+    expect(await readFile(outside.marker, "utf8")).toBe(outside.before);
+    // No record file should appear under the redirected directory.
+    const { readdir } = await import("node:fs/promises");
+    const names = await readdir(outside.dir);
+    expect(names.filter((name) => name.endsWith(".json"))).toEqual([]);
+  });
+
+  it("fails closed reading journal/outbox after repair dir is swapped to a symlink", async () => {
+    const first = await repository().append(proposalRecord());
+    expect(first.ok).toBe(true);
+    const outside = await outsideProbe("swapped-repair");
+    // Copy journal into outside then swap the whole repair directory.
+    const journalBytes = await readFile(
+      join(root, ".ultradyn", "repair", "journal.json"),
+    );
+    await writeFile(join(outside.dir, "journal.json"), journalBytes);
+    await rm(join(root, ".ultradyn", "repair"), {
+      recursive: true,
+      force: true,
+    });
+    await symlink(outside.dir, join(root, ".ultradyn", "repair"));
+    await expect(repository().currentRevision()).rejects.toBeDefined();
+    await expect(repository().pendingInvalidations()).rejects.toBeDefined();
+    // Outside marker untouched by read attempts.
+    expect(await readFile(outside.marker, "utf8")).toBe(outside.before);
+  });
+});
