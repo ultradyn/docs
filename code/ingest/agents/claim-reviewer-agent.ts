@@ -27,7 +27,6 @@ import { z } from "zod";
 
 import {
   ClaimIdSchema,
-  ClaimTypeSchema,
   type ClaimType,
 } from "../../domain/ingest/claim.js";
 import {
