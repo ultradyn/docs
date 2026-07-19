@@ -7,4 +7,5 @@ export * from "./representation-records.js";
 export * from "./schema-registry.js";
 export * from "./schemas.js";
 export * from "./source-records.js";
+export * from "./source-unit.js";
 export * from "./types.js";

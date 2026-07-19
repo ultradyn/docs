@@ -102,9 +102,6 @@ export const SourceRepresentationSchema = z
   })
   .strict();
 
-export const SourceUnitSchema = z
-  .object({ schemaVersion: z.literal(1), id: IdSchema })
-  .strict();
 export const SearchReceiptSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
   .strict();

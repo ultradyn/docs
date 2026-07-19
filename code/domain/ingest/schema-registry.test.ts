@@ -299,6 +299,72 @@ describe("ingestion schema registry", () => {
     }
   });
 
+  it("registers the complete canonical SourceUnit schema", () => {
+    const unit = {
+      schemaVersion: 1,
+      id: "unit-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      snapshotId: `snap-${"b".repeat(64)}`,
+      sourceFileId: `file-${"a".repeat(64)}`,
+      representationId: "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      kind: "paragraph",
+      parentId: "unit-01ARZ3NDEKTSV4RRFFQ69G5FAA",
+      headingPath: ["Install"],
+      normalizedLocator: {
+        utf16Start: 10,
+        utf16End: 20,
+        lineStart: 3,
+        columnStart: 1,
+        lineEnd: 3,
+        columnEnd: 11,
+      },
+      originalLocator: {
+        byteStart: 12,
+        byteEnd: 22,
+        lineStart: 3,
+        columnStart: 1,
+        lineEnd: 3,
+        columnEnd: 11,
+      },
+      textSha256: "c".repeat(64),
+    } as const;
+
+    expect(ingestSchemaRegistry.get("SourceUnit", 1).parse(unit)).toEqual(unit);
+    for (const invalid of [
+      { schemaVersion: 1, id: unit.id },
+      { ...unit, schemaVersion: 0 },
+      { ...unit, extra: true },
+      { ...unit, id: "unit-invalid" },
+      { ...unit, parentId: unit.id },
+      { ...unit, textSha256: "c".repeat(63) },
+      { ...unit, headingPath: [""] },
+      {
+        ...unit,
+        normalizedLocator: {
+          ...unit.normalizedLocator,
+          utf16Start: 21,
+        },
+      },
+      {
+        ...unit,
+        originalLocator: {
+          ...unit.originalLocator,
+          byteEnd: Number.MAX_SAFE_INTEGER + 1,
+        },
+      },
+      {
+        ...unit,
+        normalizedLocator: {
+          ...unit.normalizedLocator,
+          extra: true,
+        },
+      },
+    ]) {
+      expect(
+        ingestSchemaRegistry.get("SourceUnit", 1).safeParse(invalid).success,
+      ).toBe(false);
+    }
+  });
+
   it("fails unknown versions explicitly", () => {
     expect(() => ingestSchemaRegistry.get("SourceFile", 2 as 1)).toThrowError(
       /UNKNOWN_SCHEMA.*SourceFile.*2/,

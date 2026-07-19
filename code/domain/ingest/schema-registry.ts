@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { RepresentationAuditSchema } from "./representation-audit.js";
+import { SourceUnitSchema } from "./source-unit.js";
 import type { IngestResult } from "./types.js";
 
 import {
@@ -17,7 +18,6 @@ import {
   SourceFileSchema,
   SourceRepresentationSchema,
   SourceSnapshotSchema,
-  SourceUnitSchema,
 } from "./schemas.js";
 
 const schemas = {
