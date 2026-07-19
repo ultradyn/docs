@@ -1,12 +1,10 @@
 /**
- * T-60-03 RED — R1 acceptance AS-01..AS-04 (tiny+small).
+ * T-60-04 RED — R1 AS-02/03/04 + small corpus (extends T-60-03 AS-01).
  *
- * NAIL 2: cacheEnabled:false is ENFORCED via provider CALL COUNTER spy —
- * not a declared flag alone. Harness must assert provider was invoked the
- * expected number of times with zero cache hits.
- *
- * GREEN: wire runR1Acceptance + real counters. RED: module/export missing
- * or not_implemented until pipeline lands.
+ * NAIL 1: complete paths have providerCalls>0, cacheHits===0, spy matches counters.
+ * NAIL 2: distinguishing outcomes from real mechanism (paired controls).
+ * NAIL 3: seeded critic decisions labeled honestly in detail.
+ * NAIL 4: no faked complete / silent not_implemented.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,9 +14,7 @@ const R1_SCENARIOS = ["AS-01", "AS-02", "AS-03", "AS-04"] as const;
 export type R1ScenarioId = (typeof R1_SCENARIOS)[number];
 
 export type R1ProviderCounters = {
-  /** Total live provider/getClaim invocations during the scenario. */
   providerCalls: number;
-  /** Must remain 0 when cacheEnabled:false. */
   cacheHits: number;
 };
 
@@ -29,6 +25,12 @@ export type R1ScenarioResult = {
   status: "complete" | "not_implemented";
   promotable?: boolean;
   counters: R1ProviderCounters;
+  /** Packet version after refinement (AS-02). */
+  packetVersion?: number;
+  /** Prior packet version before refinement (AS-02). */
+  priorPacketVersion?: number;
+  /** True if curiosity planner was invoked (AS-04 spy surface). */
+  curiosityPlannerInvoked?: boolean;
   detail?: string;
 };
 
@@ -36,23 +38,22 @@ export type RunR1Acceptance = (input: {
   scenario: R1ScenarioId;
   corpus: "tiny" | "small";
   cacheEnabled: false;
-  /** Spy hooks — GREEN harness increments on real provider use. */
   onProviderCall?: () => void;
   onCacheHit?: () => void;
+  /** AS-04: optional force-early curiosity invoke for mutation tests. */
+  forceEarlyCuriosity?: boolean;
+  /** AS-03 control: use a supported pack path instead of gap. */
+  forceSupportedPack?: boolean;
 }) => Promise<R1ScenarioResult>;
 
-describe("automatic ingestion R1 acceptance (T-60-03)", () => {
+describe("automatic ingestion R1 acceptance (T-60-04)", () => {
   it("exports reviewAnswerComposition for the promotable gate", () => {
     expect(typeof reviewAnswerComposition).toBe("function");
   });
 
-  it("AS-01..AS-04 run with cacheEnabled:false and enforce zero cache hits via counters", async () => {
-    const mod = await import("./automatic-ingestion-r1.js").catch(() => null);
-    expect(mod, "automatic-ingestion-r1 module must exist").not.toBeNull();
-    if (mod === null) return;
-
+  it("AS-01..AS-04 tiny all complete with zero-cache counters", async () => {
+    const mod = await import("./automatic-ingestion-r1.js");
     const run = mod.runR1Acceptance as RunR1Acceptance;
-    expect(typeof run).toBe("function");
 
     for (const scenario of R1_SCENARIOS) {
       let providerCalls = 0;
@@ -70,46 +71,82 @@ describe("automatic ingestion R1 acceptance (T-60-03)", () => {
       });
       expect(result.scenario).toBe(scenario);
       expect(result.cacheEnabled).toBe(false);
-      expect(["complete", "not_implemented"]).toContain(result.status);
-
-      // NAIL 2: counters are part of the result mechanism
-      expect(result.counters).toBeDefined();
-      expect(typeof result.counters.providerCalls).toBe("number");
-      expect(typeof result.counters.cacheHits).toBe("number");
+      // NAIL 1 + 4: complete is required for tiny AS-01..04
+      expect(result.status).toBe("complete");
       expect(result.counters.cacheHits).toBe(0);
       expect(cacheHits).toBe(0);
-
-      if (result.status === "complete") {
-        // Zero-cache full path must actually call providers
-        expect(result.counters.providerCalls).toBeGreaterThan(0);
-        expect(providerCalls).toBe(result.counters.providerCalls);
-      }
+      expect(result.counters.providerCalls).toBeGreaterThan(0);
+      expect(providerCalls).toBe(result.counters.providerCalls);
     }
   });
 
-  it("AS-03 honest source gap is never promotable when complete", async () => {
-    const mod = await import("./automatic-ingestion-r1.js").catch(() => null);
-    expect(mod).not.toBeNull();
-    if (mod === null) return;
+  it("AS-03: promotable false on gap; control supported pack is promotable true", async () => {
+    const mod = await import("./automatic-ingestion-r1.js");
     const run = mod.runR1Acceptance as RunR1Acceptance;
-    const result = await run({
+
+    const gap = await run({
       scenario: "AS-03",
       corpus: "tiny",
       cacheEnabled: false,
     });
-    expect(result.counters.cacheHits).toBe(0);
-    if (result.status === "complete") {
-      expect(result.promotable).toBe(false);
-      expect(result.counters.providerCalls).toBeGreaterThan(0);
-    } else {
-      expect(result.status).toBe("not_implemented");
-    }
+    expect(gap.status).toBe("complete");
+    expect(gap.promotable).toBe(false);
+    // NAIL 3: honesty — seeded critic must be labeled if seeded
+    expect(gap.detail ?? "").toMatch(/seeded critic|no_supported_answer|insufficient/i);
+
+    const control = await run({
+      scenario: "AS-03",
+      corpus: "tiny",
+      cacheEnabled: false,
+      forceSupportedPack: true,
+    });
+    expect(control.status).toBe("complete");
+    expect(control.promotable).toBe(true);
   });
 
-  it("small corpus AS-01: cacheEnabled false + counter mechanism present", async () => {
-    const mod = await import("./automatic-ingestion-r1.js").catch(() => null);
-    expect(mod).not.toBeNull();
-    if (mod === null) return;
+  it("AS-02: real packet version increment after critic refinement", async () => {
+    const mod = await import("./automatic-ingestion-r1.js");
+    const run = mod.runR1Acceptance as RunR1Acceptance;
+    const result = await run({
+      scenario: "AS-02",
+      corpus: "tiny",
+      cacheEnabled: false,
+    });
+    expect(result.status).toBe("complete");
+    expect(result.priorPacketVersion).toBeDefined();
+    expect(result.packetVersion).toBeDefined();
+    expect(result.packetVersion!).toBeGreaterThan(result.priorPacketVersion!);
+    expect(result.detail ?? "").toMatch(/seeded critic|missing facet|packet version/i);
+  });
+
+  it("AS-04: curiosity planner not invoked before terminal; spy trips if forced early", async () => {
+    const mod = await import("./automatic-ingestion-r1.js");
+    const run = mod.runR1Acceptance as RunR1Acceptance;
+
+    const ordered = await run({
+      scenario: "AS-04",
+      corpus: "tiny",
+      cacheEnabled: false,
+    });
+    expect(ordered.status).toBe("complete");
+    expect(ordered.curiosityPlannerInvoked).toBe(false);
+    expect(ordered.detail ?? "").toMatch(/seeded critic|reject|curiosity/i);
+
+    const forced = await run({
+      scenario: "AS-04",
+      corpus: "tiny",
+      cacheEnabled: false,
+      forceEarlyCuriosity: true,
+    });
+    // Early curiosity is a failure mode the harness detects
+    expect(forced.curiosityPlannerInvoked).toBe(true);
+    expect(forced.status).toBe("complete");
+    // Scenario pin: when early curiosity forced, detail must flag ordering violation
+    expect(forced.detail ?? "").toMatch(/curiosity.*early|ordering violation|out of order/i);
+  });
+
+  it("small corpus AS-01 complete with counters", async () => {
+    const mod = await import("./automatic-ingestion-r1.js");
     const run = mod.runR1Acceptance as RunR1Acceptance;
     const onProviderCall = vi.fn();
     const onCacheHit = vi.fn();
@@ -123,11 +160,8 @@ describe("automatic ingestion R1 acceptance (T-60-03)", () => {
     expect(result.cacheEnabled).toBe(false);
     expect(result.counters.cacheHits).toBe(0);
     expect(onCacheHit).not.toHaveBeenCalled();
-    if (result.status === "complete") {
-      expect(result.counters.providerCalls).toBeGreaterThan(0);
-      expect(onProviderCall).toHaveBeenCalledTimes(
-        result.counters.providerCalls,
-      );
-    }
+    expect(result.status).toBe("complete");
+    expect(result.counters.providerCalls).toBeGreaterThan(0);
+    expect(onProviderCall).toHaveBeenCalledTimes(result.counters.providerCalls);
   });
 });
