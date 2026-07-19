@@ -35,6 +35,8 @@ Acceptance criteria:
 - Approval requires a nonblank rationale, and a reviewer cannot edit a proposal; rejection and correction append new linked records while preserving prior proposals and artifacts
 - Proposal and approval mutations use expected revisions and idempotency keys, commit atomically, and recover post-commit invalidation delivery without duplicate logical requests
 - Invalidation recovery has delivery-only authority and returns the exact replayed request IDs; it cannot transition repair state
+- Fresh-process recovery reads and acknowledges the durable invalidation outbox through an explicit repository-backed port; append-only ledger writes alone are not treated as a recovery reader
+- Repaired unitization keeps the canonical SourceFile immutable and qualifies corrected locator bounds with a non-persisted view bound to the immutable CorrectionArtifact size/hash
 
 Test surfaces:
 - workflow
