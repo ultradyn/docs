@@ -64,7 +64,7 @@ describe("Claim domain exports", () => {
     ).toBe(false);
   });
 
-  it("ClaimStateSchema is closed plan set (no plan-rejected drift without T-22-03)", () => {
+  it("ClaimStateSchema is closed plan set and explicitly rejects rejected", () => {
     for (const state of [
       "proposed",
       "accepted",
@@ -74,8 +74,8 @@ describe("Claim domain exports", () => {
     ] as const) {
       expect(ClaimStateSchema.safeParse(state).success).toBe(true);
     }
-    // rejected is review-owned later; not a free repository invent token here
-    // if present must be explicit — RED pins plan five-state set
+    // T-22-03 review outcome only — not a ClaimState in the repository lifecycle
+    expect(ClaimStateSchema.safeParse("rejected").success).toBe(false);
     expect(ClaimStateSchema.safeParse("draft").success).toBe(false);
   });
 

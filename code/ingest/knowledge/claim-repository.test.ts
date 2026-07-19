@@ -14,7 +14,7 @@ import {
   createFileClaimStore,
   deriveClaimId,
   type EvidenceVerificationReader,
-  type AcceptanceAuthority,
+  type ClaimAcceptanceAuthority,
 } from "./claim-repository.js";
 
 const SNAPSHOT = `snap-${"b".repeat(64)}` as SnapshotId;
@@ -71,14 +71,22 @@ function verifierNone(): EvidenceVerificationReader {
   };
 }
 
-/** T-22-03 seam stand-in: grants structural permission only (not crypto auth). */
-function authorityAllow(): AcceptanceAuthority {
+/**
+ * T-22-03 seam stand-in: returns a verified review application ref.
+ * Not a signer / not crypto auth — fake only on testing surface.
+ */
+function authorityAllow(): ClaimAcceptanceAuthority {
   return {
-    authorizeAcceptance: async () => ({ ok: true as const }),
+    authorizeAcceptance: async () => ({
+      ok: true as const,
+      value: {
+        reviewApplicationRef: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      },
+    }),
   };
 }
 
-function authorityDeny(): AcceptanceAuthority {
+function authorityDeny(): ClaimAcceptanceAuthority {
   return {
     authorizeAcceptance: async () => ({
       ok: false as const,
@@ -92,7 +100,7 @@ function repo(
   overrides: {
     store?: ReturnType<typeof createInMemoryClaimStore>;
     evidence?: EvidenceVerificationReader;
-    acceptance?: AcceptanceAuthority;
+    acceptance?: ClaimAcceptanceAuthority;
   } = {},
 ) {
   return createClaimRepository({
@@ -565,6 +573,176 @@ describe("durable store / crash / custody", () => {
       } as Claim),
     ).rejects.toThrow(/symbolic|Refusing/i);
     await rm(base, { recursive: true, force: true });
+  });
+
+  it("enumerates contiguous versions through at least v40 (no 1..32 ceiling)", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-v40-"));
+    try {
+      const store = createFileClaimStore(root);
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const created = await r.create(createInput());
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      for (let version = 2; version <= 40; version += 1) {
+        const next = await r.transition({
+          claimId: created.value.id,
+          expectedVersion: version - 1,
+          to: "disputed",
+          reason: `r${version}`,
+        });
+        // after first dispute, may need to go disputed→disputed or stay with reason-only append
+        // RED: repository must support append versions through v40 via repeated legal transitions
+        if (!next.ok) {
+          // allow re-dispute from disputed as version bump with same state if product forbids — prefer reason-bearing version append
+          expect(next.ok).toBe(true);
+        }
+      }
+      const fresh = createClaimRepository({
+        store: createFileClaimStore(root),
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const latest = await fresh.get(created.value.id);
+      expect(latest.ok).toBe(true);
+      if (!latest.ok) return;
+      expect(latest.value.version).toBeGreaterThanOrEqual(40);
+      const v35 = await fresh.getVersion(created.value.id, 35);
+      expect(v35.ok).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("fails closed on gap/malformed/cross-stream without skipping to later valid", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-gap-"));
+    try {
+      const store = createFileClaimStore(root);
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const created = await r.create(createInput());
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      // Path convention: .ultradyn/claims/<id>/
+      const streamDir = join(root, ".ultradyn", "claims", created.value.id);
+      await writeFile(join(streamDir, "v00000003.json"), "{not-json", "utf8");
+      const fresh = createFileClaimStore(root);
+      await expect(fresh.latest(created.value.id)).rejects.toThrow(
+        /STREAM_CORRUPT|corrupt|malformed|gap/i,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("crash after immutable publish before operation commit leaves no half-success", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-crash2-"));
+    try {
+      const store = createFileClaimStore(root, {
+        afterImmutablePublishBeforeOpCommit: () => {
+          throw new Error("injected-crash-op");
+        },
+      });
+      const r = createClaimRepository({
+        store,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      await expect(
+        r.create({ ...createInput(), idempotencyKey: "crash-op-1" }),
+      ).rejects.toThrow(/injected-crash-op/);
+      const freshStore = createFileClaimStore(root);
+      const id = deriveClaimId(QUESTION, PACKET, createInput().statement);
+      // no half-success readable as durable latest
+      const latest = await freshStore.latest(id).catch(() => undefined);
+      // either undefined or stream not committed
+      expect(latest === undefined || latest === null).toBe(true);
+      // same-key retry reconciles
+      const retry = createClaimRepository({
+        store: createFileClaimStore(root),
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const again = await retry.create({
+        ...createInput(),
+        idempotencyKey: "crash-op-1",
+      });
+      expect(again.ok).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("durable get never falls back to process memory", async () => {
+    if (process.platform !== "linux") return;
+    const root = await mkdtemp(join(tmpdir(), "clm-nomem-"));
+    try {
+      const mem = createInMemoryClaimStore();
+      const file = createFileClaimStore(root);
+      // write only to memory
+      const memRepo = createClaimRepository({
+        store: mem,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const created = await memRepo.create(createInput());
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      // durable store must not see memory-only claim
+      const durable = createClaimRepository({
+        store: file,
+        evidence: verifierOk(),
+        acceptance: authorityAllow(),
+      });
+      const missing = await durable.get(created.value.id);
+      expect(missing.ok).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("fails closed when descriptor binding unavailable (off-Linux posture)", async () => {
+    if (process.platform === "linux") {
+      // On Linux, capability path is available — skip or assert export exists
+      const mod = await import("./claim-repository.js");
+      expect(typeof mod.createFileClaimStore).toBe("function");
+      return;
+    }
+    const root = await mkdtemp(join(tmpdir(), "clm-off-"));
+    try {
+      const store = createFileClaimStore(root);
+      await expect(
+        store.append({
+          schemaVersion: 1,
+          id: "clm-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          version: 1,
+          statement: "x",
+          claimType: "behavior",
+          scope: { component: "c" },
+          authority: "official",
+          lifecycle: "current",
+          state: "proposed",
+          evidenceRefs: [evidence()],
+          relationships: {
+            qualifierClaimIds: [],
+            contradictsClaimIds: [],
+            supersedesClaimIds: [],
+          },
+          createdFrom: { questionId: QUESTION, packetId: PACKET },
+        } as Claim),
+      ).rejects.toThrow(/Descriptor binding|fail-closed/i);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
