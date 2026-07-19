@@ -247,15 +247,32 @@ function ownData(
 }
 
 /**
- * A sufficient healthy receipt proves a search ran: schema-valid SearchReceipt
- * with a non-empty query and a real indexVersion (not blank).
+ * Structural health check for a search receipt presented to the Researcher.
+ *
+ * TRUST BOUNDARY (read carefully — this is not authenticity):
+ * - This function establishes STRUCTURAL VALIDITY only: the value is a
+ *   schema-valid SearchReceipt with required search-identifying fields and
+ *   consistent selectedIds ⊆ candidateIds (enforced by SearchReceiptSchema).
+ * - It does NOT prove the receipt was emitted by a real tool invocation.
+ * - It does NOT prove provenance, authority, or that a search actually ran on
+ *   this host. A caller can fabricate every field; full SearchReceiptSchema
+ *   validation only raises the forgery bar, it does not close it.
+ * - Production MUST inject tool-emitted receipts from the T-30-01 source-tools
+ *   layer (or an equivalent receipt-producing retrieval adapter). Never treat
+ *   arbitrary caller-supplied receipt objects as authentic search proof.
+ * - Authenticity / binding of receipts to tool invocations is out of scope for
+ *   T-30-02 and is tracked as a follow-up architectural child task.
  */
 export function isHealthySearchReceipt(value: unknown): value is SearchReceipt {
+  // Full structural validation via domain SearchReceiptSchema (schemaVersion,
+  // snapshotId, indexVersion, indexedRepresentationsSha256 format, sorted
+  // unique candidateIds/selectedIds, selected ⊆ candidates). Not a trust root.
   const parsed = SearchReceiptSchema.safeParse(value);
   if (!parsed.success) return false;
   const receipt = parsed.data;
+  // Extra belt: blank query/indexVersion cannot evidence a search attempt.
   if (receipt.query.length < 1) return false;
-  if (receipt.indexVersion.length < 1) return false;
+  if (receipt.indexVersion.trim().length < 1) return false;
   return true;
 }
 
