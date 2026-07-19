@@ -14,12 +14,14 @@ status: pending
 tasks:
     - complexity: medium
       depends_on:
-        - P2.M2.E1.T003
+        - P2.M1.E3.T003
+        - P2.M2.E1.T004
       estimate_hours: 5
       file: T001-t-21-01-implement-evidencepack.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: T-21-01 — Implement EvidencePacket and SearchReceipt repository
     - complexity: medium
       depends_on:
