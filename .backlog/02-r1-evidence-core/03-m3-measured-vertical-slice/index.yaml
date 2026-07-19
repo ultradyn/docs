@@ -36,7 +36,7 @@ epics:
       locked: false
       name: WP-60 — Answer composition from accepted claims
       path: 04-wp-60-answer-composition-from
-      status: pending
+      status: done
 estimate_hours: 120
 id: P2.M3
 locked: false
@@ -47,4 +47,4 @@ stats:
     in_progress: 0
     pending: 12
     total_tasks: 12
-status: pending
+status: done
