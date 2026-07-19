@@ -159,7 +159,7 @@ describe("create — proposed only", () => {
         throw new Error("nope");
       },
     };
-    delete (hostile as { statement?: string }).statement;
+    delete (hostile as unknown as { statement?: string }).statement;
     Object.defineProperty(hostile, "statement", {
       enumerable: true,
       get() {
@@ -570,7 +570,7 @@ describe("durable store / crash / custody", () => {
           supersedesClaimIds: [],
         },
         createdFrom: { questionId: QUESTION, packetId: PACKET },
-      } as Claim),
+      } as unknown as Claim),
     ).rejects.toThrow(/symbolic|Refusing/i);
     await rm(base, { recursive: true, force: true });
   });
@@ -738,7 +738,7 @@ describe("durable store / crash / custody", () => {
             supersedesClaimIds: [],
           },
           createdFrom: { questionId: QUESTION, packetId: PACKET },
-        } as Claim),
+        } as unknown as Claim),
       ).rejects.toThrow(/Descriptor binding|fail-closed/i);
     } finally {
       await rm(root, { recursive: true, force: true });

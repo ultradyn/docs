@@ -33,6 +33,7 @@ export {
   type EvidenceVerdictService,
   type QuestionFacetReader,
 } from "./evidence-verdict-service.js";
+export * from "./claim-repository.js";
 export * from "./obligation-service.js";
 export * from "./question-admissibility.js";
 export * from "./question-link-service.js";
