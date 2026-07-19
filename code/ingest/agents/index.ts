@@ -52,3 +52,17 @@ export {
   type CreateClaimExtractorAgentOptions,
   type ValidateClaimExtractorOptions,
 } from "./claim-extractor-agent.js";
+
+// T-32-02 — Claim Reviewer (proposal-only; apply via ClaimReviewService)
+export {
+  CLAIM_REVIEWER_LIMITS,
+  createClaimReviewerAgent,
+  loadClaimReviewerOutputSchema,
+  validateClaimReviewerProposal,
+  type ClaimReviewerAgent,
+  type ClaimReviewerError,
+  type ClaimReviewerProposal,
+  type ClaimReviewerPropose,
+  type ClaimReviewerProposeContext,
+  type CreateClaimReviewerAgentOptions,
+} from "./claim-reviewer-agent.js";
