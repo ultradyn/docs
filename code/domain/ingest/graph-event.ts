@@ -22,7 +22,13 @@ export type GraphRevision = GraphRevisionBrand;
 
 export const GraphOperationTypeSchema = z.enum([
   "create_generated_branch",
-  /** T-23-03 — invalidation commits; only GraphGateway may emit (sole writer). */
+  /**
+   * T-23-03 — registered for invalidation *event records* and the closed
+   * command set. GraphGateway.apply deliberately does NOT execute this op yet
+   * (explicit INVALID_EDGE via exhaustive switch). Wiring execution is a
+   * separate mutation-authority change; deleting the refuse test is the
+   * conversation that must happen first — not an accidental default fallthrough.
+   */
   "propagate_invalidation",
   // Closed set — unknown types → INVALID_EDGE
 ]);
@@ -47,8 +53,21 @@ export const CreateGeneratedBranchOperationSchema = z
   })
   .strict();
 
+/**
+ * Operation body for propagate_invalidation.
+ * Present so the closed set can name the op; gateway execution is refused
+ * until a later task wires it (see graph-gateway exhaustive switch).
+ */
+export const PropagateInvalidationOperationSchema = z
+  .object({
+    type: z.literal("propagate_invalidation"),
+    rootArtifactIds: z.array(z.string().min(1).max(256)).min(1).max(64),
+  })
+  .strict();
+
 export const GraphOperationSchema = z.discriminatedUnion("type", [
   CreateGeneratedBranchOperationSchema,
+  PropagateInvalidationOperationSchema,
 ]);
 
 export type GraphOperation = z.infer<typeof GraphOperationSchema>;

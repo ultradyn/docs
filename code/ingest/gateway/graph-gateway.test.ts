@@ -80,6 +80,28 @@ describe("unit surface", () => {
     expect(await gw.listCommits()).toHaveLength(0);
   });
 
+  it("T-23-03: propagate_invalidation is closed-set but apply REFUSES execution typed", async () => {
+    // Capability registered without an executor must fail explicitly (not
+    // silently no-op or fall through a default). Deleting this test is the
+    // conversation required before wiring execution.
+    const { gw } = makeGw();
+    const result = await gw.apply({
+      expectedRevision: 0 as GraphRevision,
+      idempotencyKey: "unit-propagate-invalidation-refused",
+      operations: [
+        {
+          type: "propagate_invalidation",
+          rootArtifactIds: [UNIT],
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_EDGE");
+    }
+    expect(await gw.listCommits()).toHaveLength(0);
+  });
+
   it("missing entity fails without a graph commit", async () => {
     const { gw } = makeGw();
     const result = await gw.apply({

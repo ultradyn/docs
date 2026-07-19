@@ -16,8 +16,11 @@
  *   sniffing fails open for unknown brands (treats them as "not that class" /
  *   "not affected"), which is the forbidden direction under invalidation.
  * - Graph commits for invalidation MUST go through GraphGateway (sole sanctioned
- *   graph-mutation path). This module plans and may request commits via the
- *   gateway; it does not open a second writer to the durable commit log.
+ *   graph-mutation path). This module plans only; it does not open a second
+ *   writer to the durable commit log. `propagate_invalidation` is registered on
+ *   the closed GraphOperation set for event-record typing, but gateway.apply
+ *   REFUSES execution today (typed INVALID_EDGE, exhaustive switch, tested).
+ *   Wiring execution is a later mutation-authority change — not this tip.
  * - Append-only custody: create superseding stale versions / commits; never
  *   delete, erase, purge, or unlink.
  * - SCC policy (explicit step): if any member of a strong component is affected,

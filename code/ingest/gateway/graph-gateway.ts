@@ -31,6 +31,12 @@
  * keys → INVALID_INPUT. Admission envelope filled from commit-reachable store
  * reads inside the lock.
  *
+ * T-23-03 operation set: `propagate_invalidation` is on the closed GraphOperation
+ * union for event-record typing, but apply() REFUSES execution today via an
+ * exhaustive switch (INVALID_EDGE). That refuse is intentional and tested —
+ * not an incidental default. Wiring execution is a separate mutation-authority
+ * change and must delete the refuse test deliberately.
+ *
  * Seams: QuestionLinkStore + CoverageObligationEventWriter + ports (real
  * interfaces; production adapters deferred). In-memory factories OFF barrel.
  */
@@ -842,28 +848,40 @@ export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
       }
       if (command.operations.length !== 1) return failure("INVALID_INPUT");
       const op = command.operations[0]!;
-      if (op.type !== "create_generated_branch") return failure("INVALID_EDGE");
+      // Exhaustive over GraphOperation.type — closed set, no default fallthrough.
+      switch (op.type) {
+        case "create_generated_branch": {
+          if (op.parentQuestionId) {
+            const human =
+              deps.humanQuestions &&
+              (await deps.humanQuestions.has(op.parentQuestionId));
+            const gen = await deps.questions.get(op.parentQuestionId);
+            const reachable =
+              gen && (await isReachableViaCommit(op.parentQuestionId));
+            if (!human && !reachable) return failure("MISSING_ENTITY");
+          }
 
-      if (op.parentQuestionId) {
-        const human =
-          deps.humanQuestions &&
-          (await deps.humanQuestions.has(op.parentQuestionId));
-        const gen = await deps.questions.get(op.parentQuestionId);
-        const reachable =
-          gen && (await isReachableViaCommit(op.parentQuestionId));
-        if (!human && !reachable) return failure("MISSING_ENTITY");
-      }
-
-      try {
-        return await executeCreateBranch(command, op);
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          /injected-crash|afterPrecursor/i.test(error.message)
-        ) {
-          throw error;
+          try {
+            return await executeCreateBranch(command, op);
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              /injected-crash|afterPrecursor/i.test(error.message)
+            ) {
+              throw error;
+            }
+            return failure("COMMIT_FAILED");
+          }
         }
-        return failure("COMMIT_FAILED");
+        case "propagate_invalidation":
+          // T-23-03: type registered; execution deliberately unsupported here.
+          // Wiring this arm is a separate mutation-authority task.
+          return failure("INVALID_EDGE");
+        default: {
+          const _exhaustive: never = op;
+          void _exhaustive;
+          return failure("INVALID_EDGE");
+        }
       }
     });
   }
