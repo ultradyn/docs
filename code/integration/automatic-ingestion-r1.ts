@@ -543,9 +543,8 @@ export async function runR1Acceptance(input: {
     throw new Error("runR1Acceptance requires cacheEnabled:false");
   }
 
-  const hooks = {
-    onProviderCall: input.onProviderCall,
-  };
+  const hooks: { onProviderCall?: () => void } = {};
+  if (input.onProviderCall) hooks.onProviderCall = input.onProviderCall;
 
   if (input.scenario === "AS-01") {
     return runAs01(input.corpus, hooks);
@@ -568,16 +567,24 @@ export async function runR1Acceptance(input: {
     return runAs02Tiny(hooks);
   }
   if (input.scenario === "AS-03") {
-    return runAs03Tiny({
-      ...hooks,
-      forceSupportedPack: input.forceSupportedPack,
-    });
+    const as03: {
+      onProviderCall?: () => void;
+      forceSupportedPack?: boolean;
+    } = { ...hooks };
+    if (input.forceSupportedPack !== undefined) {
+      as03.forceSupportedPack = input.forceSupportedPack;
+    }
+    return runAs03Tiny(as03);
   }
   if (input.scenario === "AS-04") {
-    return runAs04Tiny({
-      ...hooks,
-      forceEarlyCuriosity: input.forceEarlyCuriosity,
-    });
+    const as04: {
+      onProviderCall?: () => void;
+      forceEarlyCuriosity?: boolean;
+    } = { ...hooks };
+    if (input.forceEarlyCuriosity !== undefined) {
+      as04.forceEarlyCuriosity = input.forceEarlyCuriosity;
+    }
+    return runAs04Tiny(as04);
   }
 
   return {
