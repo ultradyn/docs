@@ -112,9 +112,18 @@ describe("live lexical calibration (v1 profile)", () => {
     expect(local?.relevantUnitIds).toEqual(
       expect.arrayContaining(["small-unit-18", "small-unit-22"]),
     );
-    // With v1 profile, those two must remain FN (documented residual).
-    const mini = scoreRetrieval(cases, documents, RESEARCHER_RETRIEVAL_PROFILE_V1);
+    // Pin THE gap set, not merely the count — if retrieval finds 18 and
+    // misses two different units, the documented residual would go stale.
+    const mini = scoreRetrieval(
+      cases,
+      documents,
+      RESEARCHER_RETRIEVAL_PROFILE_V1,
+    );
     expect(mini.falseNegative).toBe(2);
+    expect([...mini.falseNegativeUnitIds].sort()).toEqual([
+      "small-unit-18",
+      "small-unit-22",
+    ]);
   });
 
   it("reports metrics by question type with non-empty types", () => {
@@ -146,8 +155,10 @@ describe("live lexical calibration (v1 profile)", () => {
       ...RESEARCHER_RETRIEVAL_PROFILE_V1,
       queryExpansion: true,
     });
-    // Measured: expansion did not improve TP on this corpus
-    expect(on.truePositive).toBeLessThanOrEqual(off.truePositive);
+    // Measured ZERO GAIN (and zero change to FN) — equality pins the claim.
+    // <= would still pass if expansion HURT TP while the doc said "zero gain".
+    expect(on.truePositive).toBe(off.truePositive);
+    expect(on.falseNegative).toBe(off.falseNegative);
     expect(expandQuery("Where does Atlas keep knowledge?").length).toBeGreaterThan(
       "Where does Atlas keep knowledge?".length,
     );

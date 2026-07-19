@@ -79,6 +79,8 @@ export type CalibrationMetrics = {
   readonly truePositive: number;
   readonly falsePositive: number;
   readonly falseNegative: number;
+  /** Sorted unique labeled unit ids that were not selected (the named gap set). */
+  readonly falseNegativeUnitIds: readonly string[];
   readonly labeledRelevantPairCount: number;
   readonly answerableQuestionCount: number;
   readonly falseNoEvidenceCount: number;
@@ -265,6 +267,7 @@ export function scoreRetrieval(
   let falseNoEvidence = 0;
   let answerable = 0;
   let labeledPairs = 0;
+  const falseNegativeUnitIds = new Set<string>();
   const byType = new Map<
     string,
     { tp: number; fp: number; fn: number; labeledPairs: number }
@@ -299,7 +302,10 @@ export function scoreRetrieval(
       else cfp += 1;
     }
     for (const id of rel) {
-      if (!sel.has(id)) cfn += 1;
+      if (!sel.has(id)) {
+        cfn += 1;
+        falseNegativeUnitIds.add(id);
+      }
     }
     tp += ctp;
     fp += cfp;
@@ -342,6 +348,9 @@ export function scoreRetrieval(
     truePositive: tp,
     falsePositive: fp,
     falseNegative: fn,
+    falseNegativeUnitIds: Object.freeze(
+      [...falseNegativeUnitIds].sort((a, b) => a.localeCompare(b)),
+    ),
     labeledRelevantPairCount: labeledPairs,
     answerableQuestionCount: answerable,
     falseNoEvidenceCount: falseNoEvidence,
