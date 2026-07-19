@@ -1,0 +1,35 @@
+---
+complexity: low
+created_at: "2026-07-19T16:30:58Z"
+depends_on: []
+estimate_hours: 1
+id: B006
+priority: low
+status: pending
+tags:
+    - b003
+    - naming
+    - integration
+title: UntrustedProse hatch is named for model exposure but is the only unwrap path, including for persistence
+updated_at: "2026-07-19T16:30:58Z"
+---
+Found while checking whether T-32-02 proposals can be mapped into T-22-03 ClaimReview records.
+
+THE SITUATION:
+- B003 gives UntrustedProse exactly one public unwrap path: deliberatelyExposeUntrustedProseToModel. The awkward name is deliberate and load-bearing — it makes model-exposure decisions greppable in one command, which is the entire audit story.
+- T-32-02 types ClaimReviewerProposal.reason as UntrustedProse.
+- T-22-03 ClaimReviewSchema requires reason to be a plain z.string() on a .strict() object.
+
+So a future orchestrator mapping a validated reviewer proposal into a ClaimReview MUST unwrap reason — and the only available call is named for exposing text to a MODEL. Persisting a justification into a review record is not model exposure. Two consequences:
+1. The call reads as though the orchestrator is doing something it is not.
+2. Anyone grepping deliberatelyExposeUntrustedProseToModel to audit model-input paths gets a FALSE HIT on a persistence call, which degrades the signal that made the awkward name worth having.
+
+WHY THIS WAS NOT FIXED IMMEDIATELY, recorded so the decision is not re-litigated blindly:
+- Adding a second hatch (deliberatelyExposeUntrustedProseForPersistence or similar) multiplies escape hatches. Two names to grep is weaker than one, and the next consumer would want a third.
+- Renaming the merged export to something general (deliberatelyUnwrapUntrustedProse) is probably the right end state, but doing it now means churning a just-merged public API to solve a problem that has no caller yet.
+
+TRIGGER: the first orchestrator that maps reviewer proposals into ClaimReview records. At that point there is a real call site to judge against.
+
+WHEN IT FIRES, prefer ONE general name over two specific ones, and keep the grep-audit property by making the call site itself state which kind of exposure it is doing. Do NOT quietly widen UntrustedProse to be assignable to string — that would undo B003 entirely.
+
+Related: T-32-02 header documents the mapping constraint so the orchestrator author meets it deliberately rather than discovering it.
