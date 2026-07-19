@@ -315,7 +315,16 @@ export function scoreRetrieval(
     }
   }
 
-  const byQuestionType: CalibrationMetrics["byQuestionType"] = {};
+  const byQuestionType: {
+    [type: string]: {
+      readonly tp: number;
+      readonly fp: number;
+      readonly fn: number;
+      readonly labeledPairs: number;
+      readonly recall: number;
+      readonly precision: number;
+    };
+  } = {};
   for (const [type, b] of [...byType.entries()].sort(([a], [c]) =>
     a.localeCompare(c),
   )) {
