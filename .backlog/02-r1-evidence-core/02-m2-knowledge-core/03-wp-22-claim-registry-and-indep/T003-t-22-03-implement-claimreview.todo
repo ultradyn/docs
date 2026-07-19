@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T13:00:24Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T13:27:47Z"
 complexity: medium
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P2.M2.E3.T002
+duration_minutes: 27.3935815994
 estimate_hours: 5
 id: P2.M2.E3.T003
 priority: critical
 started_at: "2026-07-19T13:00:24Z"
-status: in_progress
+status: done
 tags: []
 title: T-22-03 — Implement ClaimReview application
-updated_at: "2026-07-19T13:00:24Z"
+updated_at: "2026-07-19T13:27:47Z"
 ---
 Bundle provenance: WP-22 / T-22-03
 
