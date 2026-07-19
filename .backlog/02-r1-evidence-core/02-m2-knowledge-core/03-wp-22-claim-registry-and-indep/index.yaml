@@ -49,7 +49,8 @@ tasks:
       file: T004-strengthen-claim-candidate-rec.todo
       id: T004
       priority: medium
-      status: pending
+      status: in_progress
+      tags: []
       title: Strengthen claim-candidate recall corpus and metric
     - complexity: medium
       depends_on:
