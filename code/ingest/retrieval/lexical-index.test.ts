@@ -19,6 +19,8 @@ import { auditRepresentation, unitizeRepresentation } from "../source/index.js";
 
 import {
   createLexicalIndex,
+  matchesScope,
+  receiptIdFor,
   type LexicalIndex,
   type SearchResponse,
 } from "./lexical-index.js";
@@ -469,31 +471,22 @@ describe("lexical content and structural search", () => {
   });
 
   it("stable-sorts tied scores by SourceUnitId", async () => {
-    // Two paragraphs under different files sharing little distinctive text can
-    // still produce ties; when scores are equal, unit id order is the tiebreak.
     const corpus = merge(guide(), other());
     const index = await built(corpus);
     const first = await searchOk(index, { query: "body text", limit: 20 });
     const second = await searchOk(index, { query: "body text", limit: 20 });
     expect(first.selectedIds).toEqual(second.selectedIds);
-    // selectedIds must be score-desc then id-asc; for equal scores, sorted by id.
-    const selected = first.selectedIds;
-    for (let i = 1; i < selected.length; i += 1) {
-      // Non-increasing score is enforced by re-query stability + id order when
-      // the response exposes scores; at minimum, repeated calls match.
-      expect(selected[i - 1]! <= selected[i]! || true).toBe(true);
-    }
-    if (first.hits && first.hits.length >= 2) {
-      for (let i = 1; i < first.hits.length; i += 1) {
-        const prev = first.hits[i - 1]!;
-        const curr = first.hits[i]!;
-        if (prev.score === curr.score) {
-          expect(prev.unitId < curr.unitId).toBe(true);
-        } else {
-          expect(prev.score).toBeGreaterThanOrEqual(curr.score);
-        }
+    expect(first.hits.length).toBeGreaterThan(0);
+    for (let i = 1; i < first.hits.length; i += 1) {
+      const prev = first.hits[i - 1]!;
+      const curr = first.hits[i]!;
+      if (prev.score === curr.score) {
+        expect(prev.unitId < curr.unitId).toBe(true);
+      } else {
+        expect(prev.score).toBeGreaterThan(curr.score);
       }
     }
+    expect(first.hits.map((hit) => hit.unitId)).toEqual(first.selectedIds);
   });
 });
 
@@ -501,6 +494,8 @@ describe("filters apply before selection", () => {
   it("snapshot filter excludes a mismatching built snapshot", async () => {
     const corpus = guide();
     const index = await built(corpus);
+    const unfiltered = await searchOk(index, { query: "lexical", limit: 10 });
+    expect(unfiltered.selectedIds.length).toBeGreaterThan(0);
     const response = await searchOk(index, {
       query: "lexical",
       filters: {
@@ -513,14 +508,21 @@ describe("filters apply before selection", () => {
     expect(response.receipt.filters.snapshotId).toBe(`snap-${"c".repeat(64)}`);
   });
 
-  it("scope path prefix filters candidates before selection", async () => {
+  it("scope path prefix filters candidates before selection with nonempty evidence", async () => {
     const corpus = merge(guide(), other());
     const index = await built(corpus);
+    const unfiltered = await searchOk(index, { query: "body", limit: 20 });
+    expect(unfiltered.selectedIds.length).toBeGreaterThan(0);
+
     const otherOnly = await searchOk(index, {
       query: "body",
       filters: { scope: ["docs/other.md"] },
       limit: 20,
     });
+    expect(otherOnly.selectedIds.length).toBeGreaterThan(0);
+    expect(otherOnly.selectedIds.length).toBeLessThanOrEqual(
+      unfiltered.selectedIds.length,
+    );
     for (const id of otherOnly.selectedIds) {
       const unit = corpus.units.find((candidate) => candidate.id === id);
       expect(unit).toBeDefined();
@@ -528,20 +530,34 @@ describe("filters apply before selection", () => {
         (candidate) => candidate.id === unit!.sourceFileId,
       );
       expect(file?.logicalPath).toBe("docs/other.md");
+      expect(unfiltered.selectedIds).toContain(id);
     }
   });
 
-  it("status (unit kind) filter applies before selection", async () => {
+  it("scope directory boundary does not match docs-old when scope is docs", async () => {
+    expect(matchesScope("docs/guide.md", ["docs"])).toBe(true);
+    expect(matchesScope("docs", ["docs"])).toBe(true);
+    expect(matchesScope("docs-old/guide.md", ["docs"])).toBe(false);
+    expect(matchesScope("docs/guide.md", ["docs/"])).toBe(true);
+    expect(matchesScope("docs-old/guide.md", ["docs/"])).toBe(false);
+  });
+
+  it("unitKinds filter applies before selection with nonempty evidence", async () => {
     const corpus = guide();
     const index = await built(corpus);
+    const unfiltered = await searchOk(index, { query: "Details", limit: 20 });
+    expect(unfiltered.selectedIds.length).toBeGreaterThan(0);
+
     const sectionsOnly = await searchOk(index, {
       query: "Details",
-      filters: { status: ["section"] },
+      filters: { unitKinds: ["section"] },
       limit: 20,
     });
+    expect(sectionsOnly.selectedIds.length).toBeGreaterThan(0);
     for (const id of sectionsOnly.selectedIds) {
       const unit = corpus.units.find((candidate) => candidate.id === id);
       expect(unit?.kind).toBe("section");
+      expect(unfiltered.selectedIds).toContain(id);
     }
   });
 });
@@ -579,12 +595,17 @@ describe("healthy empty vs INDEX_UNAVAILABLE", () => {
 });
 
 describe("receipt corpus digest and rebuild determinism", () => {
-  it("binds receipt corpus digest to sorted unique representation ids", async () => {
+  it("binds receipt corpus digest to representation bindings not bare ids", async () => {
     const corpus = merge(guide(), other());
     const index = await built(corpus);
     const response = await searchOk(index, { query: "body", limit: 5 });
     const expected = computeIndexedRepresentationsSha256(
-      corpus.representations.map((representation) => representation.id),
+      corpus.representations.map((representation) => ({
+        id: representation.id,
+        version: representation.version,
+        sourceFileId: representation.sourceFileId,
+        normalizedTextSha256: sha256(representation.normalizedText),
+      })),
     );
     expect(response.receipt.indexedRepresentationsSha256).toBe(expected);
     expect(response.receipt.snapshotId).toBe(SNAPSHOT_ID);
@@ -606,7 +627,6 @@ describe("receipt corpus digest and rebuild determinism", () => {
       repairedText,
       2,
     );
-    // Same snapshot, different representation id (repair).
     const index2 = createLexicalIndex();
     const build2 = await index2.build(SNAPSHOT_ID, repaired);
     expect(build2.ok).toBe(true);
@@ -616,6 +636,41 @@ describe("receipt corpus digest and rebuild determinism", () => {
     expect(first.receipt.indexedRepresentationsSha256).not.toBe(
       second.receipt.indexedRepresentationsSha256,
     );
+  });
+
+  it("changes corpus digest when content changes under a reused representation id", async () => {
+    const original = guide();
+    const [rep] = original.representations;
+    const mutatedText = GUIDE_TEXT.replace(
+      "More body text about lexical retrieval.",
+      "More body text about lexical retrieval MUTATED.",
+    );
+    // Same rep id and version — only content differs; ids-only digest would not change.
+    const mutatedRep: SourceRepresentation = {
+      ...rep!,
+      normalizedText: mutatedText,
+    };
+    // Units no longer match text → TEXT_MISMATCH on build. Use empty units and
+    // both representations as unreferenced context to isolate digest binding:
+    // compare digests of two binding sets with same ids, different content hashes.
+    const sameId = rep!.id;
+    const left = computeIndexedRepresentationsSha256([
+      {
+        id: sameId,
+        version: 1,
+        sourceFileId: rep!.sourceFileId,
+        normalizedTextSha256: sha256(rep!.normalizedText),
+      },
+    ]);
+    const right = computeIndexedRepresentationsSha256([
+      {
+        id: sameId,
+        version: 1,
+        sourceFileId: rep!.sourceFileId,
+        normalizedTextSha256: sha256(mutatedRep.normalizedText),
+      },
+    ]);
+    expect(left).not.toBe(right);
   });
 
   it("rebuild after discard is byte-identical for the same input", async () => {
@@ -636,6 +691,7 @@ describe("receipt corpus digest and rebuild determinism", () => {
       second.receipt.indexedRepresentationsSha256,
     );
     expect(first.receipt.indexVersion).toBe(second.receipt.indexVersion);
+    expect(first.receipt.id).toBe(second.receipt.id);
   });
 
   it("input array order does not affect corpus digest or selection", async () => {
@@ -720,20 +776,22 @@ describe("immutability, purity, and no knowledge persistence", () => {
 });
 
 describe("bounds and limits", () => {
-  it("rejects oversized queries without throwing", async () => {
+  it("returns QUERY_TOO_LONG with valid empty receipt and no search results", async () => {
     const index = await built(guide());
     const result = await index.search({
       query: "q".repeat(10_000),
       limit: 5,
     });
-    // Either bounded empty/ok with failure note, or INVALID via ok:false —
-    // never throw. Prefer ok:true empty with receipt.failures or a typed miss.
-    expect(result).toBeDefined();
-    if (result.ok) {
-      expect(Array.isArray(result.value.selectedIds)).toBe(true);
-    } else {
-      expect(typeof result.code).toBe("string");
-    }
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.selectedIds).toEqual([]);
+    expect(result.value.receipt.failures).toContain("QUERY_TOO_LONG");
+    expect(SearchReceiptSchema.safeParse(result.value.receipt).success).toBe(
+      true,
+    );
+    expect(JSON.stringify(result.value)).not.toContain(
+      "Body mentions AUDIT_REQUIRED",
+    );
   });
 
   it("honours a small limit", async () => {
@@ -741,5 +799,162 @@ describe("bounds and limits", () => {
     const response = await searchOk(index, { query: "body", limit: 1 });
     expect(response.selectedIds.length).toBeLessThanOrEqual(1);
     expect(response.receipt.selectedIds.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("strict search ingress", () => {
+  it("does not execute hostile filter accessors and returns INVALID_REQUEST", async () => {
+    const index = await built(guide());
+    let accessed = false;
+    const hostile = {
+      query: "lexical",
+      get filters() {
+        accessed = true;
+        throw new Error("accessor should not run");
+      },
+    };
+    const result = await index.search(hostile as never);
+    expect(accessed).toBe(false);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.receipt.failures).toContain("INVALID_REQUEST");
+    expect(result.value.selectedIds).toEqual([]);
+    expect(SearchReceiptSchema.safeParse(result.value.receipt).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects unknown request keys without throwing", async () => {
+    const index = await built(guide());
+    const result = await index.search({
+      query: "lexical",
+      engine: "minisearch",
+    } as never);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.receipt.failures).toContain("INVALID_REQUEST");
+    expect(result.value.selectedIds).toEqual([]);
+  });
+
+  it("rejects unknown filter keys including legacy status", async () => {
+    const index = await built(guide());
+    const result = await index.search({
+      query: "Details",
+      filters: { status: ["section"] } as never,
+      limit: 10,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.receipt.failures).toContain("INVALID_REQUEST");
+    expect(result.value.selectedIds).toEqual([]);
+  });
+
+  it("rejects non-plain request prototypes without throwing", async () => {
+    const index = await built(guide());
+    const result = await index.search(Object.create(null) as never);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.receipt.failures).toContain("INVALID_REQUEST");
+  });
+
+  it("rejects oversized filter arrays without throwing", async () => {
+    const index = await built(guide());
+    const result = await index.search({
+      query: "body",
+      filters: { scope: Array.from({ length: 100 }, (_, i) => `p${i}`) },
+      limit: 5,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.receipt.failures).toContain("INVALID_REQUEST");
+  });
+});
+
+describe("build snapshot binding", () => {
+  it("rejects a malformed snapshot id", async () => {
+    const index = createLexicalIndex();
+    const result = await index.build("snap-not-hex" as SnapshotId, guide());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_INPUT");
+  });
+
+  it("rejects units whose snapshotId does not match the build snapshot", async () => {
+    const corpus = guide();
+    const index = createLexicalIndex();
+    const otherSnap = `snap-${"c".repeat(64)}` as SnapshotId;
+    const result = await index.build(otherSnap, corpus);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("INVALID_INPUT");
+  });
+});
+
+describe("receipt id binding", () => {
+  it("is stable under equivalent filter order", async () => {
+    const index = await built(guide());
+    const a = await searchOk(index, {
+      query: "Details",
+      filters: {
+        unitKinds: ["section", "paragraph"],
+        scope: ["docs/guide.md"],
+      },
+      limit: 10,
+    });
+    const b = await searchOk(index, {
+      query: "Details",
+      filters: {
+        unitKinds: ["paragraph", "section"],
+        scope: ["docs/guide.md"],
+      },
+      limit: 10,
+    });
+    expect(a.receipt.id).toBe(b.receipt.id);
+  });
+
+  it("differs when limit differs for the same query", async () => {
+    const index = await built(merge(guide(), other()));
+    const wide = await searchOk(index, { query: "body", limit: 20 });
+    const narrow = await searchOk(index, { query: "body", limit: 1 });
+    if (wide.selectedIds.length > 1) {
+      expect(wide.receipt.id).not.toBe(narrow.receipt.id);
+    }
+    expect(wide.receipt.selectedIds.length).toBeGreaterThanOrEqual(
+      narrow.receipt.selectedIds.length,
+    );
+  });
+
+  it("receiptIdFor includes corpus digest and result sets", () => {
+    const base = {
+      snapshotId: SNAPSHOT_ID,
+      indexVersion: "lexical-v1",
+      corpusDigest: "a".repeat(64),
+      query: "q",
+      filters: {},
+      limit: 5,
+      failures: [] as string[],
+      candidateIds: [] as never[],
+      selectedIds: [] as never[],
+    };
+    const left = receiptIdFor(base);
+    const right = receiptIdFor({
+      ...base,
+      corpusDigest: "b".repeat(64),
+    });
+    expect(left).not.toBe(right);
+    expect(left).toMatch(/^rcpt-[0-9A-HJKMNP-TV-Z]{26}$/);
+  });
+});
+
+describe("bounded corpus search", () => {
+  it("searches a multi-file corpus without throwing and stays deterministic", async () => {
+    const parts = [guide(), other()];
+    const corpus = merge(...parts);
+    const index = await built(corpus);
+    const first = await searchOk(index, { query: "body", limit: 50 });
+    const second = await searchOk(index, { query: "body", limit: 50 });
+    expect(first.selectedIds).toEqual(second.selectedIds);
+    expect(first.receipt.id).toBe(second.receipt.id);
+    expect(first.hits.length).toBeLessThanOrEqual(50);
   });
 });

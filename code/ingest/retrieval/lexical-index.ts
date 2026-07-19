@@ -10,8 +10,12 @@ import type {
   SourceUnit,
   SourceUnitId,
 } from "../../domain/ingest/index.js";
+import { SnapshotIdSchema } from "../../domain/ingest/index.js";
 import {
+  SEARCH_FILTER_LIMITS,
+  canonicalizeSearchFilters,
   computeIndexedRepresentationsSha256,
+  type IndexedRepresentationBinding,
   type SearchFilters,
   type SearchReceipt,
   type SearchReceiptId,
@@ -127,18 +131,11 @@ function freezeDeep<T>(value: T): T {
   return Object.freeze(value);
 }
 
-function receiptIdFor(
-  snapshotId: SnapshotId,
-  query: string,
-  filters: SearchFilters,
-): SearchReceiptId {
-  const material = JSON.stringify({
-    snapshotId,
-    query,
-    filters,
-  });
-  const hex = createHash("sha256").update(material).digest("hex").toUpperCase();
-  // Crockford base32 alphabet is uppercase; ULID body is 26 chars from a hash.
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function crockfordFromHex(hex: string): SearchReceiptId {
   const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   let body = "";
   for (let index = 0; index < 26; index += 1) {
@@ -148,20 +145,296 @@ function receiptIdFor(
   return `rcpt-${body}` as SearchReceiptId;
 }
 
-function matchesScope(
+/**
+ * Receipt id binds every result-defining field. Canonical filters so order of
+ * scope/unitKinds does not change the id; different limits/result sets do.
+ */
+export function receiptIdFor(parts: {
+  readonly snapshotId: SnapshotId;
+  readonly indexVersion: string;
+  readonly corpusDigest: string;
+  readonly query: string;
+  readonly filters: SearchFilters;
+  readonly limit: number;
+  readonly failures: readonly string[];
+  readonly candidateIds: readonly SourceUnitId[];
+  readonly selectedIds: readonly SourceUnitId[];
+}): SearchReceiptId {
+  const material = JSON.stringify({
+    snapshotId: parts.snapshotId,
+    indexVersion: parts.indexVersion,
+    corpusDigest: parts.corpusDigest,
+    query: parts.query,
+    filters: canonicalizeSearchFilters(parts.filters),
+    limit: parts.limit,
+    failures: [...parts.failures],
+    candidateIds: [...parts.candidateIds],
+    selectedIds: [...parts.selectedIds],
+  });
+  return crockfordFromHex(
+    createHash("sha256").update(material).digest("hex").toUpperCase(),
+  );
+}
+
+/**
+ * Directory-boundary scope: `docs` matches `docs/x` and `docs`, not `docs-old/x`.
+ * Trailing-slash prefixes match as literal path prefixes.
+ */
+export function matchesScope(
   path: string,
   scope: readonly string[] | undefined,
 ): boolean {
   if (!scope || scope.length === 0) return true;
-  return scope.some((prefix) => path === prefix || path.startsWith(prefix));
+  return scope.some((prefix) => {
+    if (path === prefix) return true;
+    if (prefix.endsWith("/")) return path.startsWith(prefix);
+    return path.startsWith(`${prefix}/`);
+  });
 }
 
-function matchesStatus(
+export function matchesUnitKinds(
   kind: string,
-  status: readonly string[] | undefined,
+  unitKinds: readonly string[] | undefined,
 ): boolean {
-  if (!status || status.length === 0) return true;
-  return status.includes(kind);
+  if (!unitKinds || unitKinds.length === 0) return true;
+  return unitKinds.includes(kind);
+}
+
+/**
+ * Read a property by descriptor only — never triggers getters/proxies.
+ * Missing key → { present:false }. Accessor/non-enumerable/data-less → invalid.
+ */
+function ownDataProp(
+  object: object,
+  key: string,
+):
+  | { readonly ok: true; readonly present: false }
+  | { readonly ok: true; readonly present: true; readonly value: unknown }
+  | { readonly ok: false } {
+  if (!Reflect.ownKeys(object).includes(key)) {
+    return { ok: true, present: false };
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(object, key);
+  if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
+    return { ok: false };
+  }
+  return { ok: true, present: true, value: descriptor.value };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function isPlainArray(value: unknown): value is readonly unknown[] {
+  return (
+    Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype
+  );
+}
+
+interface ParsedSearchRequest {
+  readonly query: string;
+  readonly filters: SearchFilters;
+  readonly limit: number;
+  readonly failures: readonly string[];
+  readonly skipSearch: boolean;
+}
+
+/**
+ * Strict search ingress: descriptor-only reads, bounds before work, no throw.
+ * Malformed requests produce a schema-valid healthy empty receipt with failures.
+ */
+function parseSearchRequest(request: unknown): ParsedSearchRequest {
+  const failures: string[] = [];
+  let query = "";
+  let filters: SearchFilters = {};
+  let limit: number = LEXICAL_LIMITS.defaultLimit;
+  let skipSearch = false;
+
+  if (request === null || request === undefined) {
+    return {
+      query: "",
+      filters: {},
+      limit,
+      failures: ["INVALID_REQUEST"],
+      skipSearch: true,
+    };
+  }
+  if (!isPlainObject(request)) {
+    return {
+      query: "",
+      filters: {},
+      limit,
+      failures: ["INVALID_REQUEST"],
+      skipSearch: true,
+    };
+  }
+
+  const keys = Reflect.ownKeys(request);
+  for (const key of keys) {
+    if (typeof key === "symbol") {
+      failures.push("INVALID_REQUEST");
+      skipSearch = true;
+      break;
+    }
+    if (key !== "query" && key !== "filters" && key !== "limit") {
+      failures.push("INVALID_REQUEST");
+      skipSearch = true;
+      break;
+    }
+  }
+
+  const queryProp = ownDataProp(request, "query");
+  if (!queryProp.ok || !queryProp.present) {
+    failures.push("INVALID_REQUEST");
+    skipSearch = true;
+  } else if (typeof queryProp.value !== "string") {
+    failures.push("INVALID_REQUEST");
+    skipSearch = true;
+  } else {
+    query = queryProp.value;
+    if (query.length > LEXICAL_LIMITS.maxQueryChars) {
+      failures.push("QUERY_TOO_LONG");
+      skipSearch = true;
+    }
+  }
+
+  const limitProp = ownDataProp(request, "limit");
+  if (!limitProp.ok) {
+    failures.push("INVALID_REQUEST");
+    skipSearch = true;
+  } else if (limitProp.present) {
+    const rawLimit = limitProp.value;
+    if (
+      typeof rawLimit !== "number" ||
+      !Number.isFinite(rawLimit) ||
+      !Number.isInteger(rawLimit) ||
+      rawLimit < 0
+    ) {
+      failures.push("INVALID_REQUEST");
+      skipSearch = true;
+    } else {
+      limit = Math.min(rawLimit, LEXICAL_LIMITS.maxLimit);
+    }
+  }
+
+  const filtersProp = ownDataProp(request, "filters");
+  if (!filtersProp.ok) {
+    failures.push("INVALID_REQUEST");
+    skipSearch = true;
+  } else if (filtersProp.present) {
+    const parsed = parseFiltersStrict(filtersProp.value);
+    if (!parsed.ok) {
+      failures.push("INVALID_REQUEST");
+      skipSearch = true;
+    } else {
+      filters = canonicalizeSearchFilters(parsed.filters);
+    }
+  }
+
+  return {
+    query,
+    filters,
+    limit,
+    failures: [...new Set(failures)],
+    skipSearch,
+  };
+}
+
+function parseFiltersStrict(
+  value: unknown,
+): { ok: true; filters: SearchFilters } | { ok: false } {
+  if (!isPlainObject(value)) return { ok: false };
+  const allowed = new Set(["snapshotId", "scope", "unitKinds"]);
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key === "symbol" || !allowed.has(key)) return { ok: false };
+  }
+
+  let snapshotId: SnapshotId | undefined;
+  let scope: string[] | undefined;
+  let unitKinds:
+    | ReadonlyArray<
+        "document" | "section" | "paragraph" | "list" | "table" | "code"
+      >
+    | undefined;
+
+  const snapshotProp = ownDataProp(value, "snapshotId");
+  if (!snapshotProp.ok) return { ok: false };
+  if (snapshotProp.present) {
+    const parsed = SnapshotIdSchema.safeParse(snapshotProp.value);
+    if (!parsed.success) return { ok: false };
+    snapshotId = parsed.data;
+  }
+
+  const scopeProp = ownDataProp(value, "scope");
+  if (!scopeProp.ok) return { ok: false };
+  if (scopeProp.present) {
+    const scopeRaw = scopeProp.value;
+    if (!isPlainArray(scopeRaw)) return { ok: false };
+    if (scopeRaw.length > SEARCH_FILTER_LIMITS.maxArrayItems)
+      return { ok: false };
+    const parsedScope: string[] = [];
+    for (let index = 0; index < scopeRaw.length; index += 1) {
+      const itemProp = ownDataProp(scopeRaw as object, String(index));
+      if (!itemProp.ok || !itemProp.present) return { ok: false };
+      const item = itemProp.value;
+      if (
+        typeof item !== "string" ||
+        item.length === 0 ||
+        item.length > SEARCH_FILTER_LIMITS.maxStringChars
+      ) {
+        return { ok: false };
+      }
+      parsedScope.push(item);
+    }
+    scope = parsedScope;
+  }
+
+  const kindsProp = ownDataProp(value, "unitKinds");
+  if (!kindsProp.ok) return { ok: false };
+  if (kindsProp.present) {
+    const kindsRaw = kindsProp.value;
+    if (!isPlainArray(kindsRaw)) return { ok: false };
+    if (kindsRaw.length > SEARCH_FILTER_LIMITS.maxArrayItems)
+      return { ok: false };
+    const kinds: Array<
+      "document" | "section" | "paragraph" | "list" | "table" | "code"
+    > = [];
+    const allowedKinds = new Set([
+      "document",
+      "section",
+      "paragraph",
+      "list",
+      "table",
+      "code",
+    ] as const);
+    for (let index = 0; index < kindsRaw.length; index += 1) {
+      const itemProp = ownDataProp(kindsRaw as object, String(index));
+      if (!itemProp.ok || !itemProp.present) return { ok: false };
+      const item = itemProp.value;
+      if (
+        typeof item !== "string" ||
+        !allowedKinds.has(item as (typeof kinds)[number])
+      ) {
+        return { ok: false };
+      }
+      kinds.push(item as (typeof kinds)[number]);
+    }
+    unitKinds = kinds;
+  }
+
+  return {
+    ok: true,
+    filters: {
+      ...(snapshotId !== undefined ? { snapshotId } : {}),
+      ...(scope !== undefined ? { scope } : {}),
+      ...(unitKinds !== undefined ? { unitKinds } : {}),
+    },
+  };
 }
 
 function buildState(
@@ -169,20 +442,40 @@ function buildState(
   input: LexicalBuildInput,
 ): IngestResult<BuiltState, LexicalBuildFailure> {
   try {
+    const snapshotParsed = SnapshotIdSchema.safeParse(snapshotId);
+    if (!snapshotParsed.success) {
+      return failure("INVALID_INPUT", "A strict SnapshotId is required.");
+    }
+    const boundSnapshot = snapshotParsed.data;
+
     // Reuse T-12-02 qualification for duplicates, rebinding, locator, text hash.
-    // Run before the one-rep-per-file rule so cross-bound / unresolved cases
-    // keep their more specific failure codes.
     const mapResult = buildExactMap(input);
     if (!mapResult.ok) return mapResult;
 
-    // Copy arrays so later caller mutation cannot affect the index.
     const units = input.units.map((unit) => structuredClone(unit));
     const files = input.files.map((file) => structuredClone(file));
     const representations = input.representations.map((representation) =>
       structuredClone(representation),
     );
 
-    // At most one representation version per source file (after exact-map ok).
+    // Bind build snapshotId to corpus records that carry snapshotId.
+    for (const unit of units) {
+      if (unit.snapshotId !== boundSnapshot) {
+        return failure(
+          "INVALID_INPUT",
+          "Source unit snapshotId must match the build snapshotId.",
+        );
+      }
+    }
+    for (const file of files) {
+      if (file.snapshotId !== boundSnapshot) {
+        return failure(
+          "INVALID_INPUT",
+          "Source file snapshotId must match the build snapshotId.",
+        );
+      }
+    }
+
     const representationByFile = new Map<string, string>();
     for (const representation of representations) {
       const prior = representationByFile.get(representation.sourceFileId);
@@ -205,6 +498,16 @@ function buildState(
     }
 
     const documents: IndexedUnit[] = [];
+    const bindings: IndexedRepresentationBinding[] = [];
+    for (const representation of representations) {
+      bindings.push({
+        id: representation.id,
+        version: representation.version,
+        sourceFileId: representation.sourceFileId,
+        normalizedTextSha256: sha256Hex(representation.normalizedText),
+      });
+    }
+
     for (const unit of units) {
       const file = filesById.get(unit.sourceFileId);
       const representation = representationsById.get(unit.representationId);
@@ -233,7 +536,6 @@ function buildState(
       });
     }
 
-    // Stable document order by unit id so MiniSearch rebuilds deterministically.
     documents.sort((left, right) =>
       left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
     );
@@ -256,15 +558,15 @@ function buildState(
     });
     mini.addAll(documents);
 
+    const corpusDigest = computeIndexedRepresentationsSha256(bindings);
     const representationIds = representations.map(
       (representation) => representation.id,
     );
-    const corpusDigest = computeIndexedRepresentationsSha256(representationIds);
 
     return {
       ok: true,
       value: {
-        snapshotId,
+        snapshotId: boundSnapshot,
         unitsById,
         filesById,
         representationIds: Object.freeze([...representationIds].sort()),
@@ -282,14 +584,45 @@ function buildState(
   }
 }
 
+function makeReceipt(parts: {
+  readonly snapshotId: SnapshotId;
+  readonly corpusDigest: ReturnType<typeof computeIndexedRepresentationsSha256>;
+  readonly query: string;
+  readonly filters: SearchFilters;
+  readonly limit: number;
+  readonly failures: readonly string[];
+  readonly candidateIds: readonly SourceUnitId[];
+  readonly selectedIds: readonly SourceUnitId[];
+}): SearchReceipt {
+  return {
+    schemaVersion: 1,
+    id: receiptIdFor({
+      snapshotId: parts.snapshotId,
+      indexVersion: LEXICAL_INDEX_VERSION,
+      corpusDigest: parts.corpusDigest,
+      query: parts.query,
+      filters: parts.filters,
+      limit: parts.limit,
+      failures: parts.failures,
+      candidateIds: parts.candidateIds,
+      selectedIds: parts.selectedIds,
+    }),
+    snapshotId: parts.snapshotId,
+    indexVersion: LEXICAL_INDEX_VERSION,
+    indexedRepresentationsSha256: parts.corpusDigest,
+    query: parts.query,
+    filters: canonicalizeSearchFilters(parts.filters),
+    candidateIds: parts.candidateIds,
+    selectedIds: parts.selectedIds,
+    failures: [...parts.failures],
+  };
+}
+
 export function createLexicalIndex(): LexicalIndex {
   let state: BuiltState | undefined;
 
   return {
     async build(snapshotId, input) {
-      if (typeof snapshotId !== "string" || snapshotId.length === 0) {
-        return failure("INVALID_INPUT", "A snapshot id is required.");
-      }
       const built = buildState(snapshotId, input);
       if (!built.ok) return built;
       state = built.value;
@@ -305,64 +638,50 @@ export function createLexicalIndex(): LexicalIndex {
         };
       }
       const current = state;
-      const query = typeof request?.query === "string" ? request.query : "";
-      const filters: SearchFilters =
-        request?.filters && typeof request.filters === "object"
-          ? {
-              ...(request.filters.snapshotId !== undefined
-                ? { snapshotId: request.filters.snapshotId }
-                : {}),
-              ...(request.filters.scope !== undefined
-                ? { scope: [...request.filters.scope] }
-                : {}),
-              ...(request.filters.status !== undefined
-                ? { status: [...request.filters.status] }
-                : {}),
-            }
-          : {};
-      const rawLimit =
-        typeof request?.limit === "number" && Number.isFinite(request.limit)
-          ? Math.trunc(request.limit)
-          : LEXICAL_LIMITS.defaultLimit;
-      const limit = Math.min(Math.max(rawLimit, 0), LEXICAL_LIMITS.maxLimit);
+      const parsed = parseSearchRequest(request);
 
-      const failures: string[] = [];
-      if (query.length > LEXICAL_LIMITS.maxQueryChars) {
-        failures.push("QUERY_TOO_LONG");
-      }
-
-      // Snapshot filter before any selection: mismatch => healthy empty.
+      // Snapshot filter mismatch or invalid/skip => healthy empty + failures.
       if (
-        filters.snapshotId !== undefined &&
-        filters.snapshotId !== current.snapshotId
+        parsed.skipSearch ||
+        (parsed.filters.snapshotId !== undefined &&
+          parsed.filters.snapshotId !== current.snapshotId)
       ) {
+        const receipt = makeReceipt({
+          snapshotId: current.snapshotId,
+          corpusDigest: current.corpusDigest,
+          query: parsed.query,
+          filters: parsed.filters,
+          limit: parsed.limit,
+          failures: parsed.failures,
+          candidateIds: [],
+          selectedIds: [],
+        });
         return {
           ok: true,
-          value: freezeDeep(emptyResponse(current, query, filters, failures)),
+          value: freezeDeep({
+            selectedIds: [],
+            candidateIds: [],
+            hits: [],
+            receipt,
+          }),
         };
       }
 
       const eligible = new Set<string>();
       for (const document of current.documents) {
-        if (!matchesScope(document.path, filters.scope)) continue;
-        if (!matchesStatus(document.kind, filters.status)) continue;
+        if (!matchesScope(document.path, parsed.filters.scope)) continue;
+        if (!matchesUnitKinds(document.kind, parsed.filters.unitKinds))
+          continue;
         eligible.add(document.id);
       }
 
       const scored = new Map<string, number>();
-
-      if (
-        query.length > 0 &&
-        query.length <= LEXICAL_LIMITS.maxQueryChars &&
-        eligible.size > 0
-      ) {
-        for (const hit of current.mini.search(query)) {
+      if (parsed.query.length > 0 && eligible.size > 0) {
+        for (const hit of current.mini.search(parsed.query)) {
           if (!eligible.has(String(hit.id))) continue;
           scored.set(String(hit.id), hit.score);
         }
-
-        // Exact-map alias integration: unique alias resolves into candidates.
-        const aliasHit = current.exactMap.lookup(query);
+        const aliasHit = current.exactMap.lookup(parsed.query);
         if (aliasHit.kind === "unique" && eligible.has(aliasHit.unit)) {
           const prior = scored.get(aliasHit.unit) ?? 0;
           scored.set(aliasHit.unit, Math.max(prior, 1_000));
@@ -383,62 +702,35 @@ export function createLexicalIndex(): LexicalIndex {
               : 0;
         });
 
-      const limited = ranked.slice(0, limit);
+      const limited = ranked.slice(0, parsed.limit);
       const selectedIds = limited.map((hit) => hit.unitId);
-      // Candidates: all scored matches (pre-limit), sorted for the portable receipt.
       const candidateIds = sortIds(ranked.map((hit) => hit.unitId));
       const receiptSelected = sortIds(selectedIds);
 
-      const receipt: SearchReceipt = {
-        schemaVersion: 1,
-        id: receiptIdFor(current.snapshotId, query, filters),
+      const receipt = makeReceipt({
         snapshotId: current.snapshotId,
-        indexVersion: LEXICAL_INDEX_VERSION,
-        indexedRepresentationsSha256: current.corpusDigest,
-        query,
-        filters,
+        corpusDigest: current.corpusDigest,
+        query: parsed.query,
+        filters: parsed.filters,
+        limit: parsed.limit,
+        failures: parsed.failures,
         candidateIds,
         selectedIds: receiptSelected,
-        failures,
-      };
+      });
 
-      const response: SearchResponse = {
-        selectedIds,
-        candidateIds,
-        hits: limited,
-        receipt,
+      return {
+        ok: true,
+        value: freezeDeep({
+          selectedIds,
+          candidateIds,
+          hits: limited,
+          receipt,
+        }),
       };
-      return { ok: true, value: freezeDeep(response) };
     },
 
     discard() {
       state = undefined;
     },
-  };
-}
-
-function emptyResponse(
-  current: BuiltState,
-  query: string,
-  filters: SearchFilters,
-  failures: readonly string[],
-): SearchResponse {
-  const receipt: SearchReceipt = {
-    schemaVersion: 1,
-    id: receiptIdFor(current.snapshotId, query, filters),
-    snapshotId: current.snapshotId,
-    indexVersion: LEXICAL_INDEX_VERSION,
-    indexedRepresentationsSha256: current.corpusDigest,
-    query,
-    filters,
-    candidateIds: [],
-    selectedIds: [],
-    failures: [...failures],
-  };
-  return {
-    selectedIds: [],
-    candidateIds: [],
-    hits: [],
-    receipt,
   };
 }

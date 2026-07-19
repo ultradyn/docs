@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import type { Sha256, SnapshotId, SourceUnitId } from "./types.js";
 import {
   SearchReceiptSchema,
+  canonicalizeSearchFilters,
   computeIndexedRepresentationsSha256,
+  type IndexedRepresentationBinding,
   type SearchReceipt,
 } from "./search-receipt.js";
 
@@ -15,9 +17,26 @@ const UNIT_A = "unit-01ARZ3NDEKTSV4RRFFQ69G5FAV" as SourceUnitId;
 const UNIT_B = "unit-01ARZ3NDEKTSV4RRFFQ69G5FBW" as SourceUnitId;
 const RECEIPT_ID = "rcpt-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
-function digestOfSortedIds(ids: readonly string[]): Sha256 {
-  const sorted = [...ids].sort((left, right) =>
-    left < right ? -1 : left > right ? 1 : 0,
+function binding(
+  id: string,
+  version = 1,
+  sourceFileId = `file-${"a".repeat(64)}`,
+  text = "body",
+): IndexedRepresentationBinding {
+  return {
+    id,
+    version,
+    sourceFileId,
+    normalizedTextSha256: createHash("sha256").update(text).digest("hex"),
+  };
+}
+
+function digestOfBindings(
+  records: readonly IndexedRepresentationBinding[],
+): Sha256 {
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const sorted = [...byId.values()].sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
   );
   return createHash("sha256")
     .update(JSON.stringify(sorted))
@@ -29,15 +48,13 @@ function validReceipt(
 ): Record<string, unknown> {
   const candidateIds = overrides.candidateIds ?? [UNIT_A, UNIT_B];
   const selectedIds = overrides.selectedIds ?? [UNIT_A];
-  const representationIds = ["repr-01ARZ3NDEKTSV4RRFFQ69G5FAV"];
+  const bindings = [binding("repr-01ARZ3NDEKTSV4RRFFQ69G5FAV")];
   return {
     schemaVersion: 1,
     id: RECEIPT_ID,
     snapshotId: SNAPSHOT,
     indexVersion: "lexical-v1",
-    indexedRepresentationsSha256: computeIndexedRepresentationsSha256
-      ? computeIndexedRepresentationsSha256(representationIds)
-      : digestOfSortedIds(representationIds),
+    indexedRepresentationsSha256: computeIndexedRepresentationsSha256(bindings),
     query: "deterministic source",
     filters: { snapshotId: SNAPSHOT },
     candidateIds,
@@ -64,19 +81,21 @@ describe("SearchReceiptSchema", () => {
   });
 
   it("rejects the legacy placeholder shape {schemaVersion,id} alone", () => {
-    const parsed = SearchReceiptSchema.safeParse({
-      schemaVersion: 1,
-      id: RECEIPT_ID,
-    });
-    expect(parsed.success).toBe(false);
+    expect(
+      SearchReceiptSchema.safeParse({
+        schemaVersion: 1,
+        id: RECEIPT_ID,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects unknown keys (strict)", () => {
-    const parsed = SearchReceiptSchema.safeParse({
-      ...validReceipt(),
-      engineScore: 0.9,
-    });
-    expect(parsed.success).toBe(false);
+    expect(
+      SearchReceiptSchema.safeParse({
+        ...validReceipt(),
+        engineScore: 0.9,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects empty indexVersion", () => {
@@ -104,33 +123,36 @@ describe("SearchReceiptSchema", () => {
   });
 
   it("rejects selectedIds that are not a subset of candidateIds", () => {
-    const parsed = SearchReceiptSchema.safeParse(
-      validReceipt({
-        candidateIds: [UNIT_A],
-        selectedIds: [UNIT_B],
-      }),
-    );
-    expect(parsed.success).toBe(false);
+    expect(
+      SearchReceiptSchema.safeParse(
+        validReceipt({
+          candidateIds: [UNIT_A],
+          selectedIds: [UNIT_B],
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it("rejects unsorted candidateIds", () => {
-    const parsed = SearchReceiptSchema.safeParse(
-      validReceipt({
-        candidateIds: [UNIT_B, UNIT_A],
-        selectedIds: [UNIT_A],
-      }),
-    );
-    expect(parsed.success).toBe(false);
+    expect(
+      SearchReceiptSchema.safeParse(
+        validReceipt({
+          candidateIds: [UNIT_B, UNIT_A],
+          selectedIds: [UNIT_A],
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it("rejects unsorted selectedIds", () => {
-    const parsed = SearchReceiptSchema.safeParse(
-      validReceipt({
-        candidateIds: [UNIT_A, UNIT_B],
-        selectedIds: [UNIT_B, UNIT_A],
-      }),
-    );
-    expect(parsed.success).toBe(false);
+    expect(
+      SearchReceiptSchema.safeParse(
+        validReceipt({
+          candidateIds: [UNIT_A, UNIT_B],
+          selectedIds: [UNIT_B, UNIT_A],
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it("rejects malformed unit ids in candidate/selected arrays", () => {
@@ -161,41 +183,68 @@ describe("SearchReceiptSchema", () => {
   });
 
   it("rejects extra filter keys (strict filters)", () => {
-    const parsed = SearchReceiptSchema.safeParse(
-      validReceipt({
-        filters: {
-          snapshotId: SNAPSHOT,
-          hostile: true,
-        } as SearchReceipt["filters"],
-      }),
-    );
-    expect(parsed.success).toBe(false);
+    expect(
+      SearchReceiptSchema.safeParse(
+        validReceipt({
+          filters: {
+            snapshotId: SNAPSHOT,
+            hostile: true,
+          } as SearchReceipt["filters"],
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("rejects legacy status filter key", () => {
+    expect(
+      SearchReceiptSchema.safeParse(
+        validReceipt({
+          filters: {
+            status: ["section"],
+          } as SearchReceipt["filters"],
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it("accepts empty healthy filters and empty result arrays", () => {
-    const parsed = SearchReceiptSchema.safeParse(
-      validReceipt({
-        query: "no-match-query-zzzz",
-        filters: {},
-        candidateIds: [],
-        selectedIds: [],
-        failures: [],
-      }),
-    );
-    expect(parsed.success).toBe(true);
+    expect(
+      SearchReceiptSchema.safeParse(
+        validReceipt({
+          query: "no-match-query-zzzz",
+          filters: {},
+          candidateIds: [],
+          selectedIds: [],
+          failures: [],
+        }),
+      ).success,
+    ).toBe(true);
   });
 
-  it("accepts optional scope and status filters", () => {
-    const parsed = SearchReceiptSchema.safeParse(
-      validReceipt({
-        filters: {
-          snapshotId: SNAPSHOT,
-          scope: ["docs/"],
-          status: ["section", "paragraph"],
-        },
-      }),
-    );
-    expect(parsed.success).toBe(true);
+  it("accepts optional scope and unitKinds filters", () => {
+    expect(
+      SearchReceiptSchema.safeParse(
+        validReceipt({
+          filters: {
+            snapshotId: SNAPSHOT,
+            scope: ["docs/"],
+            unitKinds: ["section", "paragraph"],
+          },
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("rejects invalid unitKinds values", () => {
+    expect(
+      SearchReceiptSchema.safeParse(
+        validReceipt({
+          filters: {
+            unitKinds: ["chapter" as "section"],
+          },
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it("contains no source text fields", () => {
@@ -210,29 +259,65 @@ describe("SearchReceiptSchema", () => {
 });
 
 describe("computeIndexedRepresentationsSha256", () => {
-  it("hashes the canonical JSON of sorted unique representation ids", () => {
-    const a = "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV";
-    const b = "repr-01ARZ3NDEKTSV4RRFFQ69G5FBW";
+  it("hashes sorted unique representation bindings, not bare ids", () => {
+    const a = binding("repr-01ARZ3NDEKTSV4RRFFQ69G5FAV", 1, "file-a", "one");
+    const b = binding("repr-01ARZ3NDEKTSV4RRFFQ69G5FBW", 1, "file-b", "two");
     const forward = computeIndexedRepresentationsSha256([b, a, a]);
     const reverse = computeIndexedRepresentationsSha256([a, b]);
-    expect(forward).toBe(digestOfSortedIds([a, b]));
+    expect(forward).toBe(digestOfBindings([a, b]));
     expect(forward).toBe(reverse);
     expect(forward).toMatch(/^[a-f0-9]{64}$/u);
   });
 
-  it("changes when the representation set changes (repair / version bump)", () => {
+  it("changes when representation set membership changes", () => {
     const base = computeIndexedRepresentationsSha256([
-      "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      binding("repr-01ARZ3NDEKTSV4RRFFQ69G5FAV"),
     ]);
     const repaired = computeIndexedRepresentationsSha256([
-      "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      "repr-01ARZ3NDEKTSV4RRFFQ69G5FCX",
+      binding("repr-01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+      binding("repr-01ARZ3NDEKTSV4RRFFQ69G5FCX"),
     ]);
     expect(base).not.toBe(repaired);
   });
 
+  it("changes when the same id has different content digest", () => {
+    const id = "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const before = computeIndexedRepresentationsSha256([
+      binding(id, 1, "file-a", "original body"),
+    ]);
+    const after = computeIndexedRepresentationsSha256([
+      binding(id, 1, "file-a", "repaired body"),
+    ]);
+    expect(before).not.toBe(after);
+  });
+
+  it("changes when version changes with same id and text", () => {
+    const id = "repr-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const v1 = computeIndexedRepresentationsSha256([
+      binding(id, 1, "file-a", "same"),
+    ]);
+    const v2 = computeIndexedRepresentationsSha256([
+      binding(id, 2, "file-a", "same"),
+    ]);
+    expect(v1).not.toBe(v2);
+  });
+
   it("is stable for the empty set", () => {
-    expect(computeIndexedRepresentationsSha256([])).toBe(digestOfSortedIds([]));
+    expect(computeIndexedRepresentationsSha256([])).toBe(digestOfBindings([]));
+  });
+});
+
+describe("canonicalizeSearchFilters", () => {
+  it("sorts and dedupes scope and unitKinds so order does not matter", () => {
+    expect(
+      canonicalizeSearchFilters({
+        scope: ["docs/b", "docs/a", "docs/a"],
+        unitKinds: ["paragraph", "section", "paragraph"],
+      }),
+    ).toEqual({
+      scope: ["docs/a", "docs/b"],
+      unitKinds: ["paragraph", "section"],
+    });
   });
 });
 
@@ -240,8 +325,6 @@ describe("SearchReceipt deep equality discipline", () => {
   it("uses structural equality rather than JSON key order", () => {
     const left = SearchReceiptSchema.parse(validReceipt());
     const right = SearchReceiptSchema.parse(validReceipt());
-    // Zod may rebuild key order; isDeepStrictEqual is the canonical check.
     expect(isDeepStrictEqual(left, right)).toBe(true);
-    expect(JSON.stringify(left) === JSON.stringify(right) || true).toBe(true);
   });
 });

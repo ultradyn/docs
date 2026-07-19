@@ -7,6 +7,7 @@ import {
   SourceUnitIdSchema,
   ULID_PATTERN,
 } from "./id-schemas.js";
+import { SourceUnitKindSchema } from "./source-unit.js";
 import type { Sha256, SnapshotId, SourceUnitId } from "./types.js";
 
 export type SearchReceiptId = string & { readonly __brand: "SearchReceiptId" };
@@ -23,15 +24,34 @@ const Sha256Schema = z
 
 const INDEX_VERSION_MAX = 256;
 
+/** Bounds for filter arrays and strings (shared with search ingress). */
+export const SEARCH_FILTER_LIMITS = Object.freeze({
+  maxArrayItems: 64,
+  maxStringChars: 512,
+});
+
 export const SearchFiltersSchema = z
   .object({
     snapshotId: SnapshotIdSchema.optional(),
-    scope: z.array(z.string().min(1)).optional(),
-    status: z.array(z.string().min(1)).optional(),
+    scope: z
+      .array(z.string().min(1).max(SEARCH_FILTER_LIMITS.maxStringChars))
+      .max(SEARCH_FILTER_LIMITS.maxArrayItems)
+      .optional(),
+    // unitKinds (not lifecycle "status") — SourceUnit.kind only.
+    unitKinds: z
+      .array(SourceUnitKindSchema)
+      .max(SEARCH_FILTER_LIMITS.maxArrayItems)
+      .optional(),
   })
   .strict();
 
-export type SearchFilters = z.infer<typeof SearchFiltersSchema>;
+export type SourceUnitKindFilter = z.infer<typeof SourceUnitKindSchema>;
+
+export type SearchFilters = {
+  readonly snapshotId?: SnapshotId;
+  readonly scope?: readonly string[];
+  readonly unitKinds?: readonly SourceUnitKindFilter[];
+};
 
 export const SearchReceiptSchema = z
   .object({
@@ -97,16 +117,75 @@ export type SearchReceipt = {
 };
 
 /**
- * SHA-256 over the canonical JSON encoding of the sorted unique representation
- * ID set. Same snapshot + a repaired representation set yields a new digest.
+ * Canonical binding for one indexed representation. Corpus digest hashes these
+ * records (not bare ids) so a reused id with changed content/version differs.
+ */
+export interface IndexedRepresentationBinding {
+  readonly id: string;
+  readonly version: number;
+  readonly sourceFileId: string;
+  /** SHA-256 of normalizedText — never the text itself. */
+  readonly normalizedTextSha256: string;
+}
+
+function compareBindings(
+  left: IndexedRepresentationBinding,
+  right: IndexedRepresentationBinding,
+): number {
+  if (left.id < right.id) return -1;
+  if (left.id > right.id) return 1;
+  if (left.version !== right.version) return left.version - right.version;
+  if (left.sourceFileId < right.sourceFileId) return -1;
+  if (left.sourceFileId > right.sourceFileId) return 1;
+  if (left.normalizedTextSha256 < right.normalizedTextSha256) return -1;
+  if (left.normalizedTextSha256 > right.normalizedTextSha256) return 1;
+  return 0;
+}
+
+/**
+ * SHA-256 of the canonical JSON encoding of sorted unique representation
+ * bindings (id, version, sourceFileId, normalizedTextSha256).
  */
 export function computeIndexedRepresentationsSha256(
-  representationIds: readonly string[],
+  bindings: readonly IndexedRepresentationBinding[],
 ): Sha256 {
-  const unique = [...new Set(representationIds)].sort((left, right) =>
-    left < right ? -1 : left > right ? 1 : 0,
-  );
+  const byId = new Map<string, IndexedRepresentationBinding>();
+  for (const binding of bindings) {
+    byId.set(binding.id, {
+      id: binding.id,
+      version: binding.version,
+      sourceFileId: binding.sourceFileId,
+      normalizedTextSha256: binding.normalizedTextSha256,
+    });
+  }
+  const sorted = [...byId.values()].sort(compareBindings);
   return createHash("sha256")
-    .update(JSON.stringify(unique))
+    .update(JSON.stringify(sorted))
     .digest("hex") as Sha256;
+}
+
+/** Canonical filter form: sorted/deduped scope and unitKinds. */
+export function canonicalizeSearchFilters(
+  filters: SearchFilters,
+): SearchFilters {
+  const out: SearchFilters = {
+    ...(filters.snapshotId !== undefined
+      ? { snapshotId: filters.snapshotId }
+      : {}),
+    ...(filters.scope !== undefined
+      ? {
+          scope: [...new Set(filters.scope)].sort((a, b) =>
+            a < b ? -1 : a > b ? 1 : 0,
+          ),
+        }
+      : {}),
+    ...(filters.unitKinds !== undefined
+      ? {
+          unitKinds: [...new Set(filters.unitKinds)].sort((a, b) =>
+            a < b ? -1 : a > b ? 1 : 0,
+          ),
+        }
+      : {}),
+  };
+  return out;
 }
