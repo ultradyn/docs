@@ -427,7 +427,9 @@ export function createInMemoryCoverageObligationEventWriter(
     append: async (command) => {
       if (hooks.forceAppendVersionConflict !== undefined) {
         const v = hooks.forceAppendVersionConflict;
-        hooks = { ...hooks, forceAppendVersionConflict: undefined };
+        const { forceAppendVersionConflict: _drop, ...rest } = hooks;
+        void _drop;
+        hooks = rest;
         return { status: "version_conflict" as const, currentVersion: v };
       }
       const prior = records.get(command.obligationId);
