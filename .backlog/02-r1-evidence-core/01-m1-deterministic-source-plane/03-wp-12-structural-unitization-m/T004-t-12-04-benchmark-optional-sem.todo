@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T07:34:19Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T08:14:07Z"
 complexity: medium
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P2.M1.E3.T003
+duration_minutes: 39.8126216467
 estimate_hours: 5
 id: P2.M1.E3.T004
 priority: medium
 started_at: "2026-07-19T07:34:19Z"
-status: in_progress
+status: done
 tags: []
 title: T-12-04 — Benchmark optional semantic retrieval
-updated_at: "2026-07-19T07:34:19Z"
+updated_at: "2026-07-19T08:14:07Z"
 ---
 Bundle provenance: WP-12 / T-12-04
 

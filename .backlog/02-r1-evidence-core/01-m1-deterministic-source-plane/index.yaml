@@ -27,7 +27,7 @@ epics:
       locked: false
       name: WP-12 — Structural unitization, maps, and lexical retrieval
       path: 03-wp-12-structural-unitization-m
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-13. Propagate classification, rights, access, and processing policies through every source boundary. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-13 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
