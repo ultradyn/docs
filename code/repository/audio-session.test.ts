@@ -625,6 +625,15 @@ describe("audio session public seam", () => {
      * A test that fails for reasons unrelated to its subject teaches people to
      * re-run the suite, which is how real failures start getting ignored.
      *
+     * BE PRECISE ABOUT THE TRADE: this is not purely a redundancy removal. The
+     * old bound also asserted PROMPTNESS, and that coverage is gone — only
+     * non-blocking is still enforced. That is deliberate: promptness measured
+     * this way is a property of the machine's spare capacity, not of the code,
+     * so the assertion could not distinguish a slow refusal from a busy CI box.
+     * If a genuine latency budget for refusal is ever wanted, measure inside the
+     * child around the appendChunk call itself, where no spawn or transform cost
+     * is included — do not restore a bound around the spawn.
+     *
      * The timeout is set well above load noise but below vitest's per-test
      * timeout, so a genuine hang still fails here rather than stalling the run.
      */
