@@ -27,7 +27,7 @@ epics:
       locked: false
       name: WP-22 — Claim registry and independent review
       path: 03-wp-22-claim-registry-and-indep
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle provenance: WP-23. Provide serialized logical mutations, dependency graphs, and invalidation primitives. R0/R1 executable epic; leaf tasks are instantiated below. Exit gate: All WP-23 tasks satisfy acceptance criteria and required tests pass. Artifacts are reviewed and versioned; unresolved high/critical risks are recorded.'
