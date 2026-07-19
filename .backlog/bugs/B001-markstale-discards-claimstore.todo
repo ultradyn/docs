@@ -1,0 +1,33 @@
+---
+complexity: medium
+created_at: "2026-07-19T14:02:46Z"
+depends_on: []
+estimate_hours: 2
+id: B001
+priority: high
+status: pending
+tags:
+    - claim
+    - invalidation
+    - fail-open
+title: markStale discards ClaimStore.append verdict and reports unwritten claims as staled
+updated_at: "2026-07-19T14:02:46Z"
+---
+Found by a repo-wide sweep for discarded authority verdicts, prompted by the same defect class appearing in T-23-01.
+
+LOCATION: code/ingest/knowledge/claim-repository.ts:1419, inside markStale.
+
+    await store.append(next);
+    updated.push(next);
+
+ClaimStore.append returns 'created' | 'exists_identical' | 'exists_conflict' (declared at claim-repository.ts:76). markStale discards that verdict, then unconditionally pushes the claim into 'updated' and returns it inside success().
+
+WHY IT MATTERS: this is an INVALIDATION path. On exists_conflict — a row already present at that version with different content, reachable under concurrent writes or a competing markStale run — the stale write does NOT land, yet the caller is told the claim was successfully marked stale. The claim remains 'accepted' in the store while every downstream consumer believes it was invalidated. Fail-open on invalidation is the worst direction for this control: evidence that should have stopped being trusted keeps being trusted, silently.
+
+The call site LOOKS correct — it uses the right primitive with the right version increment. The guarantee is lost purely by ignoring what the primitive returned.
+
+FIX: bind the result and handle every arm. 'created' and 'exists_identical' are success; 'exists_conflict' must fail closed (surface a typed failure) or retry against the new latest version. Do not push into 'updated' unless the write actually landed.
+
+TEST: a store whose append returns exists_conflict for a targeted claim must cause markStale to NOT report that claim as updated. The test must fail if the verdict check is deleted.
+
+Same class as the T-23-01 findings: when a primitive exists to return a verdict, discarding it removes the guarantee while leaving the code looking right.

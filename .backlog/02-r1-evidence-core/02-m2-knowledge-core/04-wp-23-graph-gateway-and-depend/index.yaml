@@ -21,7 +21,7 @@ tasks:
       file: T001-t-23-01-implement-graph-mutati.todo
       id: T001
       priority: critical
-      status: in_progress
+      status: done
       tags: []
       title: T-23-01 — Implement graph mutation gateway
     - complexity: high

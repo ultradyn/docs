@@ -1,21 +1,22 @@
 ---
 claimed_at: "2026-07-19T13:28:54Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T14:16:41Z"
 complexity: high
 created_at: "2026-07-18T08:10:10Z"
 depends_on:
     - P2.M2.E1.T004
     - P2.M2.E2.T003
     - P2.M2.E3.T003
+duration_minutes: 47.79918451463333
 estimate_hours: 8
 id: P2.M2.E4.T001
 priority: critical
 started_at: "2026-07-19T13:28:54Z"
-status: in_progress
+status: done
 tags: []
 title: T-23-01 — Implement graph mutation gateway
-updated_at: "2026-07-19T13:28:54Z"
+updated_at: "2026-07-19T14:16:41Z"
 ---
 Bundle provenance: WP-23 / T-23-01
 
