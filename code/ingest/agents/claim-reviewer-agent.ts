@@ -14,8 +14,14 @@
  *   grant and never sufficient for durable acceptance. Only
  *   ClaimAcceptanceAuthority on apply grants acceptance.
  * - Free-text reason → UntrustedProse after validate (B003).
- * - Fresh context is STRUCTURAL: ProposeContext has no extractorMessages /
- *   chat / transcript slot.
+ * - Fresh context is STRUCTURAL for NAMED TOP-LEVEL SLOTS only:
+ *   ProposeContext has no extractorMessages / chat / transcript field, and
+ *   runClaimReviewer refuses those keys (and symbols) at the top level before
+ *   propose. packet is unknown and claims is readonly unknown[] — both are
+ *   passed to propose RAW. Nested extractor transcript inside packet or a claim
+ *   record is NOT scanned; that depends on the caller (mistake-catching class,
+ *   not adversary-proof). Do not read this as "reviewer cannot see extractor
+ *   context" in absolute terms.
  * - Whole-batch fail closed: UNEVALUATED_CLAIM / UNSUPPORTED_EVIDENCE refuse
  *   the entire proposal set (silence is never approval).
  */
