@@ -62,9 +62,9 @@ describe("retrieval — exact", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.filtered).toBeDefined();
-    expect(result.value.filtered.selectedIds).toContain(UNIT_A);
-    expect(result.value.filtered.selectedIds).not.toContain(UNIT_B);
-    expect(result.value.filtered.deniedIds?.length ?? 0).toBeGreaterThan(0);
+    expect(result.value.filtered!.selectedIds).toContain(UNIT_A);
+    expect(result.value.filtered!.selectedIds).not.toContain(UNIT_B);
+    expect(result.value.filtered!.deniedIds?.length ?? 0).toBeGreaterThan(0);
     // Never expose raw unfiltered hits
     expect(result.value).not.toHaveProperty("raw");
     expect(result.value).not.toHaveProperty("unfiltered");
@@ -83,8 +83,8 @@ describe("retrieval — lexical", () => {
     const result = await api.lexical({ query: "retries" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.filtered.selectedIds).toContain(UNIT_A);
-    expect(result.value.filtered.selectedIds).not.toContain(UNIT_B);
+    expect(result.value.filtered!.selectedIds).toContain(UNIT_A);
+    expect(result.value.filtered!.selectedIds).not.toContain(UNIT_B);
     const parsed = SearchReceiptSchema.safeParse(result.value.receipt);
     expect(parsed.success).toBe(true);
   });
@@ -99,8 +99,8 @@ describe("retrieval — open_unit", () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.preview.unitId).toBe(UNIT_A);
-    expect(result.value.preview.quote).toBeDefined();
+    expect(result.value.preview!.unitId).toBe(UNIT_A);
+    expect(result.value.preview!.quote).toBeDefined();
     const parsed = SearchReceiptSchema.safeParse(result.value.receipt);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;

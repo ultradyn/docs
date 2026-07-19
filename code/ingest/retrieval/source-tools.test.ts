@@ -19,11 +19,7 @@ import {
 const SNAPSHOT = `snap-${"a".repeat(64)}` as SnapshotId;
 const RESEARCHER_TOOLS = INGEST_ROLE_TOOL_ALLOWLIST.researcher;
 
-const WIRED = new Set([
-  "source.exact",
-  "source.lexical",
-  "source.open_unit",
-]);
+const WIRED = new Set(["source.exact", "source.lexical", "source.open_unit"]);
 const UNBACKED = new Set([
   "source.maps",
   "source.follow_links",
@@ -117,12 +113,16 @@ describe("contract — researcher allowlist surface", () => {
     for (const name of RESEARCHER_TOOLS) {
       const short = name.replace(/^source\./, "");
       // Tool methods use short names matching allowlist suffix
-      const method = (api as Record<string, unknown>)[short];
+      const method = (api as unknown as Record<string, unknown>)[short];
       expect(typeof method).toBe("function");
     }
     // Must NOT expose authority even if asked by hostile keys
-    expect((api as Record<string, unknown>).search_authority).toBeUndefined();
-    expect((api as Record<string, unknown>).authority).toBeUndefined();
+    expect(
+      (api as unknown as Record<string, unknown>).search_authority,
+    ).toBeUndefined();
+    expect(
+      (api as unknown as Record<string, unknown>).authority,
+    ).toBeUndefined();
   });
 
   it.each([...RESEARCHER_TOOLS])(
@@ -143,36 +143,36 @@ describe("contract — researcher allowlist surface", () => {
       // Wired tools may ok or fail on missing index data; unbacked return not-available
       expect(result).toBeDefined();
       expect(typeof result).toBe("object");
-      expect("receipt" in (result as object) || "ok" in (result as object)).toBe(
-        true,
-      );
+      expect(
+        "receipt" in (result as object) || "ok" in (result as object),
+      ).toBe(true);
 
       // Normalize: every tool result is IngestResult with receipt on success OR
       // error with receipt still present for audit.
       const receipt =
-        result &&
-        typeof result === "object" &&
-        "receipt" in result
+        result && typeof result === "object" && "receipt" in result
           ? (result as { receipt: unknown }).receipt
           : result &&
-              typeof result === "object" &&
-              "ok" in result &&
-              (result as { ok: boolean }).ok === true &&
-              "value" in result &&
-              (result as { value: { receipt?: unknown } }).value?.receipt;
+            typeof result === "object" &&
+            "ok" in result &&
+            (result as { ok: boolean }).ok === true &&
+            "value" in result &&
+            (result as { value: { receipt?: unknown } }).value?.receipt;
 
       expect(receipt).toBeDefined();
+      expect(Object.isFrozen(receipt)).toBe(true);
       const parsed = SearchReceiptSchema.safeParse(receipt);
       expect(parsed.success).toBe(true);
       if (!parsed.success) return;
       expect(parsed.data.snapshotId).toBe(SNAPSHOT);
       expect(typeof parsed.data.indexVersion).toBe("string");
       expect(parsed.data.indexVersion.length).toBeGreaterThan(0);
-      expect(parsed.data.indexedRepresentationsSha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(parsed.data.indexedRepresentationsSha256).toMatch(
+        /^[a-f0-9]{64}$/,
+      );
       expect(parsed.data.filters).toBeDefined();
       expect(Array.isArray(parsed.data.candidateIds)).toBe(true);
       expect(Array.isArray(parsed.data.selectedIds)).toBe(true);
-      expect(Object.isFrozen(parsed.data)).toBe(true);
     },
   );
 
@@ -180,9 +180,7 @@ describe("contract — researcher allowlist surface", () => {
     const api = tools();
     for (const name of UNBACKED) {
       const short = name.replace(/^source\./, "") as
-        | "maps"
-        | "follow_links"
-        | "vector_optional";
+        "maps" | "follow_links" | "vector_optional";
       const result = await api[short]({ query: "x" });
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -206,11 +204,7 @@ describe("contract — researcher allowlist surface", () => {
       ["source.exact", "source.lexical", "source.open_unit"].sort(),
     );
     expect([...UNBACKED].sort()).toEqual(
-      [
-        "source.follow_links",
-        "source.maps",
-        "source.vector_optional",
-      ].sort(),
+      ["source.follow_links", "source.maps", "source.vector_optional"].sort(),
     );
   });
 });

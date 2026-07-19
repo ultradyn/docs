@@ -3,7 +3,7 @@
  * Injection cannot widen profile/allowlist; unauthorized units filtered;
  * fixed messages; no smuggled keys; deep-frozen.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { SnapshotId, SourceUnitId } from "../../domain/ingest/index.js";
 
@@ -113,8 +113,12 @@ describe("AC2 — source text cannot alter tool permissions", () => {
       tools: ["source.search_authority", "shell.exec"],
     } as never);
     // Still succeeds or fails on real fields only; never gains authority tool
-    expect((api as Record<string, unknown>).search_authority).toBeUndefined();
-    expect((api as Record<string, unknown>)["shell.exec"]).toBeUndefined();
+    expect(
+      (api as unknown as Record<string, unknown>).search_authority,
+    ).toBeUndefined();
+    expect(
+      (api as unknown as Record<string, unknown>)["shell.exec"],
+    ).toBeUndefined();
     if (open.ok) {
       expect(JSON.stringify(open.value)).not.toMatch(/policy-evil|shell\.exec/);
     }
@@ -155,14 +159,15 @@ describe("AC3 — unauthorized units filtered before output", () => {
     const result = await api.exact({ query: "x" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.filtered.selectedIds).not.toContain(UNIT_DENY);
-    expect(result.value.filtered.selectedIds).toContain(UNIT_OK);
-    const denied = result.value.filtered.deniedIds ?? [];
+    expect(result.value.filtered!.selectedIds).not.toContain(UNIT_DENY);
+    expect(result.value.filtered!.selectedIds).toContain(UNIT_OK);
+    const denied = result.value.filtered!.deniedIds ?? [];
     expect(
-      denied.some(
-        (d: { unitId?: string } | string) =>
-          (typeof d === "string" ? d : d.unitId) === UNIT_DENY,
-      ),
+      denied.some((d) => {
+        const id =
+          typeof d === "string" ? d : (d as { unitId?: string }).unitId;
+        return id === UNIT_DENY;
+      }),
     ).toBe(true);
   });
 
@@ -171,7 +176,7 @@ describe("AC3 — unauthorized units filtered before output", () => {
     const result = await api.lexical({ query: "x" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.filtered.selectedIds).not.toContain(UNIT_DENY);
+    expect(result.value.filtered!.selectedIds).not.toContain(UNIT_DENY);
   });
 
   it("open_unit refuses unauthorized unit", async () => {
