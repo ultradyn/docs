@@ -34,3 +34,52 @@ ACCEPTANCE:
 - Test must fail if either unit stops surfacing again.
 
 Evidence: docs/engineering/researcher-retrieval-profile.md
+
+
+
+## ROOT CAUSE DIAGNOSED (coordinator, empirical) — the gap is TWO different problems
+
+Reproduced against the actual fixture text. Query: 'What capabilities must operate locally?'
+Query terms: what, capabilities, must, operate, locally
+
+### small-unit-22 — REAL, FIXABLE DEFECT (morphology)
+Text: '# Provider — Every external capability boundary has a deterministic fake for local operation.'
+Three near-misses that fail ONLY on word form:
+  capabilities/capability, locally/local, operate/operation
+Neither existing mechanism bridges them:
+  - prefix:true matches the wrong direction ('capabilities' is not a prefix of 'capability')
+  - fuzzy:0.2 gives maxDistance 2, 1, 1 against actual edit distances 3, 2, 4
+EMPIRICALLY CONFIRMED with a probe: as-shipped MiniSearch returns [] for this query;
+adding a crude suffix stemmer returns [small-unit-22]. This unit is recoverable.
+
+### small-unit-18 — NOT LEXICALLY RECOVERABLE
+Text: '# Machine index — A machine index is disposable, rebuilt from HEAD, and never committed.'
+ZERO term overlap with the question. Linking it requires INFERRING that a machine index is a
+capability that operates locally. That is semantic retrieval, which R1 deliberately excludes
+pending the vector ADR (DESIGN C4/D8, and T-12-04 did not meet its threshold).
+
+So this label expects an inferential link a lexical-only system cannot make. That is a
+consequence of an architectural decision, not a defect in the index.
+
+## THE FIX HAS A FORK — needs an operator decision, not a guess
+
+No stemmer is available: MiniSearch exports only 'wildcard', and the repo has no stemming
+utility (normalizeAlias does NFKC + lowercase + separator collapse only).
+
+(a) ADD A STEMMER DEPENDENCY. Cleanest quality. But pnpm-workspace.yaml carries a
+    minimumReleaseAge supply-chain policy, so a new dependency is a governed decision.
+(b) HAND-ROLL A MINIMAL DOCUMENTED STEMMER. No new dependency, but naive stemmers
+    mis-conflate (universe/university), and measured precision is ALREADY 0.132
+    (46 false positives for 7 true positives). Raising recall here also raises noise.
+(c) ACCEPT FOR R1 and revisit with vectors.
+
+Direction note: T-30-03 established that under-retrieval is the WORST failure and
+over-retrieval is merely expensive, so (a) or (b) is the correct direction on safety grounds
+even though both cost precision.
+
+## WHATEVER IS CHOSEN — the pins must move honestly
+
+Fixing unit-22 will change T-30-03's measurements: truePositive 7 to 8, falseNegative 2 to 1,
+and falseNegativeUnitIds to [small-unit-18] alone. Those pins exist to make exactly this
+visible. UPDATE them with the new measurement recorded; do NOT weaken them, and do NOT remove
+small-unit-18 from the labeled set to make the number look better.
