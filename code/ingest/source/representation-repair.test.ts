@@ -407,7 +407,7 @@ describe("approval commits atomically and invalidates exactly", () => {
     });
     expect(approved.ok).toBe(true);
     if (!approved.ok) return;
-    expect(approved.value.invalidation.unitIds).toHaveLength(4);
+    expect(approved.value.invalidation.unitIds).toHaveLength(5);
     expect(delivered).toHaveLength(1);
   });
 

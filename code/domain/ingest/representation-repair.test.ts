@@ -481,41 +481,74 @@ describe("invalidation is the union of removed and changed units", () => {
 
   it("excludes units added by the repair", () => {
     const units = faultyUnits();
-    const [added, ...kept] = units;
+    const kept = units.slice(1);
     expect(computeInvalidation(kept, units)).toEqual([]);
   });
 
-  it("includes surviving units whose locators drifted", () => {
+  it("classifies two locator-drifted and one provenance-only shared unit", () => {
     // The empirical case. Only the intro paragraph changed, but the Stable
     // section and its paragraph both moved. Their IDs are byte-identical, so a
     // removed-IDs-only rule reports nothing for them.
     const before = faultyUnits();
     const after = correctedUnits();
-    const beforeIds = new Set(before.map((unit) => unit.id));
-    const afterIds = new Set(after.map((unit) => unit.id));
-    const survivors = before.filter((unit) => afterIds.has(unit.id));
-    const drifted = survivors.filter((unit) => {
-      const next = after.find((candidate) => candidate.id === unit.id)!;
-      return canonicalUnitRecord(next) !== canonicalUnitRecord(unit);
+    const afterById = new Map(after.map((unit) => [unit.id, unit]));
+    const locatorDrifted = before.filter((unit) => {
+      const next = afterById.get(unit.id);
+      return (
+        next !== undefined &&
+        (JSON.stringify(next.normalizedLocator) !==
+          JSON.stringify(unit.normalizedLocator) ||
+          JSON.stringify(next.originalLocator) !==
+            JSON.stringify(unit.originalLocator))
+      );
     });
-    expect(drifted.length).toBeGreaterThan(0);
+    const provenanceOnly = before.filter((unit) => {
+      const next = afterById.get(unit.id);
+      return (
+        next !== undefined &&
+        next.representationId !== unit.representationId &&
+        next.snapshotId === unit.snapshotId &&
+        next.sourceFileId === unit.sourceFileId &&
+        next.kind === unit.kind &&
+        // The parent identity is representation-derived provenance too: the
+        // shared paragraph points at the repaired document's new root ID.
+        JSON.stringify(next.headingPath) === JSON.stringify(unit.headingPath) &&
+        JSON.stringify(next.normalizedLocator) ===
+          JSON.stringify(unit.normalizedLocator) &&
+        JSON.stringify(next.originalLocator) ===
+          JSON.stringify(unit.originalLocator) &&
+        next.textSha256 === unit.textSha256
+      );
+    });
+    expect(locatorDrifted).toHaveLength(2);
+    expect(provenanceOnly).toHaveLength(1);
     const invalidation = computeInvalidation(before, after);
-    for (const unit of drifted) expect(invalidation).toContain(unit.id);
-    expect([...afterIds].some((id) => !beforeIds.has(id))).toBe(true);
+    for (const unit of [...locatorDrifted, ...provenanceOnly]) {
+      expect(invalidation).toContain(unit.id);
+    }
   });
 
   it("counts strictly more than the removed-only rule would", () => {
-    // Pins the regression directly: 2 removed, but 4 genuinely invalidated.
+    // Pins the regression directly: 2 removed plus 3 shared canonical changes.
     const before = faultyUnits();
     const after = correctedUnits();
-    const afterIds = new Set(after.map((unit) => unit.id));
+    const afterById = new Map(after.map((unit) => [unit.id, unit]));
     const removedOnly = before
-      .filter((unit) => !afterIds.has(unit.id))
+      .filter((unit) => !afterById.has(unit.id))
       .map((unit) => unit.id);
+    const changedShared = before.filter((unit) => {
+      const next = afterById.get(unit.id);
+      return (
+        next !== undefined &&
+        canonicalUnitRecord(next) !== canonicalUnitRecord(unit)
+      );
+    });
     const invalidation = computeInvalidation(before, after);
     expect(removedOnly).toHaveLength(2);
-    expect(invalidation).toHaveLength(4);
-    for (const id of removedOnly) expect(invalidation).toContain(id);
+    expect(changedShared).toHaveLength(3);
+    expect(invalidation).toEqual(
+      [...removedOnly, ...changedShared.map((unit) => unit.id)].sort(),
+    );
   });
 
   it("returns a sorted unique identity list", () => {

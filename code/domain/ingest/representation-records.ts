@@ -43,6 +43,7 @@ export interface SourceRepresentation {
   readonly schemaVersion: 1;
   readonly id: SourceRepresentationId;
   readonly sourceFileId: SourceFileId;
+  readonly supersedesId?: SourceRepresentationId;
   readonly version: number;
   readonly kind: SourceRepresentationKind;
   readonly normalizedText: string;

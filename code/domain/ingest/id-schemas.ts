@@ -35,7 +35,7 @@ export const SourceFileIdSchema = z
 // identity strict and branded without inventing a second allocation scheme.
 export const SourceRepresentationIdSchema = z
   .string()
-  .min(1)
+  .regex(new RegExp(`^repr-${ULID_PATTERN}$`))
   .transform((value) => value as SourceRepresentationId);
 export const SourceUnitIdSchema = prefixedUlid("unit").transform(
   (value) => value as SourceUnitId,

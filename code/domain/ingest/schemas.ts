@@ -86,6 +86,7 @@ export const SourceRepresentationSchema = z
     schemaVersion: z.literal(1),
     id: SourceRepresentationIdSchema,
     sourceFileId: SourceFileIdSchema,
+    supersedesId: SourceRepresentationIdSchema.optional(),
     version: z.number().safe().int().positive(),
     kind: z.enum(["markdown", "text", "code", "json", "yaml", "csv"]),
     normalizedText: z.string(),
@@ -100,7 +101,16 @@ export const SourceRepresentationSchema = z
         .strict(),
     ),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.supersedesId === value.id) {
+      context.addIssue({
+        code: "custom",
+        path: ["supersedesId"],
+        message: "must not equal id",
+      });
+    }
+  });
 
 export const SearchReceiptSchema = z
   .object({ schemaVersion: z.literal(1), id: IdSchema })
