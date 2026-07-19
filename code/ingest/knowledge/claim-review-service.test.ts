@@ -601,6 +601,10 @@ describe("T-22-06 qualify decision", () => {
   });
 
   it("qualify does not launder a rejected claim into pack-accepted ids", async () => {
+    // Mutation-load-bearing: reject THEN accept so the durable set has the id
+    // in BOTH rejectedClaimIds and acceptedClaimIds. Qualify must not put it
+    // in acceptedClaimIds, and T-22-05 store exclusion must still drop it.
+    // A mutant that ignores rejections would surface the id as pack-eligible.
     const applicationStore = createInMemoryClaimReviewApplicationStore();
     const { service } = makeService({ applicationStore });
     const subject = await seedProposed(service);
@@ -613,10 +617,25 @@ describe("T-22-06 qualify decision", () => {
       "idem-qualify-reject-first",
     );
     expect(rejected.ok).toBe(true);
+    const accepted = await service.apply(
+      reviewDraft(subject.id, { decision: "accept" }),
+      "idem-qualify-accept-after-reject",
+    );
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+    // Positive control: pure helper on accept-only would include; complete store must exclude.
+    expect(listAcceptedClaimIds([accepted.value])).toContain(subject.id);
+    expect(await applicationStore.listAcceptedClaimIds()).not.toContain(
+      subject.id,
+    );
+
+    const latest = await service.repository.get(subject.id);
+    expect(latest.ok).toBe(true);
+    if (!latest.ok) return;
     const qualified = await service.apply(
       reviewDraft(subject.id, {
         decision: "qualify",
-        expectedVersion: subject.version,
+        expectedVersion: latest.value.version,
         qualifierClaimIds: [qualifier.id],
       }),
       "idem-qualify-after-reject",
@@ -624,7 +643,7 @@ describe("T-22-06 qualify decision", () => {
     expect(qualified.ok).toBe(true);
     if (!qualified.ok) return;
     expect(qualified.value.acceptedClaimIds).not.toContain(subject.id);
-    // T-22-05 store path still excludes the rejected id
+    // T-22-05 store path still excludes after qualify (launder guard)
     expect(await applicationStore.listAcceptedClaimIds()).not.toContain(
       subject.id,
     );
