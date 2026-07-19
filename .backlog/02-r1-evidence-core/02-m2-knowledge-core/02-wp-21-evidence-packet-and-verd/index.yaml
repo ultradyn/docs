@@ -30,7 +30,7 @@ tasks:
       file: T002-t-21-02-implement-evidenceverd.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: T-21-02 — Implement EvidenceVerdict lifecycle
     - complexity: low
