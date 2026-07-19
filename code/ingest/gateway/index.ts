@@ -13,3 +13,11 @@ export {
   type GeneratedQuestionPort,
   type GeneratedWordingStore,
 } from "./graph-gateway.js";
+
+// T-23-02 — dependency graph / SCCs (exports resolve once GREEN lands).
+export {
+  projectDependencyGraph,
+  type DependencyGraph,
+  type DependencyRelation,
+  type StrongComponent,
+} from "./dependency-graph.js";
