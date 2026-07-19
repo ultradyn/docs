@@ -26,6 +26,7 @@ Acceptance criteria:
 - Unique aliases resolve deterministically
 - Ambiguous aliases return all candidates with reasons
 - Maps rebuild reproducibly from the snapshot
+- ExactMap.build rejects duplicate SourceUnit IDs rather than silently overwriting a candidate
 
 Test surfaces:
 - unit
