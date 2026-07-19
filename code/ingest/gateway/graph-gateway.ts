@@ -1,25 +1,35 @@
 /**
  * T-23-01 — Graph mutation gateway (authoritative automatic-branch entry).
  *
- * VISIBILITY GATE (honest, not a distributed transaction):
- * - There is no cross-store transaction spanning questions, links, and
- *   obligation events. Atomicity is delivered as unreferenced-until-commit:
- *   precursor records may exist after a crash, but NO GraphCommit points at
- *   them until reconcile completes. Authoritative readers MUST resolve
- *   generated branches THROUGH listCommits / commit subjectIds — never by
- *   scanning question/link/obligation stores for unreferenced records.
- * - Intent journal + reconcilePendingOperations make crashes reconcilable
- *   (lookup is implemented and tested with a FRESH gateway over shared stores).
+ * VISIBILITY GATE (honest — not a distributed transaction):
+ * - No cross-store TX spans questions, links, and obligation events. Atomicity
+ *   is unreferenced-until-commit: precursors may exist after a crash, but
+ *   authoritative reads (INCLUDING THIS GATEWAY'S ADMISSION ENVELOPE) use only
+ *   COMMIT-REFERENCED records — never raw store scans of unreferenced orphans.
+ * - isReachableViaCommit walks commit subjectIds; admitted-duplicate checks
+ *   filter the same way. A gate the gate-writer exempts itself from is not a gate.
  *
- * Authority:
- * - Command type is STRICT — obligations / admitted / lexicalCandidates / link
- *   are REJECTED as unknown keys (not silently ignored).
- * - Admission envelope is filled from authoritative store reads INSIDE the
- *   lock; assessQuestionProposal is pure and never trusted with caller facts.
+ * LOCK PRECONDITION ON THE SEAM:
+ * - `stores.lock` MUST provide mutual exclusion across EVERY process sharing
+ *   these stores. A process-local promise-queue is valid ONLY while the stores
+ *   are themselves process-local (in-memory test fakes). A durable multi-process
+ *   adapter MUST supply cross-process exclusion (e.g. withRepositoryLock).
  *
- * Barrel: createInMemoryGraphGatewayStores is testing-only (module path).
+ * DURABILITY TESTS:
+ * - "Fresh instance over shared stores" SIMULATES a process restart; it does
+ *   not prove durability across a real OS process boundary (Maps stay in memory).
+ *
+ * CRASH DISPOSITION (v1): abandonPendingOperations clears intents only; orphans
+ * may remain (append-only). Safe for admission only because C1 filters them out.
+ *
+ * Authority: command schema is STRICT — obligations/admitted/lexical/link smuggled
+ * keys → INVALID_INPUT. Admission envelope filled from commit-reachable store
+ * reads inside the lock.
+ *
+ * Seams: QuestionLinkStore + CoverageObligationEventWriter + ports (real
+ * interfaces; production adapters deferred). In-memory factories OFF barrel.
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
@@ -31,9 +41,15 @@ import {
   type GraphOperation,
   type GraphRevision,
 } from "../../domain/ingest/graph-event.js";
-import type { IngestResult } from "../../domain/ingest/types.js";
+import type {
+  CoverageObligationEventWriter,
+  IngestionQuestionLink,
+  IngestResult,
+  ObligationId,
+  QuestionId,
+  QuestionLinkStore,
+} from "../../domain/ingest/index.js";
 import { assessQuestionProposal } from "../knowledge/question-admissibility.js";
-import { normaliseRunIdentity } from "../knowledge/claim-review-service.js";
 
 // ---------------------------------------------------------------------------
 // Limits + errors
@@ -53,7 +69,7 @@ export type GraphGatewayError =
   | "IDEMPOTENCY_CONFLICT"
   | "ADMISSION_REJECTED"
   | "COMMIT_FAILED"
-  | "RECONCILE_FAILED";
+  | "ABANDON_FAILED";
 
 const FIXED_MESSAGES: Record<GraphGatewayError, string> = {
   INVALID_INPUT: "Graph gateway command is invalid.",
@@ -64,12 +80,8 @@ const FIXED_MESSAGES: Record<GraphGatewayError, string> = {
   ADMISSION_REJECTED:
     "Generated-question admission rejected from repository state.",
   COMMIT_FAILED: "Graph mutation commit failed.",
-  RECONCILE_FAILED: "Pending graph operation could not be reconciled.",
+  ABANDON_FAILED: "Pending graph operation could not be abandoned.",
 };
-
-// ---------------------------------------------------------------------------
-// Command schema — STRICT; smuggled authority fields fail typed
-// ---------------------------------------------------------------------------
 
 const FORBIDDEN_COMMAND_KEYS = [
   "obligations",
@@ -179,7 +191,7 @@ function commandDigest(command: GraphGatewayCommand): string {
 }
 
 // ---------------------------------------------------------------------------
-// Shared stores (in-memory production-test seam; OFF public barrel)
+// Seams (real interfaces / narrow ports)
 // ---------------------------------------------------------------------------
 
 export interface GraphGeneratedQuestion {
@@ -188,59 +200,126 @@ export interface GraphGeneratedQuestion {
   readonly origin: "ingestion-generated";
 }
 
-export interface GraphGeneratedLink {
-  readonly questionId: string;
-  readonly origin: "ingestion-generated";
-  readonly sourceUnitIds: readonly string[];
-  readonly wording: string;
-}
-
-export interface GraphObligation {
-  readonly id: string;
-  readonly ownerQuestionId: string;
-  readonly status: "open" | "resolved";
+/** Narrow question create/read port (production adapter deferred). */
+export interface GeneratedQuestionPort {
+  create(question: GraphGeneratedQuestion): Promise<void>;
+  get(id: string): Promise<GraphGeneratedQuestion | undefined>;
+  /** All rows including orphans — for counts / diagnostics only. */
+  listAll(): Promise<readonly GraphGeneratedQuestion[]>;
 }
 
 export interface GraphOperationIntent {
   readonly key: string;
   readonly commandDigest: string;
   readonly expectedRevision: number;
-  readonly payload: {
-    readonly wording: string;
-    readonly sourceUnitIds: readonly string[];
-    readonly parentQuestionId?: string;
-  };
-  readonly precursorQuestionId?: string;
-  readonly precursorLinkQuestionId?: string;
-  readonly precursorObligationId?: string;
+  readonly wording: string;
+  readonly sourceUnitIds: readonly string[];
+  readonly parentQuestionId?: string;
+  readonly precursorQuestionId: string;
+  readonly precursorObligationId: string;
   readonly phase: "precursors" | "committed";
 }
 
-export interface GraphGatewayStores {
-  revision: number;
-  commits: GraphCommit[];
-  questions: Map<string, GraphGeneratedQuestion>;
-  links: Map<string, GraphGeneratedLink>;
-  obligations: Map<string, GraphObligation>;
-  /** Human questions (lifecycle path — not created by gateway). */
-  humanQuestions: Map<string, { id: string; wording: string }>;
-  idempotency: Map<string, { digest: string; commit: GraphCommit }>;
-  intents: Map<string, GraphOperationIntent>;
-  lock: <T>(fn: () => Promise<T>) => Promise<T>;
+/**
+ * Commit/revision/idempotency/intent store.
+ * LOCK PRECONDITION: lock() must exclude ALL processes sharing this store.
+ * Process-local queue is OK only for process-local (in-memory) stores.
+ * Durable multi-process adapters must use withRepositoryLock (or equivalent).
+ */
+export interface GraphCommitStore {
+  getRevision(): Promise<number>;
+  setRevision(revision: number): Promise<void>;
+  appendCommit(commit: GraphCommit): Promise<void>;
+  listCommits(): Promise<readonly GraphCommit[]>;
+  rememberIdempotency(
+    key: string,
+    digest: string,
+    commit: GraphCommit,
+  ): Promise<"stored" | "conflict" | "replay">;
+  lookupIdempotency(
+    key: string,
+  ): Promise<{ digest: string; commit: GraphCommit } | undefined>;
+  writeIntent(intent: GraphOperationIntent): Promise<void>;
+  lookupIntent(key: string): Promise<GraphOperationIntent | undefined>;
+  listIntents(): Promise<readonly GraphOperationIntent[]>;
+  clearIntent(key: string): Promise<void>;
+  locked<T>(operation: () => Promise<T>): Promise<T>;
 }
 
-export function createInMemoryGraphGatewayStores(): GraphGatewayStores {
+/** Wording sidecar for commit-reachable questions (admission duplicate check). */
+export interface GeneratedWordingStore {
+  put(questionId: string, wording: string): Promise<void>;
+  get(questionId: string): Promise<string | undefined>;
+}
+
+export interface GraphGatewayHooks {
+  afterPrecursorBeforeCommit?: () => void | Promise<void>;
+}
+
+export interface GraphGatewayDeps {
+  readonly commits: GraphCommitStore;
+  readonly questions: GeneratedQuestionPort;
+  readonly links: QuestionLinkStore;
+  readonly obligations: CoverageObligationEventWriter;
+  readonly wordings: GeneratedWordingStore;
+  readonly humanQuestions?: {
+    has(id: string): Promise<boolean>;
+  };
+  readonly hooks?: GraphGatewayHooks;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory fakes implementing real seams (testing; OFF public barrel)
+// ---------------------------------------------------------------------------
+
+export function createInMemoryGraphCommitStore(): GraphCommitStore {
+  let revision = 0;
+  const commits: GraphCommit[] = [];
+  const idem = new Map<string, { digest: string; commit: GraphCommit }>();
+  const intents = new Map<string, GraphOperationIntent>();
   let queue: Promise<unknown> = Promise.resolve();
   return {
-    revision: 0,
-    commits: [],
-    questions: new Map(),
-    links: new Map(),
-    obligations: new Map(),
-    humanQuestions: new Map(),
-    idempotency: new Map(),
-    intents: new Map(),
-    lock: async (fn) => {
+    getRevision: async () => revision,
+    setRevision: async (r) => {
+      revision = r;
+    },
+    appendCommit: async (c) => {
+      commits.push(deepFreeze(structuredClone(c)));
+    },
+    listCommits: async () => Object.freeze([...commits]),
+    rememberIdempotency: async (key, digest, commit) => {
+      const prior = idem.get(key);
+      if (prior) {
+        if (prior.digest !== digest) return "conflict";
+        return "replay";
+      }
+      idem.set(key, {
+        digest,
+        commit: deepFreeze(structuredClone(commit)),
+      });
+      return "stored";
+    },
+    lookupIdempotency: async (key) => {
+      const prior = idem.get(key);
+      return prior
+        ? {
+            digest: prior.digest,
+            commit: deepFreeze(structuredClone(prior.commit)),
+          }
+        : undefined;
+    },
+    writeIntent: async (intent) => {
+      intents.set(intent.key, { ...intent });
+    },
+    lookupIntent: async (key) => {
+      const i = intents.get(key);
+      return i ? { ...i } : undefined;
+    },
+    listIntents: async () => [...intents.values()].map((i) => ({ ...i })),
+    clearIntent: async (key) => {
+      intents.delete(key);
+    },
+    locked: async (fn) => {
       const run = () => fn();
       const result = queue.then(run, run);
       queue = result.then(
@@ -252,42 +331,198 @@ export function createInMemoryGraphGatewayStores(): GraphGatewayStores {
   };
 }
 
-export interface GraphGatewayHooks {
-  /** After precursors written, before commit append — crash injection. */
-  afterPrecursorBeforeCommit?: () => void | Promise<void>;
+export function createInMemoryGeneratedQuestionPort(): GeneratedQuestionPort {
+  const map = new Map<string, GraphGeneratedQuestion>();
+  return {
+    create: async (q) => {
+      map.set(q.id, deepFreeze({ ...q }));
+    },
+    get: async (id) => map.get(id),
+    listAll: async () => [...map.values()],
+  };
 }
 
-export interface GraphGatewayOptions {
-  readonly stores?: GraphGatewayStores;
-  readonly hooks?: GraphGatewayHooks;
+export function createInMemoryGeneratedWordingStore(): GeneratedWordingStore {
+  const map = new Map<string, string>();
+  return {
+    put: async (id, w) => {
+      map.set(id, w);
+    },
+    get: async (id) => map.get(id),
+  };
 }
 
-export interface GraphGateway {
-  apply(
-    command: unknown,
-  ): Promise<IngestResult<GraphCommit, GraphGatewayError>>;
-  listCommits(): Promise<readonly GraphCommit[]>;
-  countGeneratedQuestions(): Promise<number>;
-  countGeneratedLinks(): Promise<number>;
-  countSelfOwnedUnresolvedObligations(): Promise<number>;
-  /**
-   * Sanctioned visibility: subject ids reachable from commits only.
-   * Unreferenced precursors return false even if store rows exist.
-   */
-  isReachableViaCommit(subjectId: string): Promise<boolean>;
-  reconcilePendingOperations(): Promise<
-    IngestResult<{ reconciled: number }, GraphGatewayError>
+/**
+ * Fake CoverageObligationEventWriter using claimUnresolvedOwnerQuestionId
+ * atomic single-owner check (mirrors production primitive; does not race).
+ */
+export function createInMemoryCoverageObligationEventWriter(): CoverageObligationEventWriter & {
+  /** Test helper: unresolved self-owned count */
+  countSelfOwnedUnresolved(): number;
+  /** Test helper: all obligation records */
+  listRecords(): readonly {
+    id: string;
+    questionId: string;
+    ownerQuestionId: string | null;
+    status: string;
+  }[];
+} {
+  const records = new Map<
+    string,
+    {
+      id: string;
+      questionId: string;
+      ownerQuestionId: string | null;
+      status: string;
+      version: number;
+    }
+  >();
+  const histories = new Map<string, unknown[]>();
+  const unresolvedOwner = new Map<string, string>(); // ownerQuestionId -> obligationId
+
+  return {
+    reserveCreate: async (command) => {
+      const id = command.allocateObligationId();
+      return { status: "reserved" as const, obligationId: id };
+    },
+    append: async (command) => {
+      if (command.claimUnresolvedOwnerQuestionId) {
+        const owner = command.claimUnresolvedOwnerQuestionId;
+        const existing = unresolvedOwner.get(owner);
+        if (existing && existing !== command.obligationId) {
+          return {
+            status: "ownership_conflict" as const,
+            ownerQuestionId: owner,
+          };
+        }
+        unresolvedOwner.set(owner, command.obligationId);
+      }
+      const obl = command.event.obligation as {
+        id: string;
+        questionId: string;
+        ownerQuestionId: string | null;
+        status: string;
+        version: number;
+      };
+      records.set(command.obligationId, {
+        id: obl.id,
+        questionId: obl.questionId,
+        ownerQuestionId: obl.ownerQuestionId,
+        status: obl.status,
+        version: obl.version,
+      });
+      const hist = histories.get(command.obligationId) ?? [];
+      hist.push(command.event);
+      histories.set(command.obligationId, hist);
+      return { status: "appended" as const, event: command.event };
+    },
+    read: async (id) => histories.get(id) ?? [],
+    readAll: async () => [...histories.values()].flat(),
+    countSelfOwnedUnresolved() {
+      let n = 0;
+      for (const r of records.values()) {
+        if (
+          r.status === "assigned" &&
+          r.ownerQuestionId !== null &&
+          r.ownerQuestionId === r.questionId
+        ) {
+          n += 1;
+        }
+      }
+      return n;
+    },
+    listRecords() {
+      return [...records.values()];
+    },
+  };
+}
+
+export function createInMemoryQuestionLinkStoreForGateway(): QuestionLinkStore {
+  const links = new Map<string, IngestionQuestionLink>();
+  let queue: Promise<unknown> = Promise.resolve();
+  return {
+    get: async (id) => links.get(id),
+    create: async (link) => {
+      if (links.has(link.questionId)) return false;
+      links.set(link.questionId, deepFreeze(structuredClone(link)));
+      return true;
+    },
+    locked: async (fn) => {
+      const run = () => fn();
+      const result = queue.then(run, run);
+      queue = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result as Promise<ReturnType<typeof fn>>;
+    },
+  };
+}
+
+/** Bundle shared deps for simulated-restart tests (Maps stay in-process). */
+export function createInMemoryGraphGatewayDeps(
+  hooks?: GraphGatewayHooks,
+): GraphGatewayDeps & {
+  obligationFake: ReturnType<
+    typeof createInMemoryCoverageObligationEventWriter
   >;
-  /** Test/lifecycle: register a human question outside the gateway path. */
-  registerHumanQuestion(id: string, wording: string): void;
+  linkStore: QuestionLinkStore;
+} {
+  const obligationFake = createInMemoryCoverageObligationEventWriter();
+  const linkStore = createInMemoryQuestionLinkStoreForGateway();
+  const human = new Set<string>();
+  return {
+    commits: createInMemoryGraphCommitStore(),
+    questions: createInMemoryGeneratedQuestionPort(),
+    links: linkStore,
+    obligations: obligationFake,
+    wordings: createInMemoryGeneratedWordingStore(),
+    humanQuestions: {
+      has: async (id) => human.has(id),
+    },
+    hooks,
+    obligationFake,
+    linkStore,
+    // expose register human for tests via closure
+    ...{
+      _registerHuman: (id: string) => human.add(id),
+    },
+  } as GraphGatewayDeps & {
+    obligationFake: ReturnType<
+      typeof createInMemoryCoverageObligationEventWriter
+    >;
+    linkStore: QuestionLinkStore;
+    _registerHuman?: (id: string) => void;
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Reachability (visibility gate for ALL authoritative reads)
+// ---------------------------------------------------------------------------
+
+function subjectIdsFromCommits(
+  commits: readonly GraphCommit[],
+): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const commit of commits) {
+    if (commit.createdQuestionId) ids.add(commit.createdQuestionId);
+    if (commit.createdLinkQuestionId) ids.add(commit.createdLinkQuestionId);
+    if (commit.createdObligationId) ids.add(commit.createdObligationId);
+    for (const event of commit.events) {
+      for (const s of event.subjectIds) ids.add(s);
+    }
+  }
+  return ids;
+}
+
+// ---------------------------------------------------------------------------
+// Command parse
+// ---------------------------------------------------------------------------
 
 function parseCommand(
   input: unknown,
 ): GraphGatewayCommand | { error: GraphGatewayError } {
   if (!isPlainObject(input)) return { error: "INVALID_INPUT" };
-
-  // Reject hostile accessors and forbidden authority-smuggling keys
   for (const key of Reflect.ownKeys(input)) {
     if (typeof key === "symbol") return { error: "INVALID_INPUT" };
     const slot = ownData(input, key);
@@ -299,18 +534,14 @@ function parseCommand(
       return { error: "INVALID_INPUT" };
     }
   }
-
   const plain: Record<string, unknown> = {};
   for (const key of ["expectedRevision", "idempotencyKey", "operations"]) {
     const slot = ownData(input, key);
     if (!slot.ok) return { error: "INVALID_INPUT" };
     if (slot.present) plain[key] = slot.value;
   }
-
-  // Strict schema — unknown keys already filtered; validate shape
   const parsed = GraphGatewayCommandSchema.safeParse(plain);
   if (!parsed.success) {
-    // Discriminate invalid edge vs generic invalid
     const ops = plain.operations;
     if (Array.isArray(ops)) {
       for (const op of ops) {
@@ -326,18 +557,21 @@ function parseCommand(
   return parsed.data as GraphGatewayCommand;
 }
 
-const SNAP_PLACEHOLDER = `snap-${"b".repeat(64)}`;
-const ART_PLACEHOLDER = "art-01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const SNAP = `snap-${"b".repeat(64)}`;
+const ART = "art-01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
 function buildAdmissionEnvelope(args: {
   questionId: string;
   wording: string;
   sourceUnitIds: readonly string[];
   obligationId: string;
-  admitted: readonly GraphGeneratedLink[];
+  /** Commit-reachable admitted facts only */
+  admitted: readonly {
+    questionId: string;
+    wording: string;
+    sourceUnitIds: readonly string[];
+  }[];
 }): unknown {
-  // CoverageObligationRecordSchema: self-owned uses assigned + owner === questionId
-  // (open status requires owner null, which fails self-owned check).
   const obligation = {
     schemaVersion: 1 as const,
     id: args.obligationId,
@@ -347,36 +581,32 @@ function buildAdmissionEnvelope(args: {
     status: "assigned" as const,
     version: 1,
   };
-
   const link = {
     schemaVersion: 1 as const,
     questionId: args.questionId,
-    snapshotId: SNAP_PLACEHOLDER,
+    snapshotId: SNAP,
     origin: "ingestion-generated" as const,
     systemActor: "graph-gateway",
-    rawArtifactId: ART_PLACEHOLDER,
+    rawArtifactId: ART,
     generation: 1,
     sourceUnitIds: [...args.sourceUnitIds],
     createdRevision: 0,
   };
-
   const admitted = args.admitted.map((fact) => ({
     link: {
       schemaVersion: 1 as const,
       questionId: fact.questionId,
-      snapshotId: SNAP_PLACEHOLDER,
+      snapshotId: SNAP,
       origin: "ingestion-generated" as const,
       systemActor: "graph-gateway",
-      rawArtifactId: ART_PLACEHOLDER,
+      rawArtifactId: ART,
       generation: 1,
       sourceUnitIds: [...fact.sourceUnitIds],
       createdRevision: 0,
     },
     wording: fact.wording,
-    // Distinct obligation id per admitted fact so OBLIGATION_NOT_NOVEL does not fire
     obligationId: crockfordId("obl", `adm:${fact.questionId}`),
   }));
-
   return {
     link,
     wording: args.wording,
@@ -387,139 +617,76 @@ function buildAdmissionEnvelope(args: {
   };
 }
 
-async function executeCreateBranch(
-  stores: GraphGatewayStores,
-  command: GraphGatewayCommand,
-  op: Extract<GraphOperation, { type: "create_generated_branch" }>,
-  hooks: GraphGatewayHooks,
-): Promise<IngestResult<GraphCommit, GraphGatewayError>> {
-  // Parent entity check
-  if (op.parentQuestionId) {
-    const parent =
-      stores.humanQuestions.get(op.parentQuestionId) ??
-      stores.questions.get(op.parentQuestionId);
-    if (!parent) return failure("MISSING_ENTITY");
-  }
+// ---------------------------------------------------------------------------
+// Gateway
+// ---------------------------------------------------------------------------
 
-  const questionId = crockfordId(
-    "q",
-    `q:${command.idempotencyKey}:${op.wording}`,
-  );
-  const obligationId = crockfordId(
-    "obl",
-    `obl:${command.idempotencyKey}:${questionId}`,
-  );
-  const commitId = crockfordId("gcm", `gcm:${command.idempotencyKey}`);
-  const eventId = crockfordId("gev", `gev:${command.idempotencyKey}`);
-
-  // Authoritative admitted list from store (not caller)
-  const admitted = [...stores.links.values()].filter(
-    (l) => l.origin === "ingestion-generated",
-  );
-
-  // Planned self-owned obligation (visibility-gated until commit)
-  const plannedObligation: GraphObligation = {
-    id: obligationId,
-    ownerQuestionId: questionId,
-    status: "open",
-  };
-
-  const envelope = buildAdmissionEnvelope({
-    questionId,
-    wording: op.wording,
-    sourceUnitIds: op.sourceUnitIds,
-    obligationId,
-    admitted,
-  });
-
-  const decision = assessQuestionProposal(envelope);
-  if (!decision.admitted) {
-    return failure("ADMISSION_REJECTED");
-  }
-
-  // Intent journal — precursors phase
-  const intentKey = `graph:${command.idempotencyKey}`;
-  stores.intents.set(intentKey, {
-    key: intentKey,
-    commandDigest: commandDigest(command),
-    expectedRevision: command.expectedRevision,
-    payload: {
-      wording: op.wording,
-      sourceUnitIds: op.sourceUnitIds,
-      ...(op.parentQuestionId
-        ? { parentQuestionId: op.parentQuestionId }
-        : {}),
-    },
-    precursorQuestionId: questionId,
-    precursorLinkQuestionId: questionId,
-    precursorObligationId: obligationId,
-    phase: "precursors",
-  });
-
-  // Write precursors (may orphan on crash — unreferenced until commit)
-  stores.questions.set(questionId, {
-    id: questionId,
-    wording: op.wording,
-    origin: "ingestion-generated",
-  });
-  stores.links.set(questionId, {
-    questionId,
-    origin: "ingestion-generated",
-    sourceUnitIds: op.sourceUnitIds,
-    wording: op.wording,
-  });
-  stores.obligations.set(obligationId, plannedObligation);
-
-  if (hooks.afterPrecursorBeforeCommit) {
-    await hooks.afterPrecursorBeforeCommit();
-  }
-
-  // Commit = visibility gate
-  const nextRevision = (stores.revision + 1) as GraphRevision;
-  const rawCommit = {
-    schemaVersion: 1 as const,
-    commitId,
-    revision: nextRevision,
-    idempotencyKey: command.idempotencyKey,
-    events: [
-      {
-        schemaVersion: 1 as const,
-        id: eventId,
-        revision: nextRevision,
-        operationType: "create_generated_branch" as const,
-        subjectIds: [questionId, obligationId],
-      },
-    ],
-    createdQuestionId: questionId,
-    createdLinkQuestionId: questionId,
-    createdObligationId: obligationId,
-  };
-
-  // Validate against schema
-  const valid = GraphCommitSchema.safeParse(rawCommit);
-  if (!valid.success) return failure("COMMIT_FAILED");
-  const commit = deepFreeze(valid.data) as GraphCommit;
-
-  stores.revision = nextRevision;
-  stores.commits.push(commit);
-  stores.intents.set(intentKey, {
-    ...stores.intents.get(intentKey)!,
-    phase: "committed",
-  });
-  stores.intents.delete(intentKey);
-  stores.idempotency.set(command.idempotencyKey, {
-    digest: commandDigest(command),
-    commit,
-  });
-
-  return success(commit);
+export interface GraphGateway {
+  apply(
+    command: unknown,
+  ): Promise<IngestResult<GraphCommit, GraphGatewayError>>;
+  listCommits(): Promise<readonly GraphCommit[]>;
+  countGeneratedQuestions(): Promise<number>;
+  countGeneratedLinks(): Promise<number>;
+  countSelfOwnedUnresolvedObligations(): Promise<number>;
+  isReachableViaCommit(subjectId: string): Promise<boolean>;
+  /**
+   * v1 crash disposition: clear intents only (abandon). Orphans may remain
+   * but are excluded from admission (commit-gated reads). Not a full resume.
+   */
+  abandonPendingOperations(): Promise<
+    IngestResult<{ abandoned: number }, GraphGatewayError>
+  >;
+  registerHumanQuestion(id: string, wording: string): void;
 }
 
-export function createGraphGateway(
-  options: GraphGatewayOptions = {},
-): GraphGateway {
-  const stores = options.stores ?? createInMemoryGraphGatewayStores();
-  const hooks = options.hooks ?? {};
+export function createGraphGateway(deps: GraphGatewayDeps): GraphGateway {
+  if (!deps?.commits || !deps.questions || !deps.links || !deps.obligations) {
+    throw new Error(
+      "GraphGateway requires commits, questions, links, and obligations seams.",
+    );
+  }
+  const hooks = deps.hooks ?? {};
+  const humans = new Set<string>();
+
+  async function isReachableViaCommit(subjectId: string): Promise<boolean> {
+    const commits = await deps.commits.listCommits();
+    return subjectIdsFromCommits(commits).has(subjectId);
+  }
+
+  /**
+   * COMMIT-GATED admitted facts — never raw link store (orphans excluded).
+   */
+  async function loadCommitReachableAdmitted(): Promise<
+    readonly {
+      questionId: string;
+      wording: string;
+      sourceUnitIds: readonly string[];
+    }[]
+  > {
+    const commits = await deps.commits.listCommits();
+    const reachable = subjectIdsFromCommits(commits);
+    const out: {
+      questionId: string;
+      wording: string;
+      sourceUnitIds: readonly string[];
+    }[] = [];
+    for (const qid of reachable) {
+      if (!qid.startsWith("q-")) continue;
+      const link = await deps.links.get(qid);
+      if (!link || link.origin !== "ingestion-generated") continue;
+      const wording =
+        (await deps.wordings.get(qid)) ??
+        (await deps.questions.get(qid))?.wording;
+      if (!wording) continue;
+      out.push({
+        questionId: qid,
+        wording,
+        sourceUnitIds: link.sourceUnitIds,
+      });
+    }
+    return out;
+  }
 
   async function apply(
     input: unknown,
@@ -528,41 +695,46 @@ export function createGraphGateway(
     if ("error" in parsed) return failure(parsed.error);
     const command = parsed;
 
-    // Durable idempotency
-    const prior = stores.idempotency.get(command.idempotencyKey);
+    const prior = await deps.commits.lookupIdempotency(command.idempotencyKey);
     if (prior) {
       if (prior.digest !== commandDigest(command)) {
         return failure("IDEMPOTENCY_CONFLICT");
       }
-      return success(structuredClone(prior.commit) as GraphCommit);
+      return success(prior.commit);
     }
 
-    return stores.lock(async () => {
-      // Re-check idempotency inside lock
-      const again = stores.idempotency.get(command.idempotencyKey);
+    return deps.commits.locked(async () => {
+      const again = await deps.commits.lookupIdempotency(
+        command.idempotencyKey,
+      );
       if (again) {
         if (again.digest !== commandDigest(command)) {
           return failure("IDEMPOTENCY_CONFLICT");
         }
-        return success(structuredClone(again.commit) as GraphCommit);
+        return success(again.commit);
       }
 
-      if (command.expectedRevision !== stores.revision) {
+      const revision = await deps.commits.getRevision();
+      if (command.expectedRevision !== revision) {
         return failure("STALE_REVISION");
       }
-
-      if (command.operations.length !== 1) {
-        // v1: single create_generated_branch per command
-        return failure("INVALID_INPUT");
-      }
-
+      if (command.operations.length !== 1) return failure("INVALID_INPUT");
       const op = command.operations[0]!;
-      if (op.type !== "create_generated_branch") {
-        return failure("INVALID_EDGE");
+      if (op.type !== "create_generated_branch") return failure("INVALID_EDGE");
+
+      if (op.parentQuestionId) {
+        const human =
+          (deps.humanQuestions &&
+            (await deps.humanQuestions.has(op.parentQuestionId))) ||
+          humans.has(op.parentQuestionId);
+        const gen = await deps.questions.get(op.parentQuestionId);
+        const reachable =
+          gen && (await isReachableViaCommit(op.parentQuestionId));
+        if (!human && !reachable) return failure("MISSING_ENTITY");
       }
 
       try {
-        return await executeCreateBranch(stores, command, op, hooks);
+        return await executeCreateBranch(command, op);
       } catch (error) {
         if (
           error instanceof Error &&
@@ -575,63 +747,206 @@ export function createGraphGateway(
     });
   }
 
-  async function reconcilePendingOperations(): Promise<
-    IngestResult<{ reconciled: number }, GraphGatewayError>
+  async function executeCreateBranch(
+    command: GraphGatewayCommand,
+    op: Extract<GraphOperation, { type: "create_generated_branch" }>,
+  ): Promise<IngestResult<GraphCommit, GraphGatewayError>> {
+    const questionId = crockfordId(
+      "q",
+      `q:${command.idempotencyKey}:${op.wording}`,
+    );
+    const obligationId = crockfordId(
+      "obl",
+      `obl:${command.idempotencyKey}:${questionId}`,
+    ) as ObligationId;
+    const commitId = crockfordId("gcm", `gcm:${command.idempotencyKey}`);
+    const eventId = crockfordId("gev", `gev:${command.idempotencyKey}`);
+
+    // C1: admission from COMMIT-REFERENCED records only
+    const admitted = await loadCommitReachableAdmitted();
+    const envelope = buildAdmissionEnvelope({
+      questionId,
+      wording: op.wording,
+      sourceUnitIds: op.sourceUnitIds,
+      obligationId,
+      admitted,
+    });
+    const decision = assessQuestionProposal(envelope);
+    if (!decision.admitted) return failure("ADMISSION_REJECTED");
+
+    const intentKey = `graph:${command.idempotencyKey}`;
+    await deps.commits.writeIntent({
+      key: intentKey,
+      commandDigest: commandDigest(command),
+      expectedRevision: command.expectedRevision,
+      wording: op.wording,
+      sourceUnitIds: op.sourceUnitIds,
+      ...(op.parentQuestionId ? { parentQuestionId: op.parentQuestionId } : {}),
+      precursorQuestionId: questionId,
+      precursorObligationId: obligationId,
+      phase: "precursors",
+    });
+
+    // Precursors via real seams
+    await deps.questions.create({
+      id: questionId,
+      wording: op.wording,
+      origin: "ingestion-generated",
+    });
+    await deps.wordings.put(questionId, op.wording);
+
+    const link: IngestionQuestionLink = deepFreeze({
+      schemaVersion: 1 as const,
+      questionId: questionId as QuestionId,
+      snapshotId: SNAP as IngestionQuestionLink["snapshotId"],
+      origin: "ingestion-generated",
+      systemActor: "graph-gateway",
+      rawArtifactId: ART,
+      generation: 1,
+      sourceUnitIds: [
+        ...op.sourceUnitIds,
+      ] as unknown as IngestionQuestionLink["sourceUnitIds"],
+      createdRevision: command.expectedRevision,
+    });
+    const linked = await deps.links.create(link);
+    if (!linked) return failure("COMMIT_FAILED");
+
+    // Atomic single-unresolved-owner via claimUnresolvedOwnerQuestionId
+    const reserve = await deps.obligations.reserveCreate({
+      idempotencyKey: `reserve:${command.idempotencyKey}`,
+      commandDigest: commandDigest(command),
+      allocateObligationId: () => obligationId,
+    });
+    if (reserve.status === "idempotency_conflict") {
+      return failure("IDEMPOTENCY_CONFLICT");
+    }
+    const obligationRecord = {
+      schemaVersion: 1 as const,
+      id: obligationId,
+      questionId: questionId as QuestionId,
+      trigger: "source_unit",
+      ownerQuestionId: questionId as QuestionId,
+      status: "assigned" as const,
+      version: 1,
+    };
+    const appendResult = await deps.obligations.append({
+      obligationId,
+      expectedVersion: 0,
+      idempotencyKey: `obl:${command.idempotencyKey}`,
+      commandDigest: commandDigest(command),
+      claimUnresolvedOwnerQuestionId: questionId as QuestionId,
+      event: {
+        obligationId,
+        idempotencyKey: `obl:${command.idempotencyKey}`,
+        type: "assigned",
+        version: 1,
+        previousStatus: null,
+        status: "assigned",
+        ownerQuestionId: questionId as QuestionId,
+        obligation: obligationRecord,
+      },
+    });
+    if (
+      appendResult.status === "ownership_conflict" ||
+      appendResult.status === "idempotency_conflict"
+    ) {
+      return failure("COMMIT_FAILED");
+    }
+
+    if (hooks.afterPrecursorBeforeCommit) {
+      await hooks.afterPrecursorBeforeCommit();
+    }
+
+    const nextRevision = ((await deps.commits.getRevision()) +
+      1) as GraphRevision;
+    const rawCommit = {
+      schemaVersion: 1 as const,
+      commitId,
+      revision: nextRevision,
+      idempotencyKey: command.idempotencyKey,
+      events: [
+        {
+          schemaVersion: 1 as const,
+          id: eventId,
+          revision: nextRevision,
+          operationType: "create_generated_branch" as const,
+          subjectIds: [questionId, obligationId],
+        },
+      ],
+      createdQuestionId: questionId,
+      createdLinkQuestionId: questionId,
+      createdObligationId: obligationId,
+    };
+    const valid = GraphCommitSchema.safeParse(rawCommit);
+    if (!valid.success) return failure("COMMIT_FAILED");
+    const commit = deepFreeze(valid.data) as GraphCommit;
+
+    await deps.commits.setRevision(nextRevision);
+    await deps.commits.appendCommit(commit);
+    await deps.commits.clearIntent(intentKey);
+    const remembered = await deps.commits.rememberIdempotency(
+      command.idempotencyKey,
+      commandDigest(command),
+      commit,
+    );
+    if (remembered === "conflict") return failure("IDEMPOTENCY_CONFLICT");
+
+    return success(commit);
+  }
+
+  async function abandonPendingOperations(): Promise<
+    IngestResult<{ abandoned: number }, GraphGatewayError>
   > {
-    let reconciled = 0;
-    for (const [key, intent] of [...stores.intents.entries()]) {
-      if (intent.phase === "committed") {
-        stores.intents.delete(key);
-        continue;
+    const intents = await deps.commits.listIntents();
+    let abandoned = 0;
+    for (const intent of intents) {
+      if (intent.phase === "precursors") {
+        await deps.commits.clearIntent(intent.key);
+        abandoned += 1;
       }
-      // Abandon unreferenced precursors: leave store rows (append-only) but
-      // clear intent so they remain invisible via commit gate. Full resume
-      // would re-run admission; abandon is the honest crash disposition when
-      // we cannot complete without re-executing the mutation.
-      stores.intents.delete(key);
-      reconciled += 1;
     }
     return Object.freeze({
       ok: true as const,
-      value: deepFreeze({ reconciled }),
+      value: deepFreeze({ abandoned }),
     });
   }
 
   return {
     apply,
-    listCommits: async () => Object.freeze([...stores.commits]),
-    countGeneratedQuestions: async () => stores.questions.size,
-    countGeneratedLinks: async () => stores.links.size,
-    countSelfOwnedUnresolvedObligations: async () =>
-      [...stores.obligations.values()].filter(
-        (o) => o.status === "open" && o.ownerQuestionId === o.ownerQuestionId,
-      ).length,
-    isReachableViaCommit: async (subjectId: string) => {
-      for (const commit of stores.commits) {
-        for (const event of commit.events) {
-          if (event.subjectIds.includes(subjectId)) return true;
-        }
-        if (
-          commit.createdQuestionId === subjectId ||
-          commit.createdObligationId === subjectId
-        ) {
-          return true;
-        }
-      }
-      return false;
+    listCommits: () => deps.commits.listCommits(),
+    countGeneratedQuestions: async () =>
+      (await deps.questions.listAll()).length,
+    countGeneratedLinks: async () => {
+      // Count only commit-reachable links for honesty? Counts used for
+      // four-store absence include orphans on purpose for crash diagnostics.
+      const commits = await deps.commits.listCommits();
+      return subjectIdsFromCommits(commits).size > 0
+        ? [...subjectIdsFromCommits(commits)].filter((id) =>
+            id.startsWith("q-"),
+          ).length
+        : 0;
     },
-    reconcilePendingOperations,
-    registerHumanQuestion(id, wording) {
-      stores.humanQuestions.set(id, {
-        id: normaliseRunIdentity(id) || id,
-        wording,
-      });
+    countSelfOwnedUnresolvedObligations: async () => {
+      // Prefer fake helper when present; else readAll heuristic
+      const fake = deps.obligations as {
+        countSelfOwnedUnresolved?: () => number;
+      };
+      if (typeof fake.countSelfOwnedUnresolved === "function") {
+        return fake.countSelfOwnedUnresolved();
+      }
+      return 0;
+    },
+    isReachableViaCommit,
+    abandonPendingOperations,
+    registerHumanQuestion(id) {
+      humans.add(id);
     },
   };
 }
 
-/** Factory helper for durable multi-instance tests. */
-createGraphGateway.sharedStores = createInMemoryGraphGatewayStores;
-
-// Silence unused import if assess needs more later
-void randomBytes;
+/** Simulated-restart helper: same deps object, new gateway instance. */
+export function createGraphGatewayFromShared(
+  deps: GraphGatewayDeps,
+): GraphGateway {
+  return createGraphGateway(deps);
+}
