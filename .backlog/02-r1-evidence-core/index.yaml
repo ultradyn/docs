@@ -21,7 +21,7 @@ milestones:
       locked: false
       name: M2 — Knowledge core
       path: 02-m2-knowledge-core
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'Bundle M3 exit gate: One question completes Researcher→Critic→Claims→Answer with replay tests.'
@@ -30,7 +30,7 @@ milestones:
       locked: false
       name: M3 — Measured vertical slice
       path: 03-m3-measured-vertical-slice
-      status: pending
+      status: done
 name: R1 Evidence core
 stats:
     blocked: 1

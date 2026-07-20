@@ -36,7 +36,7 @@ epics:
       locked: false
       name: WP-23 — Graph gateway and dependency validity
       path: 04-wp-23-graph-gateway-and-depend
-      status: pending
+      status: done
 estimate_hours: 120
 id: P2.M2
 locked: false
@@ -47,4 +47,4 @@ stats:
     in_progress: 0
     pending: 9
     total_tasks: 13
-status: pending
+status: done

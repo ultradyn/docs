@@ -1,19 +1,20 @@
 ---
 claimed_at: "2026-07-19T14:59:46Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-07-19T15:21:52Z"
 complexity: medium
 created_at: "2026-07-19T12:59:07Z"
 depends_on:
     - P2.M3.E1.T002
+duration_minutes: 22.109789276583335
 estimate_hours: 3
 id: P2.M3.E1.T004
 priority: high
 started_at: "2026-07-19T14:59:46Z"
-status: in_progress
+status: done
 tags: []
 title: Bind Researcher receipts to real tool invocations (authenticity)
-updated_at: "2026-07-19T14:59:46Z"
+updated_at: "2026-07-19T15:21:52Z"
 ---
 Follow-up from T-30-02 independent review (River, Tier B PASS, Important finding #2).
 

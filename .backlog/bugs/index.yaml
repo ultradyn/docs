@@ -2,3 +2,9 @@ bugs:
     - file: B001-markstale-discards-claimstore.todo
     - file: B002-audio-session-fifo-test-assert.todo
     - file: B003-evidence-critic-free-text-reas.todo
+    - file: B004-source-tools-accepts-index-ide.todo
+    - file: B005-researcher-retrieval-misses-sm.todo
+    - file: B006-untrustedprose-hatch-is-named.todo
+    - file: B007-claim-reviewer-nested-fresh-co.todo
+    - file: B008-agent-scaffold-goldens-default.todo
+    - file: B009-pack-application-audit-derive.todo

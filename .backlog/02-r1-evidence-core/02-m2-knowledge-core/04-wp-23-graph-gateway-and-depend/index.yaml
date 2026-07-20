@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -31,7 +31,7 @@ tasks:
       file: T002-t-23-02-implement-dependency-g.todo
       id: T002
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: T-23-02 — Implement dependency graph and SCC analysis
     - complexity: high
@@ -41,5 +41,6 @@ tasks:
       file: T003-t-23-03-implement-invalidation.todo
       id: T003
       priority: critical
-      status: pending
+      status: done
+      tags: []
       title: T-23-03 — Implement invalidation propagation

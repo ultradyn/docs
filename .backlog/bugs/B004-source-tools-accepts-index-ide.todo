@@ -1,0 +1,32 @@
+---
+claimed_at: "2026-07-19T15:23:27Z"
+claimed_by: cli-user
+completed_at: "2026-07-19T15:32:55Z"
+complexity: medium
+created_at: "2026-07-19T15:08:57Z"
+depends_on: []
+duration_minutes: 9.482377103933333
+estimate_hours: 2
+id: B004
+priority: high
+started_at: "2026-07-19T15:23:27Z"
+status: done
+tags: []
+title: source-tools accepts index identity from the backend response, then degrades to unbacked sentinels
+updated_at: "2026-07-19T15:32:55Z"
+---
+Found while scoping T-30-04 (receipt authenticity).
+
+LOCATION: code/ingest/retrieval/source-tools.ts around lines 312-318.
+
+Index identity for a receipt is taken from backend.identity, but when that is absent it FALLS BACK to raw.receipt?.indexVersion and raw.receipt?.indexedRepresentationsSha256 — i.e. the search backend's own response supplies the very identity fields the receipt is supposed to independently attest. A hostile or misconfigured backend therefore controls its own attestation. When both are missing it degrades again to the UNBACKED sentinels rather than failing.
+
+WHY IT MATTERS: the receipt exists to record WHICH index and WHICH corpus produced a result. Letting the backend name those makes the record a restatement of the backend's claim rather than an independent fact. Silent degradation to sentinels is worse: the receipt still looks well formed, so downstream sees a valid receipt for a search whose provenance is unknown.
+
+This is the same class as the discarded verdicts in B001 and T-23-01 — a control that looks structural but is actually trusting the party it is supposed to check.
+
+FIX: index identity MUST come from the configured backend identity seam. If it is absent, FAIL CLOSED with a typed error rather than borrowing the response's own claim or falling through to sentinels. Unbacked sentinels should be reachable only on the genuinely unbacked tool paths (maps / follow_links / vector_optional), never as a degradation from a backed path.
+
+TEST: a fake backend that supplies identity fields in its response but has no configured identity must produce a typed failure, not a receipt. Positive control: a properly configured backend still produces a receipt with the configured identity.
+
+Related: T-30-04 adds attestation, which binds a receipt to an invocation but does NOT fix where the identity fields came from.

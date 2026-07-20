@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on:
@@ -42,7 +42,8 @@ tasks:
       file: T003-t-30-03-calibrate-researcher-r.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: T-30-03 — Calibrate Researcher retrieval policy
     - complexity: medium
       depends_on:
@@ -51,6 +52,6 @@ tasks:
       file: T004-bind-researcher-receipts-to-re.todo
       id: T004
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Bind Researcher receipts to real tool invocations (authenticity)

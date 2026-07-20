@@ -1,16 +1,19 @@
 ---
+claimed_at: "2026-07-19T14:47:28Z"
+claimed_by: cli-user
+completed_at: "2026-07-19T14:51:21Z"
 complexity: low
 created_at: "2026-07-19T14:29:56Z"
 depends_on: []
+duration_minutes: 3.8989078915333333
 estimate_hours: 1
 id: B002
 priority: medium
-status: pending
-tags:
-    - flaky
-    - test-infra
+started_at: "2026-07-19T14:47:28Z"
+status: done
+tags: []
 title: audio-session FIFO test asserts a wall-clock bound on a child process spawn (load-flaky)
-updated_at: "2026-07-19T14:29:56Z"
+updated_at: "2026-07-19T14:51:21Z"
 ---
 OBSERVED: 'rejects an existing FIFO promptly without blocking on open' (code/repository/audio-session.test.ts:588) FAILED at 2132ms during a full pnpm check, then passed in isolation on the same commit.
 
