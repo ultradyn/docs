@@ -1,5 +1,6 @@
 export * from "./exact-map.js";
 export * from "./lexical-index.js";
+export * from "./stem-term.js";
 export { createSourceTools } from "./source-tools.js";
 export type {
   SourceTools,

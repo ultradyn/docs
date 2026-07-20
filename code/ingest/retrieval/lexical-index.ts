@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import MiniSearch from "minisearch";
 
+import { processLexicalTerm } from "./stem-term.js";
 import type {
   IngestResult,
   SnapshotId,
@@ -540,6 +541,8 @@ function buildState(
       left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
     );
 
+    // B005: processTerm stems at index time; MiniSearch reuses it for queries
+    // (symmetric). Asymmetric stemming would not recover morphology matches.
     const mini = new MiniSearch<IndexedUnit>({
       fields: ["content", "heading", "path", "kind", "unitId"],
       storeFields: [
@@ -550,6 +553,7 @@ function buildState(
         "sourceFileId",
         "representationId",
       ],
+      processTerm: processLexicalTerm,
       searchOptions: {
         boost: { unitId: 10, path: 4, heading: 3, content: 1, kind: 0.5 },
         prefix: true,

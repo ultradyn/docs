@@ -15,6 +15,7 @@ import {
   CORPUS_GRAPH_SHA256,
   RESEARCHER_ANSWERABLE_PIN,
   RESEARCHER_FALSE_NO_EVIDENCE_PIN,
+  RESEARCHER_FALSE_NEGATIVE_UNIT_IDS,
   RESEARCHER_RECALL_FLOOR,
   RESEARCHER_RECALL_LABELED_PAIRS,
   RESEARCHER_RECALL_TP_PIN,
@@ -95,35 +96,37 @@ describe("live lexical calibration (v1 profile)", () => {
     );
     expect(metrics.answerableQuestionCount).toBe(RESEARCHER_ANSWERABLE_PIN);
     expect(metrics.truePositive).toBe(RESEARCHER_RECALL_TP_PIN);
-    expect(metrics.falseNegative).toBe(2); // MISSES 2 OF 9 — named gap pin
+    expect(metrics.falseNegative).toBe(1); // MISSES 1 OF 9 — unit-18 residual
     expect(metrics.recall).toBeGreaterThanOrEqual(RESEARCHER_RECALL_FLOOR);
     expect(metrics.falseNoEvidenceCount).toBe(
       RESEARCHER_FALSE_NO_EVIDENCE_PIN,
     );
     expect(metrics.falseNoEvidenceRate).toBe(0);
-    // precision reported, not gated — still assert the measured ballpark
+    // precision reported, not gated — stemming raises recall AND noise
     expect(metrics.falsePositive).toBeGreaterThanOrEqual(40);
-    expect(metrics.precision).toBeLessThan(0.2);
+    expect(metrics.precision).toBeLessThan(0.25);
+    // B005: unit-22 must surface (morphology); regression if stemmer unwired
+    expect(metrics.falseNegativeUnitIds).not.toContain("small-unit-22");
   });
 
-  it("names the two known under-retrieval misses (local 18/22)", () => {
+  it("names the sole remaining under-retrieval miss (local 18; 22 recovered)", () => {
     const { cases, documents } = load();
     const local = cases.find((c) => c.caseId === "small-question-local");
+    // Labels still include both 18 and 22 — do not strip 18 to improve the number.
     expect(local?.relevantUnitIds).toEqual(
       expect.arrayContaining(["small-unit-18", "small-unit-22"]),
     );
-    // Pin THE gap set, not merely the count — if retrieval finds 18 and
-    // misses two different units, the documented residual would go stale.
+    // Pin THE gap set, not merely the count — unit-22 must stay recovered.
     const mini = scoreRetrieval(
       cases,
       documents,
       RESEARCHER_RETRIEVAL_PROFILE_V1,
     );
-    expect(mini.falseNegative).toBe(2);
-    expect([...mini.falseNegativeUnitIds].sort()).toEqual([
-      "small-unit-18",
-      "small-unit-22",
+    expect(mini.falseNegative).toBe(1);
+    expect([...mini.falseNegativeUnitIds]).toEqual([
+      ...RESEARCHER_FALSE_NEGATIVE_UNIT_IDS,
     ]);
+    expect(mini.falseNegativeUnitIds).toEqual(["small-unit-18"]);
   });
 
   it("reports metrics by question type with non-empty types", () => {
@@ -192,6 +195,6 @@ describe("profile surface", () => {
     expect(RESEARCHER_RETRIEVAL_PROFILE_V1.maxCandidates).toBe(8);
     expect(RESEARCHER_RETRIEVAL_PROFILE_V1.maxOpenedUnits).toBe(8);
     expect(RESEARCHER_RECALL_FLOOR).toBe(0.7);
-    expect(RESEARCHER_RECALL_TP_PIN).toBe(7);
+    expect(RESEARCHER_RECALL_TP_PIN).toBe(8); // B005 stemmer recovered unit-22
   });
 });
