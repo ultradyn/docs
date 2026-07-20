@@ -1,17 +1,18 @@
 ---
+claimed_at: "2026-07-20T03:57:23Z"
+claimed_by: cli-user
+completed_at: null
 complexity: low
 created_at: "2026-07-19T16:30:58Z"
 depends_on: []
 estimate_hours: 1
 id: B006
 priority: low
-status: pending
-tags:
-    - b003
-    - naming
-    - integration
+started_at: "2026-07-20T03:57:23Z"
+status: in_progress
+tags: []
 title: UntrustedProse hatch is named for model exposure but is the only unwrap path, including for persistence
-updated_at: "2026-07-19T16:30:58Z"
+updated_at: "2026-07-20T03:57:23Z"
 ---
 Found while checking whether T-32-02 proposals can be mapped into T-22-03 ClaimReview records.
 

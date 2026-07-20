@@ -1,17 +1,18 @@
 ---
+claimed_at: "2026-07-20T03:57:23Z"
+claimed_by: cli-user
+completed_at: null
 complexity: low
 created_at: "2026-07-19T16:31:32Z"
 depends_on: []
 estimate_hours: 2
 id: B007
 priority: medium
-status: pending
-tags:
-    - agents
-    - fresh-context
-    - residual
+started_at: "2026-07-20T03:57:23Z"
+status: in_progress
+tags: []
 title: Claim Reviewer nested fresh-context is caller-trusted; scan before wiring a real LLM
-updated_at: "2026-07-19T16:31:32Z"
+updated_at: "2026-07-20T03:57:23Z"
 ---
 Residual accepted at T-32-02 merge, with re-open conditions supplied by pi during independent review.
 

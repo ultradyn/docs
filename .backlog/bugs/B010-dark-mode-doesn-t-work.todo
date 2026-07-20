@@ -1,14 +1,18 @@
 ---
+claimed_at: "2026-07-20T03:57:23Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-07-20T02:54:36Z"
 depends_on: []
 estimate_hours: 1
 id: B010
 priority: high
-status: pending
+started_at: "2026-07-20T03:57:23Z"
+status: in_progress
 tags: []
 title: Dark mode doesn't work
-updated_at: "2026-07-20T02:54:36Z"
+updated_at: "2026-07-20T03:57:23Z"
 ---
 
 Dark mode doesn't work
