@@ -198,4 +198,83 @@ describe("pack application audit (T004)", () => {
     const result = verifyPackSelection(pack);
     expect(result.ok).toBe(true);
   });
+
+  it("B009 DIVERGENCE PIN: multi-id accept/reject refs match listAcceptedClaimIds array semantics", async () => {
+    // Authority is dual-gate membership over application arrays. Refs are a
+    // witness: one PackApplicationRef per (applicationId, claimId) pair
+    // (design B). A single-claimId ref per multi-id application would diverge.
+    const { listAcceptedClaimIds } = await import("./claim-review-service.js");
+    const multiAcceptApp = {
+      schemaVersion: 1 as const,
+      applicationId: "app-multi-accept",
+      reviewApplicationRef: "app-multi-accept",
+      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAD" as ClaimReviewId,
+      // Subject claimId is only A; arrays also accept B (multi-id app).
+      claimId: CLM_A,
+      decision: "accept" as const,
+      acceptedClaimIds: [CLM_A, CLM_B] as ClaimId[],
+      rejectedClaimIds: [] as ClaimId[],
+      splitClaimIds: [] as ClaimId[],
+      provenanceLinks: [],
+      reviewerRunId: "run-reviewer",
+      idempotencyKey: "multi-accept",
+    };
+    const multiRejectApp = {
+      schemaVersion: 1 as const,
+      applicationId: "app-multi-reject",
+      reviewApplicationRef: "app-multi-reject",
+      reviewId: "crv-01ARZ3NDEKTSV4RRFFQ69G5FAE" as ClaimReviewId,
+      // Subject claimId is only REJECTED; arrays also reject B.
+      claimId: CLM_REJECTED,
+      decision: "reject" as const,
+      acceptedClaimIds: [] as ClaimId[],
+      rejectedClaimIds: [CLM_REJECTED, CLM_B] as ClaimId[],
+      splitClaimIds: [] as ClaimId[],
+      provenanceLinks: [],
+      reviewerRunId: "run-reviewer",
+      idempotencyKey: "multi-reject",
+    };
+
+    // Expanded refs (design B): one ref per claimId in the decision arrays.
+    const { expandApplicationToPackRefs } = await import(
+      "./pack-application-audit.js"
+    );
+    const expandedRefs: PackApplicationRef[] = [
+      ...expandApplicationToPackRefs(multiAcceptApp),
+      ...expandApplicationToPackRefs(multiRejectApp),
+    ];
+
+    const authority = listAcceptedClaimIds([multiAcceptApp, multiRejectApp]);
+    const derived = deriveClaimIdsFromApplicationRefs(expandedRefs);
+    // accept{A,B} minus reject{REJECTED,B} → {A}
+    expect(authority).toEqual([CLM_A]);
+    expect(derived).toEqual(authority);
+    expect(expandedRefs).toHaveLength(4);
+
+    // Pre-B009: one ref per application using subject claimId only.
+    // Multi-accept with only A accepted (no multi-reject of B) is the classic
+    // silent drop — authority has A+B, legacy witness has only A.
+    const multiAcceptOnlyAuthority = listAcceptedClaimIds([multiAcceptApp]);
+    const legacyAcceptOnly: PackApplicationRef[] = [
+      {
+        applicationId: multiAcceptApp.applicationId,
+        reviewId: multiAcceptApp.reviewId,
+        claimId: multiAcceptApp.claimId,
+        decision: "accept",
+      },
+    ];
+    expect(multiAcceptOnlyAuthority).toEqual([CLM_A, CLM_B].sort());
+    expect(deriveClaimIdsFromApplicationRefs(legacyAcceptOnly)).toEqual([
+      CLM_A,
+    ]);
+    expect(deriveClaimIdsFromApplicationRefs(legacyAcceptOnly)).not.toEqual(
+      multiAcceptOnlyAuthority,
+    );
+    // Expanded multi-accept alone aligns with authority.
+    expect(
+      deriveClaimIdsFromApplicationRefs(
+        expandApplicationToPackRefs(multiAcceptApp),
+      ),
+    ).toEqual(multiAcceptOnlyAuthority);
+  });
 });

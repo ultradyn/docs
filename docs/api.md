@@ -90,18 +90,21 @@ The browser sends MediaRecorder chunks as they arrive. A successful chunk respon
 
 ## Settings and providers
 
-| Method | Path                            | Purpose                                                                          |
-| ------ | ------------------------------- | -------------------------------------------------------------------------------- |
-| GET    | `/api/settings/schema`          | Rich field metadata, category, scope, defaults, options, restart requirement.    |
-| GET    | `/api/settings`                 | Effective values with `default`, `repo`, or `personal` source.                   |
-| PUT    | `/api/settings`                 | Set `{key,value,scope}`; wrong scope is rejected.                                |
-| GET    | `/api/providers`                | Capability, per-scope consent, and activation status; never secret values.       |
-| POST   | `/api/providers/:id/consent`    | Grant/revoke exactly one `{scope,granted}` personal-consent receipt.             |
-| POST   | `/api/providers/:id/connect`    | Re-inspect the consented credential source; does not launch login/OAuth.         |
-| POST   | `/api/providers/:id/disconnect` | Revoke exactly one `{scope}` receipt; does not log out the provider/client.      |
-| POST   | `/api/providers/:id/test`       | Check consent and local source availability; does not make a live provider call. |
+| Method | Path                                   | Purpose                                                                                                                      |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/settings/schema`                 | Rich field metadata, category, scope, defaults, options, restart requirement.                                                |
+| GET    | `/api/settings`                        | Effective values with `default`, `repo`, or `personal` source.                                                               |
+| PUT    | `/api/settings`                        | Set `{key,value,scope}`; wrong scope is rejected.                                                                            |
+| GET    | `/api/providers`                       | Capability, per-scope consent, and activation status; never secret values.                                                   |
+| POST   | `/api/providers/:id/consent`           | Grant/revoke exactly one `{scope,granted}` personal-consent receipt.                                                         |
+| POST   | `/api/providers/:id/connect`           | Re-inspect the consented credential source; does not launch login/OAuth.                                                     |
+| POST   | `/api/providers/:id/disconnect`        | Revoke exactly one `{scope}` receipt. For OAuth sources, also clears Ultradyn-owned tokens for that flow (not IdP revoke); installed clients are not logged out. |
+| POST   | `/api/providers/:id/test`              | Check consent and local source availability; does not make a live provider call.                                             |
+| POST   | `/api/providers/:id/oauth/start`       | Start browser OAuth (authorization-code + PKCE, loopback redirect) for `xai-oauth` / `openai-oauth`; returns `{authorizeUrl,state}`. |
+| GET    | `/api/providers/:id/oauth/status`      | Report OAuth flow state (`idle` / `pending` / `complete` / `error`) and non-secret flags; never returns token values.        |
+| POST   | `/api/providers/:id/oauth/cancel`      | Cancel a pending OAuth flow and return to idle.                                                                              |
 
-`scope` is one of `model`, `transcription`, or `git-host`, and the source must advertise it. Receipts persist independently, so granting model use cannot authorize transcription or Git hosting. Login invocation, OAuth, and live canaries remain unfinished and are tracked in `BLOCKED_TASKS.md`.
+`scope` is one of `model`, `transcription`, or `git-host`, and the source must advertise it. Receipts persist independently, so granting model use cannot authorize transcription or Git hosting. Browser OAuth sign-in is implemented for `xai-oauth` and `openai-oauth` (see `docs/providers.md`). Installed-client login invocation and live provider canaries remain unfinished and are tracked in `BLOCKED_TASKS.md`.
 
 `identity.actorHandle` is a personal string setting. It accepts an empty value (which disables attributed UI actions) or a canonical lowercase handle up to 96 characters using letters, numbers, `.`, `_`, `:`, and `-`. The browser loads it once into shared application state and refreshes it after settings events. Mutation routes still require their explicit actor field; the setting is not a server-side authentication credential.
 

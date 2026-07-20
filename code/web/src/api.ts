@@ -251,6 +251,7 @@ export function adaptProviders(value: unknown): ProviderStatus[] {
             ? { selectedSource: item.selectedSource }
             : {}),
         fake: item.fake === true || item.fakeAvailable === true,
+        ...(item.oauth === true ? { oauth: true } : {}),
       };
     },
   );
@@ -641,6 +642,30 @@ export class ApiClient {
       method: "POST",
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
+  }
+
+  providerOauthStart(
+    id: string,
+  ): Promise<{ authorizeUrl: string; state: string }> {
+    return this.request<{ authorizeUrl: string; state: string }>(
+      `/api/providers/${encodeURIComponent(id)}/oauth/start`,
+      { method: "POST" },
+    );
+  }
+
+  providerOauthStatus(id: string): Promise<{
+    state: "idle" | "pending" | "complete" | "error";
+    detail?: string;
+    authorizeUrl?: string;
+  }> {
+    return this.request(`/api/providers/${encodeURIComponent(id)}/oauth/status`);
+  }
+
+  providerOauthCancel(id: string): Promise<{ ok: true }> {
+    return this.request<{ ok: true }>(
+      `/api/providers/${encodeURIComponent(id)}/oauth/cancel`,
+      { method: "POST" },
+    );
   }
 
   maintenance(): Promise<MaintenanceState> {

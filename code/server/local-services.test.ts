@@ -2222,6 +2222,7 @@ describe("persistent local HTTP workflow", () => {
     expect(proposal.json().changeRequest.diff).toContain("/agent.md");
     expect(proposal.json().changeRequest.diff).toContain("/schema.json");
     expect(proposal.json().changeRequest.diff).toContain("001-input.json");
+    expect(proposal.json().changeRequest.diff).toContain("Fixture 1 result");
     await expect(
       readFile(join(root, "agents", proposal.json().agent, "agent.md"), "utf8"),
     ).rejects.toMatchObject({
@@ -2242,6 +2243,147 @@ describe("persistent local HTTP workflow", () => {
     await expect(
       readFile(join(root, "agents", proposal.json().agent, "agent.md"), "utf8"),
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("invokes Agent-Smith with fresh evaluators and merges approved agent proposals", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-local-agent-smith-"));
+    await cp(shippedAgentsRoot, join(root, "agents"), { recursive: true });
+    const llm = new FakeLlmProvider({
+      outputs: [
+        {
+          name: "recovery-explainer",
+          agentMarkdown:
+            "Explain recovery decisions from a constrained repository view only. Return a schema-valid result and never receive credentials.",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["decision"],
+            properties: {
+              decision: { type: "string", minLength: 1 },
+            },
+          },
+          fixtures: [
+            {
+              input: { case: "checkpoint" },
+              expected: { decision: "replay-checkpoint" },
+            },
+            {
+              input: { case: "corrupt-tail" },
+              expected: { decision: "discard-tail" },
+            },
+            {
+              input: { case: "missing-receipt" },
+              expected: { decision: "require-receipt" },
+            },
+          ],
+        },
+        { approved: true, findings: [] },
+        {
+          summary: "Adds the recovery-explainer agent definition and fixtures.",
+          changes: [
+            "Creates agents/recovery-explainer/agent.md",
+            "Creates schema and three golden fixtures",
+          ],
+          risks: [],
+        },
+        {
+          satisfied: true,
+          reason:
+            "The proposed agent definition covers the agent-maintenance goal.",
+          goalResults: [
+            {
+              goal: "agent-maintenance",
+              satisfied: true,
+              rationale:
+                "Prompt, schema, and fixtures for recovery-explainer are present.",
+            },
+          ],
+        },
+      ],
+    });
+    const app = await server(root, { llmProvider: llm });
+
+    const proposal = await app.inject({
+      method: "POST",
+      url: "/api/agents/agent-smith",
+      payload: {
+        mode: "create",
+        request:
+          "Explain recovery decisions from a constrained repository view.",
+      },
+    });
+    expect(proposal.statusCode, proposal.body).toBe(201);
+    expect(proposal.json()).toMatchObject({
+      agent: "recovery-explainer",
+      changeRequest: {
+        state: "open",
+        checks: expect.arrayContaining([
+          expect.objectContaining({ id: "reviewer", status: "passed" }),
+          expect.objectContaining({ id: "diff-summary", status: "passed" }),
+          expect.objectContaining({
+            id: "simulated-asker",
+            status: "passed",
+          }),
+        ]),
+      },
+    });
+    expect(proposal.json().changeRequest.diff).toContain(
+      "replay-checkpoint",
+    );
+    expect(proposal.json().changeRequest.diff).not.toContain(
+      "Fixture 1 result",
+    );
+    expect(llm.requests.map((request) => request.agent.name)).toEqual([
+      "agent-smith",
+      "reviewer",
+      "diff-summarizer",
+      "simulated-asker",
+    ]);
+    const simulatedAskerInput = JSON.parse(
+      llm.requests[3]?.messages.find((message) => message.role === "user")
+        ?.content ?? "{}",
+    ) as {
+      postDiffDocumentation?: Array<{ path: string; content: string }>;
+    };
+    expect(simulatedAskerInput.postDiffDocumentation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "agents/recovery-explainer/agent.md",
+        }),
+        expect.objectContaining({
+          path: "agents/recovery-explainer/schema.json",
+        }),
+      ]),
+    );
+
+    const changeRequestId = proposal.json().changeRequest.id as string;
+    const approved = await app.inject({
+      method: "POST",
+      url: `/api/change-requests/${changeRequestId}/approve`,
+      payload: { by: "maintainer", kind: "maintainer" },
+    });
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect(approved.json().state).toBe("approved");
+
+    const merged = await app.inject({
+      method: "POST",
+      url: `/api/change-requests/${changeRequestId}/merge`,
+      payload: { by: "maintainer" },
+    });
+    expect(merged.statusCode, merged.body).toBe(200);
+    expect(merged.json().state).toBe("merged");
+    expect(
+      await readFile(
+        join(root, "agents", "recovery-explainer", "agent.md"),
+        "utf8",
+      ),
+    ).toContain("constrained repository view");
+    expect(
+      await readFile(
+        join(root, "agents", "recovery-explainer", "fixtures", "001-expected.json"),
+        "utf8",
+      ),
+    ).toContain("replay-checkpoint");
   });
 
   it("reports a malformed agent directory as an invalid agent row", async () => {

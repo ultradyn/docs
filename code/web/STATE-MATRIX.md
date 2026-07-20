@@ -14,7 +14,7 @@
 | Offline/permission | Recovery does not depend on the failed API and does not write portable settings.           | Component and security review            |
 | Save interrupted   | Draft values and Unsaved changes remain; ambiguous transport failures never replay writes. | Web route and API contract tests         |
 | Stream dropped     | The client bootstraps until the server returns, then opens a replacement SSE stream.        | API contract test                        |
-| Theme              | Uses semantic light-theme tokens; current app has no implemented dark theme.               | `src/styles.css`                         |
+| Theme              | `appearance.theme` resolves to `data-theme=light\|dark` (system follows `prefers-color-scheme`) and swaps semantic CSS tokens. | `src/theme.ts`, `src/styles.css` |
 
 ## Shared combobox states
 

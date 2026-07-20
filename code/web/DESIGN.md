@@ -45,9 +45,9 @@ Focus uses the global high-contrast outline. Error red is reserved for the
 failed resource; the connection surface remains neutral so it reads as a
 recovery tool rather than another failure.
 
-The current repository has a light-only visual implementation. Dark-theme work
-is intentionally not invented in this bug fix; all additions use semantic
-tokens so a future theme can map them without component rewrites.
+Appearance is driven by semantic CSS tokens under `:root` / `[data-theme]`.
+`appearance.theme` (`system` | `light` | `dark`) resolves to `data-theme` on
+the document root so components need no theme-specific rewrites.
 
 ## Components, behavior, and motion
 

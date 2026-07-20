@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleDashed,
   FileText,
+  Library,
   Lightbulb,
   MessageCircleMore,
   Sparkles,
@@ -251,6 +252,22 @@ export function AskPage() {
               </button>
             ))}
           </div>
+          <Card className="ask-sources-card">
+            <span className="guide-icon">
+              <Library aria-hidden="true" size={20} />
+            </span>
+            <div>
+              <h3>How to ingest sources</h3>
+              <p>
+                Answers come from the bound documentation repository. There is
+                no separate upload form yet—open Sources for the honest path
+                into the repo, maintenance cursors, and settings.
+              </p>
+              <Link className="button button-secondary" to="/ingest">
+                Open Sources <ChevronRight aria-hidden="true" size={15} />
+              </Link>
+            </div>
+          </Card>
         </section>
       ) : (
         <section

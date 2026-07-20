@@ -13,6 +13,7 @@ import {
 } from "../api-context.js";
 import { AskPage } from "./AskPage.js";
 import { AnswerPage } from "./AnswerPage.js";
+import { IngestPage } from "./IngestPage.js";
 import { MaintenancePage } from "./MaintenancePage.js";
 import { QueuePage } from "./QueuePage.js";
 import { SettingsPage } from "./SettingsPage.js";
@@ -31,19 +32,23 @@ function renderRoute(
     status: "configured",
     handle: "alex.review-1",
   },
+  extras: Partial<Pick<ApiContextValue, "refreshTheme">> = {},
+  options: { maintenanceEnabled?: boolean } = {},
 ) {
   const context: ApiContextValue = {
     api,
     runtime: {
-      maintenanceEnabled: true,
+      maintenanceEnabled: options.maintenanceEnabled ?? true,
       demoMode: true,
       repoRoot: "~/network-docs",
       version: "test",
     },
     refreshRuntime: async () => undefined,
     refreshActorIdentity: async () => undefined,
+    refreshTheme: async () => undefined,
     actorIdentity,
     eventConnected: true,
+    ...extras,
   };
   return render(
     <ApiContext.Provider value={context}>
@@ -483,12 +488,222 @@ describe("primary web routes", () => {
 
     expect(screen.getByText("Exact activation checklist")).toBeTruthy();
     expect(
-      screen.getByText(/Register a loopback-capable xAI OAuth client/),
+      screen.getByText(/Complete the browser sign-in from this page/),
     ).toBeTruthy();
     expect(
       screen.getAllByText("Fake contract available").length,
     ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Test contract" })).toBeTruthy();
+  });
+
+  it("starts OAuth sign-in, polls to completion, and keeps consent separate", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ clientDemo: true });
+    const open = vi.fn();
+    vi.stubGlobal("open", open);
+
+    const oauthProviders = [
+      {
+        id: "xai-oauth",
+        kind: "model" as const,
+        label: "xAI",
+        description: "OAuth source",
+        availability: "activation_required" as const,
+        connection: "disconnected" as const,
+        consent: "required" as const,
+        oauth: true,
+        fake: true,
+      },
+      {
+        id: "plain",
+        kind: "model" as const,
+        label: "Plain local",
+        description: "No OAuth",
+        availability: "available" as const,
+        connection: "disconnected" as const,
+        consent: "required" as const,
+        fake: true,
+      },
+    ];
+
+    type OauthStatus = {
+      state: "idle" | "pending" | "complete" | "error";
+      detail?: string;
+      authorizeUrl?: string;
+    };
+    const statusWaiters: Array<(value: OauthStatus) => void> = [];
+    const providers = vi
+      .spyOn(api, "providers")
+      .mockResolvedValue(oauthProviders);
+    const start = vi.spyOn(api, "providerOauthStart").mockResolvedValue({
+      authorizeUrl: "https://auth.example/oauth?state=abc",
+      state: "abc",
+    });
+    const status = vi.spyOn(api, "providerOauthStatus").mockImplementation(
+      () =>
+        new Promise<OauthStatus>((resolve) => {
+          statusWaiters.push(resolve);
+        }),
+    );
+    const cancel = vi
+      .spyOn(api, "providerOauthCancel")
+      .mockResolvedValue({ ok: true });
+
+    renderRoute(<SettingsPage />, "/", "*", api);
+
+    await user.click(await screen.findByRole("tab", { name: "Connections" }));
+    await user.click(await screen.findByRole("button", { name: /xAI/ }));
+
+    expect(
+      screen.getByRole("button", { name: "Sign in with xAI" }),
+    ).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: /Plain local/ }));
+    expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /xAI/ }));
+
+    await user.click(screen.getByRole("button", { name: "Sign in with xAI" }));
+
+    expect(start).toHaveBeenCalledWith("xai-oauth");
+    expect(open).toHaveBeenCalledWith(
+      "https://auth.example/oauth?state=abc",
+      "_blank",
+      "noopener",
+    );
+    expect(await screen.findByText("Waiting for sign-in…")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Re-open sign-in page" }),
+    ).toBeTruthy();
+    // Pending UI is shown before the first status poll resolves.
+    await waitFor(() => expect(statusWaiters.length).toBeGreaterThan(0));
+    statusWaiters.shift()?.({ state: "complete" });
+
+    await waitFor(() =>
+      expect(screen.getByText("Sign-in complete")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText(/Consent scopes still need to be granted/i),
+    ).toBeTruthy();
+    // reload() bumps revision in the same batch as setMessage; wait for the
+    // effect that re-fetches providers rather than racing the next paint.
+    await waitFor(() => expect(providers.mock.calls.length).toBeGreaterThan(1));
+    expect(cancel).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalled();
+  });
+
+  it("surfaces OAuth errors and cancels a pending sign-in", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ clientDemo: true });
+    vi.stubGlobal("open", vi.fn());
+
+    vi.spyOn(api, "providers").mockResolvedValue([
+      {
+        id: "openai-oauth",
+        kind: "model",
+        label: "ChatGPT",
+        description: "OAuth source",
+        availability: "activation_required",
+        connection: "disconnected",
+        consent: "required",
+        oauth: true,
+        fake: true,
+      },
+    ]);
+    vi.spyOn(api, "providerOauthStart").mockResolvedValue({
+      authorizeUrl: "#/settings",
+      state: "demo",
+    });
+    type OauthStatus = {
+      state: "idle" | "pending" | "complete" | "error";
+      detail?: string;
+      authorizeUrl?: string;
+    };
+    const statusWaiters: Array<(value: OauthStatus) => void> = [];
+    const status = vi.spyOn(api, "providerOauthStatus").mockImplementation(
+      () =>
+        new Promise<OauthStatus>((resolve) => {
+          statusWaiters.push(resolve);
+        }),
+    );
+    const cancel = vi
+      .spyOn(api, "providerOauthCancel")
+      .mockResolvedValue({ ok: true });
+
+    renderRoute(<SettingsPage />, "/", "*", api);
+
+    await user.click(await screen.findByRole("tab", { name: "Connections" }));
+    await user.click(await screen.findByRole("button", { name: /ChatGPT/ }));
+    await user.click(
+      screen.getByRole("button", { name: "Sign in with ChatGPT" }),
+    );
+
+    expect(await screen.findByText("Waiting for sign-in…")).toBeTruthy();
+    await waitFor(() => expect(statusWaiters.length).toBeGreaterThan(0));
+    statusWaiters.shift()?.({
+      state: "error",
+      detail: "Authorization was denied by the provider.",
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByText("Authorization was denied by the provider.").length,
+      ).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText("Waiting for sign-in…")).toBeNull();
+
+    // Retry into a hanging pending poll, then cancel.
+    await user.click(
+      screen.getByRole("button", { name: "Sign in with ChatGPT" }),
+    );
+    expect(await screen.findByText("Waiting for sign-in…")).toBeTruthy();
+    await waitFor(() => expect(statusWaiters.length).toBeGreaterThan(0));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(cancel).toHaveBeenCalledWith("openai-oauth");
+    await waitFor(() =>
+      expect(screen.queryByText("Waiting for sign-in…")).toBeNull(),
+    );
+    expect(status).toHaveBeenCalled();
+  });
+
+  it("refreshes the document theme after saving appearance.theme", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ clientDemo: true });
+    const refreshTheme = vi.fn(async () => undefined);
+    vi.spyOn(api, "settings").mockResolvedValue({
+      values: { "appearance.theme": "system" },
+    });
+    vi.spyOn(api, "settingSchema").mockResolvedValue([
+      {
+        key: "appearance.theme",
+        label: "Color theme",
+        description:
+          "Use the operating-system theme or force a light or dark interface.",
+        category: "Appearance",
+        scope: "personal",
+        type: "select",
+        defaultValue: "system",
+        options: [
+          { value: "system", label: "System" },
+          { value: "light", label: "Light" },
+          { value: "dark", label: "Dark" },
+        ],
+      },
+    ]);
+    vi.spyOn(api, "providers").mockResolvedValue([]);
+    const save = vi.spyOn(api, "settingsSave").mockResolvedValue({
+      values: { "appearance.theme": "dark" },
+    });
+    renderRoute(<SettingsPage />, "/", "*", api, undefined, { refreshTheme });
+
+    const theme = await screen.findByRole("combobox", { name: "Color theme" });
+    await user.click(theme);
+    await user.click(screen.getByRole("option", { name: "Dark" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(save).toHaveBeenCalledWith(
+      { "appearance.theme": "dark" },
+      { "appearance.theme": "personal" },
+    );
+    expect(refreshTheme).toHaveBeenCalledTimes(1);
   });
 
   it("identifies restart-required settings and announces a restart after saving", async () => {
@@ -726,5 +941,56 @@ describe("primary web routes", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+  });
+
+  it("surfaces ingest discovery from the Ask landing page", async () => {
+    renderRoute(<AskPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "How to ingest sources" }),
+    ).toBeTruthy();
+    const sources = screen.getByRole("link", { name: /Open Sources/ });
+    expect(sources.getAttribute("href")).toBe("/ingest");
+  });
+
+  it("explains sources honestly and deep-links when maintenance is on", async () => {
+    renderRoute(<IngestPage />, "/ingest", "/ingest");
+
+    expect(
+      await screen.findByRole("heading", { name: "Sources & ingest" }),
+    ).toBeTruthy();
+    expect(screen.getByText("No separate upload pipeline yet")).toBeTruthy();
+    expect(screen.getAllByText("~/network-docs").length).toBeGreaterThan(0);
+    const maintenance = screen.getByRole("link", {
+      name: "Open Maintenance source tools",
+    });
+    expect(maintenance.getAttribute("href")).toBe("/maintenance");
+  });
+
+  it("routes maintenance-off users to Settings for source tools", async () => {
+    renderRoute(
+      <IngestPage />,
+      "/ingest",
+      "/ingest",
+      new ApiClient({ clientDemo: true }),
+      {
+        status: "configured",
+        handle: "alex.review-1",
+      },
+      {},
+      { maintenanceEnabled: false },
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Sources & ingest" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Maintenance off")).toBeTruthy();
+    const settings = screen.getByRole("link", {
+      name: "Open Settings to enable maintenance",
+    });
+    expect(settings.getAttribute("href")).toBe("/settings");
+    expect(screen.getAllByText(/server\.maintenance/).length).toBeGreaterThan(
+      0,
+    );
   });
 });

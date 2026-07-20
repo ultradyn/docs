@@ -34,10 +34,29 @@ describe("application navigation", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
-    for (const label of ["Ask", "Queue", "Answer", "Settings", "Maintenance"]) {
+    for (const label of [
+      "Ask",
+      "Queue",
+      "Answer",
+      "Sources",
+      "Settings",
+      "Maintenance",
+    ]) {
       const link = screen.getByRole("link", { name: label });
       expect(link.getAttribute("aria-label")).toBe(label);
       expect(link.getAttribute("title")).toBe(label);
     }
+  });
+
+  it("always exposes Sources for ingest discovery", () => {
+    render(
+      <MemoryRouter>
+        <Navigation maintenanceEnabled={false} />
+      </MemoryRouter>,
+    );
+
+    const sources = screen.getByRole("link", { name: "Sources" });
+    expect(sources.getAttribute("href")).toBe("/ingest");
+    expect(screen.queryByText("Maintenance")).toBeNull();
   });
 });

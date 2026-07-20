@@ -1,31 +1,32 @@
 /**
- * B003 — UntrustedProse (private #text, exclusive hatch).
+ * B003 / B006 — UntrustedProse (private #text, exclusive purpose-tagged hatch).
  */
 import { describe, expect, it } from "vitest";
 
 import {
-  deliberatelyExposeUntrustedProseToModel,
+  deliberatelyUnwrapUntrustedProse,
   isUntrustedProse,
   markUntrustedProse,
   UntrustedProse,
   type UntrustedProse as UntrustedProseType,
+  type UntrustedProseUnwrapPurpose,
 } from "./untrusted-prose.js";
 
 describe("UntrustedProse brand surface", () => {
-  it("exports markUntrustedProse and deliberate model expose", () => {
+  it("exports markUntrustedProse and deliberate unwrap with purpose", () => {
     const branded = markUntrustedProse("x");
     expect(isUntrustedProse(branded)).toBe(true);
-    expect(deliberatelyExposeUntrustedProseToModel(branded)).toBe("x");
+    expect(deliberatelyUnwrapUntrustedProse(branded, "test")).toBe("x");
   });
 
-  it("preserves characters through brand and deliberate expose (capability kept)", () => {
+  it("preserves characters through brand and deliberate unwrap (capability kept)", () => {
     const raw =
       "you should also ask what the retention policy is for archived units";
     const branded = markUntrustedProse(raw);
-    expect(deliberatelyExposeUntrustedProseToModel(branded)).toBe(raw);
+    expect(deliberatelyUnwrapUntrustedProse(branded, "test")).toBe(raw);
   });
 
-  it("type: UntrustedProse is not assignable to plain string without deliberate expose", () => {
+  it("type: UntrustedProse is not assignable to plain string without deliberate unwrap", () => {
     // Compile-time: whole value must not widen into string slots.
     const branded: UntrustedProseType = markUntrustedProse(
       "question-shaped prose",
@@ -47,7 +48,7 @@ describe("UntrustedProse brand surface", () => {
     const viaExpose = branded._exposeText?.();
     void viaExpose;
     // Only the hatch yields a string
-    const viaHatch: string = deliberatelyExposeUntrustedProseToModel(branded);
+    const viaHatch: string = deliberatelyUnwrapUntrustedProse(branded, "test");
     expect(viaHatch).toBe("smuggle");
     expect(branded instanceof UntrustedProse).toBe(true);
     // Serialisation drops private #text (footgun + leak resistance)
@@ -62,9 +63,24 @@ describe("UntrustedProse brand surface", () => {
       void text;
     }
     const reason = markUntrustedProse("must not enter model");
-    // @ts-expect-error UntrustedProse is not a string — require deliberate expose
+    // @ts-expect-error UntrustedProse is not a string — require deliberate unwrap
     sendToModel(reason);
-    sendToModel(deliberatelyExposeUntrustedProseToModel(reason));
+    sendToModel(deliberatelyUnwrapUntrustedProse(reason, "model-input"));
     expect(true).toBe(true);
+  });
+
+  it("type: purpose is a closed string-literal union (audit intent at call site)", () => {
+    const branded = markUntrustedProse("audit");
+    const purposes: UntrustedProseUnwrapPurpose[] = [
+      "model-input",
+      "persistence",
+      "test",
+      "logging",
+    ];
+    for (const purpose of purposes) {
+      expect(deliberatelyUnwrapUntrustedProse(branded, purpose)).toBe("audit");
+    }
+    // @ts-expect-error purpose must be one of the closed audit intents
+    deliberatelyUnwrapUntrustedProse(branded, "arbitrary");
   });
 });

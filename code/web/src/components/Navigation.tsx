@@ -2,6 +2,7 @@ import {
   AudioLines,
   CircleHelp,
   ClipboardList,
+  Library,
   Settings,
   ShieldCheck,
   type LucideIcon,
@@ -23,6 +24,7 @@ export function Navigation({ maintenanceEnabled }: NavigationProps) {
     { to: "/ask", label: "Ask", icon: CircleHelp },
     { to: "/queue", label: "Queue", icon: ClipboardList },
     { to: "/answer", label: "Answer", icon: AudioLines },
+    { to: "/ingest", label: "Sources", icon: Library },
     { to: "/settings", label: "Settings", icon: Settings },
   ];
   if (maintenanceEnabled)

@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import Ajv2020Module from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
+import { resolveShippedPath } from "../../shared/shipped-layout.js";
 import {
   PolicyApprovalSchema,
   digestPolicyApprovalPayload,
@@ -12,6 +14,8 @@ import {
   DataRightsPolicyProfileSchema,
   digestDataRightsPolicyProfile,
 } from "./data-rights-policy-profile.js";
+
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 const HUMAN = "alex.review-1";
 
@@ -68,9 +72,7 @@ const approval = {
 function portable(name: string) {
   return JSON.parse(
     readFileSync(
-      fileURLToPath(
-        new URL(`../../../scaffold/schemas/ingest/${name}`, import.meta.url),
-      ),
+      resolveShippedPath(repositoryRoot, "schemas", "ingest", name),
       "utf8",
     ),
   );

@@ -162,6 +162,7 @@ export interface ProviderStatus {
   credentialSources?: string[];
   selectedSource?: string;
   fake?: boolean;
+  oauth?: boolean;
 }
 
 export interface MaintenanceTask {

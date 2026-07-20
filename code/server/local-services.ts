@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { simpleGit } from "simple-git";
 import { ulid } from "ulid";
 import writeFileAtomic from "write-file-atomic";
+import { z } from "zod";
 
 import {
   ActorHandleSchema,
@@ -20,6 +21,7 @@ import {
 import {
   ChangeRequestBlockedError,
   LocalChangeRequestManager,
+  type LocalChangeRequest,
 } from "../integration/index.js";
 import {
   CredentialSourceRegistry,
@@ -27,13 +29,24 @@ import {
   CredentialUnavailableError,
   FakeGitHostProvider,
   FfmpegCodecProvider,
+  FileOAuthTokenStore,
   GhCliGitHostProvider,
+  OAUTH_FLOWS,
+  OAuthError,
+  OAuthTokenCredentialSource,
+  OPENAI_OAUTH_FLOW,
+  XAI_OAUTH_FLOW,
   createEnvironmentCredentialSources,
   createInstalledClientCredentialSources,
+  getOAuthFlow,
+  runOAuthFlow,
+  startLoopbackListener,
   type CredentialSource,
   type CredentialSourceDescription,
   type GitHostProvider,
   type LlmProvider,
+  type LoopbackListener,
+  type OAuthTokenSet,
 } from "../providers/index.js";
 import {
   FileAudioSessionStore,
@@ -86,6 +99,14 @@ export interface CreateLocalServicesOptions {
   gitHostProvider?: GitHostProvider;
   llmProvider?: LlmProvider;
   allowFakeMedia?: boolean;
+  /** Injectable fetch for OAuth token exchange (tests). */
+  fetch?: typeof globalThis.fetch;
+  /** Injectable loopback factory for OAuth (tests). */
+  startOAuthListener?: (options: {
+    path: string;
+    port?: number;
+    timeoutMs?: number;
+  }) => Promise<LoopbackListener>;
 }
 
 interface TranscriptMetadata {
@@ -147,6 +168,113 @@ function normalizeGoalIdentifier(value: string): string {
     );
   }
   return id;
+}
+
+const AGENT_SMITH_CONSTRAINTS = [
+  "deterministic fixtures",
+  "no secrets or credentials",
+  "strict JSON Schema",
+  "fresh-context evaluators only",
+] as const;
+
+const AgentSmithProposalSchema = z.object({
+  name: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+  agentMarkdown: z.string().min(1),
+  schema: z.record(z.string(), z.unknown()),
+  fixtures: z
+    .array(
+      z.object({
+        input: z.record(z.string(), z.unknown()),
+        expected: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .min(3),
+});
+
+function ensureAgentMarkdown(
+  name: string,
+  agentMarkdown: string,
+  request: string,
+): string {
+  const trimmed = agentMarkdown.trim();
+  if (/^---\r?\n/u.test(trimmed)) {
+    return `${trimmed}\n`;
+  }
+  return `---\nname: ${name}\ndescription: ${JSON.stringify(request.trim())}\ninputPolicy: agent-smith\nmaxAttempts: 2\n---\n\n${trimmed}\n`;
+}
+
+function filesFromAgentSmithProposal(
+  proposal: z.infer<typeof AgentSmithProposalSchema>,
+  request: string,
+): Array<{ path: string; content: string }> {
+  const { name } = proposal;
+  const files: Array<{ path: string; content: string }> = [
+    {
+      path: `agents/${name}/agent.md`,
+      content: ensureAgentMarkdown(name, proposal.agentMarkdown, request),
+    },
+    {
+      path: `agents/${name}/schema.json`,
+      content: `${JSON.stringify(proposal.schema, null, 2)}\n`,
+    },
+  ];
+  proposal.fixtures.forEach((fixture, index) => {
+    const ordinal = String(index + 1).padStart(3, "0");
+    files.push(
+      {
+        path: `agents/${name}/fixtures/${ordinal}-input.json`,
+        content: `${JSON.stringify(fixture.input, null, 2)}\n`,
+      },
+      {
+        path: `agents/${name}/fixtures/${ordinal}-expected.json`,
+        content: `${JSON.stringify(fixture.expected, null, 2)}\n`,
+      },
+    );
+  });
+  return files;
+}
+
+function offlineAgentCreateFiles(
+  name: string,
+  request: string,
+): Array<{ path: string; content: string }> {
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["result"],
+    properties: { result: { type: "string", minLength: 1 } },
+  };
+  const files: Array<{ path: string; content: string }> = [
+    {
+      path: `agents/${name}/agent.md`,
+      content: `---\nname: ${name}\ndescription: ${JSON.stringify(request.trim())}\ninputPolicy: agent-smith\nmaxAttempts: 2\n---\n\n${request.trim()}\n\nReturn only the narrow, schema-valid result. Never receive or infer credentials.\n`,
+    },
+    {
+      path: `agents/${name}/schema.json`,
+      content: `${JSON.stringify(schema, null, 2)}\n`,
+    },
+  ];
+  for (let fixture = 1; fixture <= 3; fixture += 1) {
+    const ordinal = String(fixture).padStart(3, "0");
+    files.push(
+      {
+        path: `agents/${name}/fixtures/${ordinal}-input.json`,
+        content: `${JSON.stringify(
+          {
+            request: `Fixture ${fixture}: ${request.trim()}`,
+            constraints: ["deterministic", "no secrets", "structured output"],
+          },
+          null,
+          2,
+        )}\n`,
+      },
+      {
+        path: `agents/${name}/fixtures/${ordinal}-expected.json`,
+        content: `${JSON.stringify({ result: `Fixture ${fixture} result` }, null, 2)}\n`,
+      },
+    );
+  }
+  return files;
 }
 
 function humanIdentity(value: string): { id: string; displayName?: string } {
@@ -367,6 +495,13 @@ function providerKind(
 function activationChecklist(
   description: CredentialSourceDescription,
 ): string[] {
+  if (description.id in OAUTH_FLOWS) {
+    return [
+      "Complete the browser sign-in from this page",
+      "Grant scoped discovery consent here",
+      "Run the provider capability test before selection",
+    ];
+  }
   if (description.id === "grok-auth-file") {
     return [
       "Run `grok login --device-auth` in a trusted terminal",
@@ -386,6 +521,19 @@ function activationChecklist(
     "Grant scoped discovery consent here",
     "Run the provider capability test before selection",
   ];
+}
+
+type OAuthSessionPhase = "pending" | "complete" | "error";
+
+interface OAuthSession {
+  phase: OAuthSessionPhase;
+  authorizeUrl?: string;
+  state?: string;
+  detail?: string;
+  listener?: LoopbackListener | undefined;
+  flowPromise: Promise<void>;
+  /** Rejects oauthStart if cancel wins the race before presentUrl. */
+  rejectStart?: ((error: unknown) => void) | undefined;
 }
 
 function githubRepositoryFromRemote(remote: string): string | undefined {
@@ -423,17 +571,36 @@ export async function createLocalServices(
   const agentsRoot = join(options.repoRoot, "agents");
   const ffmpeg = new FfmpegCodecProvider();
   const documentation = new DocumentationIndex(options.repoRoot);
+  const oauthTokenStore = new FileOAuthTokenStore(
+    join(options.dataRoot, "oauth"),
+  );
+  const oauthFetch = options.fetch;
+  const defaultOAuthSources = [
+    new OAuthTokenCredentialSource({
+      store: oauthTokenStore,
+      config: XAI_OAUTH_FLOW,
+      ...(oauthFetch ? { fetch: oauthFetch } : {}),
+    }),
+    new OAuthTokenCredentialSource({
+      store: oauthTokenStore,
+      config: OPENAI_OAUTH_FLOW,
+      ...(oauthFetch ? { fetch: oauthFetch } : {}),
+    }),
+  ];
   const credentialSources = options.credentialSources ?? [
     ...createEnvironmentCredentialSources(),
     ...createInstalledClientCredentialSources(),
+    ...defaultOAuthSources,
   ];
   const providerRuntime = createDefaultProviderRuntimeFactory({
     repoRoot: options.repoRoot,
     dataRoot: options.dataRoot,
     credentialSources,
+    ...(oauthFetch ? { fetch: oauthFetch } : {}),
   });
   const credentials: CredentialSourceRegistry = providerRuntime.credentials;
   const fakeGitHost = new FakeGitHostProvider();
+  const oauthSessions = new Map<string, OAuthSession>();
 
   async function selectedGitHost(): Promise<GitHostProvider> {
     if (options.gitHostProvider) return options.gitHostProvider;
@@ -936,10 +1103,203 @@ export async function createLocalServices(
       fakeAvailable: true,
       capabilities: [...description.scopes],
       consentScopes,
+      ...(description.id in OAUTH_FLOWS ? { oauth: true as const } : {}),
       ...(ready
         ? {}
         : { activationChecklist: activationChecklist(description) }),
     };
+  }
+
+  async function oauthStart(
+    id: string,
+  ): Promise<{ authorizeUrl: string; state: string }> {
+    const description = credentials
+      .descriptions()
+      .find((candidate) => candidate.id === id);
+    if (!description) {
+      throw new ServiceError(
+        `Unknown provider ${id}`,
+        404,
+        "provider_not_found",
+      );
+    }
+    let config;
+    try {
+      config = getOAuthFlow(id);
+    } catch {
+      throw new ServiceError(
+        `${description.label} does not support browser OAuth sign-in.`,
+        400,
+        "oauth_not_supported",
+      );
+    }
+
+    const existing = oauthSessions.get(id);
+    if (
+      existing?.phase === "pending" &&
+      existing.authorizeUrl &&
+      existing.state
+    ) {
+      return { authorizeUrl: existing.authorizeUrl, state: existing.state };
+    }
+
+    let resolvePresented!: (value: {
+      authorizeUrl: string;
+      state: string;
+    }) => void;
+    let rejectPresented!: (error: unknown) => void;
+    const presented = new Promise<{ authorizeUrl: string; state: string }>(
+      (resolve, reject) => {
+        resolvePresented = resolve;
+        rejectPresented = reject;
+      },
+    );
+
+    const session: OAuthSession = {
+      phase: "pending",
+      flowPromise: Promise.resolve(),
+      rejectStart: rejectPresented,
+    };
+    oauthSessions.set(id, session);
+
+    const flowPromise = (async () => {
+      let ownedListener: LoopbackListener | undefined;
+      try {
+        // Always own the listener so cancel/complete can close the HTTP server.
+        const startListener =
+          options.startOAuthListener ?? startLoopbackListener;
+        ownedListener = await startListener({
+          path: config.redirectPath,
+          ...(config.fixedPort !== undefined
+            ? { port: config.fixedPort }
+            : {}),
+          timeoutMs: 3 * 60 * 1000,
+        });
+        session.listener = ownedListener;
+        const tokens: OAuthTokenSet = await runOAuthFlow({
+          config,
+          listener: ownedListener,
+          ...(oauthFetch ? { fetch: oauthFetch } : {}),
+          presentUrl: (url) => {
+            const authorizeUrl = url;
+            const state =
+              new URL(authorizeUrl).searchParams.get("state") ?? "";
+            session.authorizeUrl = authorizeUrl;
+            session.state = state;
+            delete session.rejectStart;
+            resolvePresented({ authorizeUrl, state });
+          },
+        });
+        await oauthTokenStore.set(id, tokens);
+        session.phase = "complete";
+        delete session.detail;
+      } catch (error) {
+        // Cancel deletes the session before closing; don't overwrite that.
+        if (!oauthSessions.has(id)) return;
+        if (session.phase === "pending") {
+          session.phase = "error";
+          if (error instanceof OAuthError) {
+            session.detail = error.errorDescription ?? error.message;
+          } else if (error instanceof Error) {
+            // Loopback close during cancel surfaces a closed-listener error;
+            // only keep it if the session is still tracked as pending.
+            session.detail = error.message;
+          } else {
+            session.detail = "OAuth sign-in failed.";
+          }
+        }
+        rejectPresented(error);
+      } finally {
+        if (ownedListener) {
+          await ownedListener.close().catch(() => undefined);
+          delete session.listener;
+        }
+      }
+    })();
+    session.flowPromise = flowPromise;
+    void flowPromise.catch(() => undefined);
+
+    try {
+      return await presented;
+    } catch (error) {
+      if (error instanceof ServiceError) throw error;
+      throw new ServiceError(
+        error instanceof Error
+          ? error.message
+          : "OAuth sign-in failed to start.",
+        500,
+        "oauth_start_failed",
+      );
+    }
+  }
+
+  async function oauthStatus(id: string): Promise<{
+    state: "idle" | "pending" | "complete" | "error";
+    detail?: string;
+    authorizeUrl?: string;
+  }> {
+    const description = credentials
+      .descriptions()
+      .find((candidate) => candidate.id === id);
+    if (!description) {
+      throw new ServiceError(
+        `Unknown provider ${id}`,
+        404,
+        "provider_not_found",
+      );
+    }
+    if (!(id in OAUTH_FLOWS)) {
+      throw new ServiceError(
+        `${description.label} does not support browser OAuth sign-in.`,
+        400,
+        "oauth_not_supported",
+      );
+    }
+    const session = oauthSessions.get(id);
+    if (!session) return { state: "idle" };
+    return {
+      state: session.phase,
+      ...(session.detail ? { detail: session.detail } : {}),
+      ...(session.authorizeUrl ? { authorizeUrl: session.authorizeUrl } : {}),
+    };
+  }
+
+  async function oauthCancel(id: string): Promise<{ ok: true }> {
+    const description = credentials
+      .descriptions()
+      .find((candidate) => candidate.id === id);
+    if (!description) {
+      throw new ServiceError(
+        `Unknown provider ${id}`,
+        404,
+        "provider_not_found",
+      );
+    }
+    if (!(id in OAUTH_FLOWS)) {
+      throw new ServiceError(
+        `${description.label} does not support browser OAuth sign-in.`,
+        400,
+        "oauth_not_supported",
+      );
+    }
+    const session = oauthSessions.get(id);
+    if (session?.phase === "pending") {
+      oauthSessions.delete(id);
+      session.rejectStart?.(
+        new ServiceError(
+          "OAuth sign-in was cancelled.",
+          409,
+          "oauth_cancelled",
+        ),
+      );
+      delete session.rejectStart;
+      if (session.listener) {
+        await session.listener.close().catch(() => undefined);
+        delete session.listener;
+      }
+      await session.flowPromise.catch(() => undefined);
+    }
+    return { ok: true };
   }
 
   async function allProviderStatuses(): Promise<ProviderStatus[]> {
@@ -1180,94 +1540,184 @@ export async function createLocalServices(
     );
   }
 
+  async function assertAgentAbsent(name: string): Promise<void> {
+    try {
+      await access(join(agentsRoot, name));
+      throw new ServiceError(
+        `Agent ${name} already exists; choose update instead.`,
+        409,
+        "agent_exists",
+      );
+    } catch (error) {
+      if (error instanceof ServiceError) throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  async function assertAgentPresent(name: string): Promise<void> {
+    try {
+      await access(join(agentsRoot, name, "agent.md"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new ServiceError(
+          `Agent ${name} was not found.`,
+          404,
+          "agent_not_found",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async function runActualDiffEvaluators(
+    changeRequestId: string,
+  ): Promise<
+    Extract<LocalChangeRequest, { evaluationInputState: "complete" }>
+  > {
+    const loaded = await changeRequests.get(changeRequestId);
+    if (!loaded) {
+      throw new ServiceError(
+        "The change request was not created.",
+        500,
+        "change_request_missing",
+      );
+    }
+    if (loaded.evaluationInputState !== "complete") {
+      throw new ServiceError(
+        "The change request does not contain its stored structured-answer input; recreate it before review.",
+        409,
+        "change_request_input_missing",
+      );
+    }
+    const reviewTarget = loaded;
+    const actualDiffCheckIds = [
+      "reviewer",
+      "diff-summary",
+      "simulated-asker",
+    ] as const;
+    const actualDiffChecksPassed = actualDiffCheckIds.every((checkId) =>
+      reviewTarget.checks.some(
+        (check) => check.id === checkId && check.status === "passed",
+      ),
+    );
+    if (actualDiffChecksPassed) return reviewTarget;
+
+    const reviewerRuntime = await selectedAgentRuntime();
+    const diffSummarizerRuntime = await selectedAgentRuntime();
+    const simulatedAskerRuntime = await selectedAgentRuntime();
+    if (
+      !reviewerRuntime ||
+      !diffSummarizerRuntime ||
+      !simulatedAskerRuntime
+    ) {
+      throw new ServiceError(
+        "The selected model became unavailable during actual-diff review.",
+        409,
+        "llm_unavailable",
+      );
+    }
+    const reviewer = ReviewerOutputSchema.parse(
+      await reviewerRuntime.invoke("reviewer", {
+        question: reviewTarget.verbatimQuestion,
+        goals: reviewTarget.goals,
+        structuredAnswer: reviewTarget.structuredAnswer,
+        diff: reviewTarget.diff,
+      }),
+    );
+    const diffSummary = DiffSummarizerOutputSchema.parse(
+      await diffSummarizerRuntime.invoke("diff-summarizer", {
+        diff: reviewTarget.diff,
+      }),
+    );
+    const simulatedAsker = SimulatedAskerOutputSchema.parse(
+      await simulatedAskerRuntime.invoke("simulated-asker", {
+        verbatimQuestion: reviewTarget.verbatimQuestion,
+        verbatimChat: reviewTarget.verbatimChat,
+        goals: reviewTarget.goals,
+        postDiffDocumentation: await changeRequests.readPostDiffDocumentation(
+          reviewTarget.id,
+        ),
+      }),
+    );
+    return changeRequests.recordActualDiffChecks(reviewTarget.id, {
+      reviewer,
+      diffSummary,
+      simulatedAsker,
+    });
+  }
+
   async function agentSmith(input: {
     mode: "create" | "update";
     request: string;
     target?: string;
   }) {
-    const name =
-      input.mode === "update" ? input.target : proposedAgentName(input.request);
-    if (!name || !/^[a-z][a-z0-9-]*$/u.test(name)) {
-      throw new ServiceError(
-        "Choose a valid agent to update.",
-        400,
-        "invalid_agent",
-      );
-    }
+    const runtime = await selectedAgentRuntime();
+    const request = input.request.trim();
+    const constraints = [...AGENT_SMITH_CONSTRAINTS];
+    let name: string;
     let files: Array<{ path: string; content: string }>;
+
     if (input.mode === "update") {
-      try {
-        await access(join(agentsRoot, name, "agent.md"));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      name = input.target ?? "";
+      if (!name || !/^[a-z][a-z0-9-]*$/u.test(name)) {
+        throw new ServiceError(
+          "Choose a valid agent to update.",
+          400,
+          "invalid_agent",
+        );
+      }
+      await assertAgentPresent(name);
+      const existing = await currentAgentFiles(name);
+      if (runtime) {
+        const proposal = AgentSmithProposalSchema.parse(
+          await runtime.invoke("agent-smith", {
+            request,
+            constraints,
+            existingDefinitions: existing,
+          }),
+        );
+        if (proposal.name !== name) {
           throw new ServiceError(
-            `Agent ${name} was not found.`,
-            404,
-            "agent_not_found",
+            `Agent-Smith proposed ${proposal.name}, but the update target is ${name}.`,
+            422,
+            "agent_name_mismatch",
           );
         }
-        throw error;
+        files = filesFromAgentSmithProposal(proposal, request);
+      } else {
+        files = existing;
+        const definition = files.find((file) =>
+          file.path.endsWith("/agent.md"),
+        );
+        if (definition) {
+          definition.content = `${definition.content.trimEnd()}\n\n## Proposed capability\n\n${request}\n`;
+        }
       }
-      files = await currentAgentFiles(name);
-      const definition = files.find((file) => file.path.endsWith("/agent.md"));
-      if (definition) {
-        definition.content = `${definition.content.trimEnd()}\n\n## Proposed capability\n\n${input.request.trim()}\n`;
-      }
+    } else if (runtime) {
+      const proposal = AgentSmithProposalSchema.parse(
+        await runtime.invoke("agent-smith", {
+          request,
+          constraints,
+        }),
+      );
+      name = proposal.name;
+      await assertAgentAbsent(name);
+      files = filesFromAgentSmithProposal(proposal, request);
     } else {
-      try {
-        await access(join(agentsRoot, name));
+      name = proposedAgentName(request);
+      if (!name || !/^[a-z][a-z0-9-]*$/u.test(name)) {
         throw new ServiceError(
-          `Agent ${name} already exists; choose update instead.`,
-          409,
-          "agent_exists",
-        );
-      } catch (error) {
-        if (error instanceof ServiceError) throw error;
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      const schema = {
-        type: "object",
-        additionalProperties: false,
-        required: ["result"],
-        properties: { result: { type: "string", minLength: 1 } },
-      };
-      files = [
-        {
-          path: `agents/${name}/agent.md`,
-          content: `---\nname: ${name}\ndescription: ${JSON.stringify(input.request.trim())}\ninputPolicy: agent-smith\nmaxAttempts: 2\n---\n\n${input.request.trim()}\n\nReturn only the narrow, schema-valid result. Never receive or infer credentials.\n`,
-        },
-        {
-          path: `agents/${name}/schema.json`,
-          content: `${JSON.stringify(schema, null, 2)}\n`,
-        },
-      ];
-      for (let fixture = 1; fixture <= 3; fixture += 1) {
-        const ordinal = String(fixture).padStart(3, "0");
-        files.push(
-          {
-            path: `agents/${name}/fixtures/${ordinal}-input.json`,
-            content: `${JSON.stringify(
-              {
-                request: `Fixture ${fixture}: ${input.request.trim()}`,
-                constraints: [
-                  "deterministic",
-                  "no secrets",
-                  "structured output",
-                ],
-              },
-              null,
-              2,
-            )}\n`,
-          },
-          {
-            path: `agents/${name}/fixtures/${ordinal}-expected.json`,
-            content: `${JSON.stringify({ result: `Fixture ${fixture} result` }, null, 2)}\n`,
-          },
+          "Choose a valid agent name derived from the request.",
+          400,
+          "invalid_agent",
         );
       }
+      await assertAgentAbsent(name);
+      files = offlineAgentCreateFiles(name, request);
     }
+
     const key = `agent-${name}-${ulid().slice(-8).toLocaleLowerCase()}`;
-    const changeRequest = await changeRequests.create({
+    let changeRequest = await changeRequests.create({
       questionId: key,
       title: `Agent-Smith: ${name}`,
       question: input.request,
@@ -1277,6 +1727,9 @@ export async function createLocalServices(
       summary: `${input.mode === "create" ? "Creates" : "Updates"} ${name} with source, a strict schema, and golden fixtures.`,
       files,
     });
+    if (runtime) {
+      changeRequest = await runActualDiffEvaluators(changeRequest.id);
+    }
     return {
       agent: name,
       changeRequest: changeRequestInfo(changeRequest) as ChangeRequestInfo,
@@ -1621,72 +2074,7 @@ export async function createLocalServices(
           }
 
           if (runtime) {
-            const reviewTarget = changeRequest;
-            const actualDiffCheckIds = [
-              "reviewer",
-              "diff-summary",
-              "simulated-asker",
-            ];
-            const actualDiffChecksPassed = actualDiffCheckIds.every((checkId) =>
-              reviewTarget.checks.some(
-                (check) => check.id === checkId && check.status === "passed",
-              ),
-            );
-            if (!actualDiffChecksPassed) {
-              const reviewerRuntime = await selectedAgentRuntime();
-              const diffSummarizerRuntime = await selectedAgentRuntime();
-              const simulatedAskerRuntime = await selectedAgentRuntime();
-              if (
-                !reviewerRuntime ||
-                !diffSummarizerRuntime ||
-                !simulatedAskerRuntime
-              ) {
-                throw new ServiceError(
-                  "The selected model became unavailable during actual-diff review.",
-                  409,
-                  "llm_unavailable",
-                );
-              }
-              if (reviewTarget.structuredAnswer === undefined) {
-                throw new ServiceError(
-                  "The change request does not contain its stored structured-answer input; recreate it before review.",
-                  409,
-                  "change_request_input_missing",
-                );
-              }
-              const reviewer = ReviewerOutputSchema.parse(
-                await reviewerRuntime.invoke("reviewer", {
-                  question: reviewTarget.verbatimQuestion,
-                  goals: reviewTarget.goals,
-                  structuredAnswer: reviewTarget.structuredAnswer,
-                  diff: reviewTarget.diff,
-                }),
-              );
-              const diffSummary = DiffSummarizerOutputSchema.parse(
-                await diffSummarizerRuntime.invoke("diff-summarizer", {
-                  diff: reviewTarget.diff,
-                }),
-              );
-              const simulatedAsker = SimulatedAskerOutputSchema.parse(
-                await simulatedAskerRuntime.invoke("simulated-asker", {
-                  verbatimQuestion: reviewTarget.verbatimQuestion,
-                  verbatimChat: reviewTarget.verbatimChat,
-                  goals: reviewTarget.goals,
-                  postDiffDocumentation:
-                    await changeRequests.readPostDiffDocumentation(
-                      reviewTarget.id,
-                    ),
-                }),
-              );
-              changeRequest = await changeRequests.recordActualDiffChecks(
-                reviewTarget.id,
-                {
-                  reviewer,
-                  diffSummary,
-                  simulatedAsker,
-                },
-              );
-            }
+            changeRequest = await runActualDiffEvaluators(changeRequest.id);
           }
           if (changeRequest.state === "blocked") {
             const failed = changeRequest.checks
@@ -2034,6 +2422,32 @@ export async function createLocalServices(
             "unsupported_provider_scope",
           );
         await credentials.setConsent(id, scope, "revoked");
+        // OAuth sources: clear Ultradyn-owned tokens on any scope disconnect
+        // (sign-out semantics). The token is the credential; residual tokens
+        // must not linger after the user disconnects (e.g. model first while
+        // transcription was also granted). Does not call IdP revoke endpoints.
+        if (id in OAUTH_FLOWS) {
+          await oauthTokenStore.clear(id);
+          const session = oauthSessions.get(id);
+          if (session?.phase === "pending") {
+            oauthSessions.delete(id);
+            session.rejectStart?.(
+              new ServiceError(
+                "OAuth sign-in was cancelled.",
+                409,
+                "oauth_cancelled",
+              ),
+            );
+            delete session.rejectStart;
+            if (session.listener) {
+              await session.listener.close().catch(() => undefined);
+              delete session.listener;
+            }
+            await session.flowPromise.catch(() => undefined);
+          } else if (session) {
+            oauthSessions.delete(id);
+          }
+        }
         return credentialStatus(id);
       },
       test: async (id) => {
@@ -2055,6 +2469,9 @@ export async function createLocalServices(
             }
           : { ok: false, detail: `${provider.name} is ${provider.state}.` };
       },
+      oauthStart,
+      oauthStatus,
+      oauthCancel,
     },
     agents: {
       list: agentStatuses,

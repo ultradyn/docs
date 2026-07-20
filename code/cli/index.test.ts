@@ -31,6 +31,15 @@ import {
 const temporaryDirectories: string[] = [];
 const execFileAsync = promisify(execFile);
 
+const DOGFOOD_GITIGNORE_BLOCK = [
+  "",
+  "# Dogfooding: running the dev server from the source tree initializes a",
+  "# knowledge repository at the root (questions/{active,answered,deferred}).",
+  "# That is instance state, not tool source. Instance repos commit questions/",
+  "# via their own scaffold .gitignore, which does not ignore it.",
+  "questions/",
+].join("\n");
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories
@@ -211,15 +220,43 @@ describe("scaffold filesystem", () => {
       ".ultradyn/staging/probe",
     ]);
     expect(stdout.trim()).toBe(".ultradyn/staging/probe");
-    const shippedTemplate = path.join(
+    // Destination (generated instance) must track questions/, ignore staging only.
+    const destinationIgnore = await readFile(
+      path.join(destination, ".gitignore"),
+      "utf8",
+    );
+    expect(destinationIgnore.split("\n")).not.toContain("questions/");
+    expect(destinationIgnore).toContain(".ultradyn/staging/");
+
+    // Dogfood root questions/ ignore is monorepo-source-only (not generated repos).
+    const monorepoTemplate = path.join(
       process.cwd(),
       "scaffold",
       ".gitignore.template",
     );
-    if (existsSync(shippedTemplate)) {
-      await expect(readFile(shippedTemplate, "utf8")).resolves.toBe(
-        await readFile(path.join(process.cwd(), ".gitignore"), "utf8"),
+    if (existsSync(monorepoTemplate)) {
+      const template = await readFile(monorepoTemplate, "utf8");
+      const rootIgnore = await readFile(
+        path.join(process.cwd(), ".gitignore"),
+        "utf8",
       );
+      expect(template.split("\n")).not.toContain("questions/");
+      expect(rootIgnore).toContain("questions/");
+      expect(rootIgnore).toContain("# Dogfooding:");
+      for (const line of template.split("\n")) {
+        if (line.length === 0) continue;
+        expect(rootIgnore.split("\n")).toContain(line);
+      }
+      expect(rootIgnore).toBe(
+        `${template.trimEnd()}\n${DOGFOOD_GITIGNORE_BLOCK}\n`,
+      );
+      const { stdout: questionsIgnored } = await execFileAsync("git", [
+        "-C",
+        process.cwd(),
+        "check-ignore",
+        "questions/",
+      ]);
+      expect(questionsIgnored.trim()).toBe("questions/");
     }
   });
 

@@ -9,9 +9,16 @@ Credential inspection is disabled until a person grants consent. Consent receipt
 - delegated installed-client status for Codex, Grok, Claude, OpenCode, and GitHub CLI;
 - explicitly selected environment variables (`OPENAI_API_KEY`, `XAI_API_KEY`, and discovery-only `ANTHROPIC_API_KEY`);
 - a versioned Grok OIDC record adapter for `~/.grok/auth.json`;
+- browser OAuth sign-in (authorization-code + PKCE, loopback redirect) for xAI (`xai-oauth`) and ChatGPT (`openai-oauth`), with tokens held in a machine-local store (0600) under the server's data root — never in Git;
 - an activation-required OpenCode auth-file placeholder that deliberately does not parse an unpinned format.
 
-There is no OS-keyring adapter or generic browser OAuth flow yet. Login command definitions exist, but the server/UI does not invoke them. Consent controls grant or revoke one advertised `model`, `transcription`, or `git-host` scope at a time. Receipts and status remain independent, so model-only consent cannot resolve an STT capability.
+## Browser OAuth sign-in
+
+Settings → Connections offers **Sign in with xAI** and **Sign in with ChatGPT** for the `xai-oauth` / `openai-oauth` sources. The server starts a 127.0.0.1 loopback listener, presents the provider's authorize URL with an S256 PKCE challenge, and exchanges the returned code for tokens written to `<dataRoot>/oauth/oauth-tokens.json` (file mode 0600). Access tokens are refreshed automatically with a 5-minute early buffer; a terminal refresh failure clears the stored token so the UI returns to the sign-in state.
+
+Honesty boundary: xAI has no public third-party OAuth program, so the flow reuses the public first-party client that other local tools (for example pi) also use; this is a deliberate, documented choice. The xAI token serves both `model` and `transcription` scopes (the user grants each Ultradyn consent scope separately — completing sign-in is not consent). The ChatGPT subscription token serves the `model` scope only; it is not an OpenAI audio-API credential, so `openai-oauth` is not offered as an STT source.
+
+There is no OS-keyring adapter. Consent controls grant or revoke one advertised `model`, `transcription`, or `git-host` scope at a time. Receipts and status remain independent, so model-only consent cannot resolve an STT capability.
 
 Credential values must not enter repo settings, events, browser responses, logs, Git diffs, snapshots, or error details.
 
@@ -24,6 +31,8 @@ Credential values must not enter repo settings, events, browser responses, logs,
 | `openai-env`                   | OpenAI Responses streaming adapter                                       | OpenAI multipart batch transcription                        | Requires a consented `OPENAI_API_KEY`; no incremental STT.                                                                                                                                      |
 | `xai-env`                      | xAI Responses streaming adapter                                          | xAI multipart REST batch transcription                      | Requires a consented `XAI_API_KEY`; no WebSocket STT.                                                                                                                                           |
 | `grok-auth-file`               | Same xAI Responses adapter                                               | Same xAI REST batch adapter                                 | Reads a short-lived Grok OIDC bearer only after consent; expiry requires re-login and the public-API entitlement is empirical, not guaranteed.                                                  |
+| `xai-oauth`                    | Same xAI Responses adapter                                               | Same xAI REST batch adapter                                 | Browser PKCE sign-in; first-party public client (no third-party xAI OAuth program); token store is machine-local with early-refresh.                                                            |
+| `openai-oauth`                 | OpenAI Responses streaming adapter                                       | None                                                        | Browser PKCE sign-in via the ChatGPT/Codex public client; subscription token is model-scope only and is not an audio-API credential.                                                            |
 | `ffmpeg` / `fake-codec`        | Not applicable                                                           | Verified Ogg/MP3 conversion or deterministic byte-copy fake | FFmpeg must be installed and on `PATH`.                                                                                                                                                         |
 | `github-cli` / `fake-git-host` | GitHub PR polling/publication primitives or local deterministic fake     | Not applicable                                              | Polling is wired to maintenance; approved local change requests are not yet wired to publication.                                                                                               |
 

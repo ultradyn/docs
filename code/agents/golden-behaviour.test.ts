@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { resolveShippedPath } from "../shared/shipped-layout.js";
 import {
   BEHAVIOURAL_GOLDEN_EXECUTORS,
   BEHAVIOURAL_REQUIRED_AGENTS,
@@ -23,7 +24,7 @@ const repositoryRoot = join(
   dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
-const shippedAgentsRoot = join(repositoryRoot, "scaffold/agents");
+const shippedAgentsRoot = resolveShippedPath(repositoryRoot, "agents");
 
 describe("LEGACY_SHAPE_ONLY freeze", () => {
   it("is the frozen exact sorted set with size pin", () => {

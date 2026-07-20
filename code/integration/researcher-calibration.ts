@@ -17,8 +17,10 @@ import { join } from "node:path";
 
 import MiniSearch from "minisearch";
 
+import { processLexicalTerm } from "../ingest/retrieval/stem-term.js";
+
 // ---------------------------------------------------------------------------
-// Profile + measured pins (locked after measurement 2026-07-19)
+// Profile + measured pins (re-measured 2026-07-20 after B005 stemmer)
 // ---------------------------------------------------------------------------
 
 export type RetrievalProfile = {
@@ -30,16 +32,17 @@ export type RetrievalProfile = {
 };
 
 /**
- * Measured on tiny+small expected graphs (SHAs below) with live MiniSearch:
- * TP=7 FP=46 FN=2 → recall 7/9 ≈ 0.7778; false-no-evidence 0/6.
- * Expansion ON produced identical TP/FN.
+ * Measured on tiny+small expected graphs (SHAs below) with live MiniSearch +
+ * symmetric Porter processTerm (B005 stemmer@2.0.1):
+ * TP=8 FN=1 → recall 8/9 ≈ 0.8889; false-no-evidence 0/6.
+ * Expansion ON still does not recover the residual FN.
  *
- * THIS PROFILE MISSES 2 OF 9 LABELED PAIRS. That is under-retrieval on the
- * worst-failure axis. Accepted for pilot-scale calibration only — not "fine".
- * Named misses (see docs/engineering/researcher-retrieval-profile.md):
- * - small-question-local → small-unit-18 (machine index)
- * - small-question-local → small-unit-22 (provider)
- * Precision ≈ 0.132 (46 FP / 7 TP) is reported, not gated (over-retrieve safe).
+ * THIS PROFILE MISSES 1 OF 9 LABELED PAIRS (small-unit-18 only).
+ * small-unit-22 recovered via morphology stemming (capabilities/capability,
+ * locally/local, operate/operation). small-unit-18 has ZERO lexical overlap
+ * with the local question — needs semantic/vector retrieval (R1 excludes).
+ * Precision is re-measured with stemming (stemming raises recall AND noise);
+ * report-only, not gated. See docs/engineering/researcher-retrieval-profile.md.
  */
 export const RESEARCHER_RETRIEVAL_PROFILE_V1: RetrievalProfile = Object.freeze({
   version: "researcher-retrieval-v1",
@@ -52,11 +55,16 @@ export const RESEARCHER_RETRIEVAL_PROFILE_V1: RetrievalProfile = Object.freeze({
 /** Minimum recall; exact TP pin below is the real regression guard. */
 export const RESEARCHER_RECALL_FLOOR = 0.7 as const;
 
-/** Exact measured true positives — small loss cannot hide under the floor. */
-export const RESEARCHER_RECALL_TP_PIN = 7 as const;
+/** Exact measured true positives after B005 stemmer (was 7 pre-stem). */
+export const RESEARCHER_RECALL_TP_PIN = 8 as const;
 export const RESEARCHER_RECALL_LABELED_PAIRS = 9 as const;
 export const RESEARCHER_ANSWERABLE_PIN = 6 as const;
 export const RESEARCHER_FALSE_NO_EVIDENCE_PIN = 0 as const;
+
+/** Sole remaining lexical FN after B005 — zero-overlap semantic residual. */
+export const RESEARCHER_FALSE_NEGATIVE_UNIT_IDS = Object.freeze([
+  "small-unit-18",
+] as const);
 
 export const CORPUS_GRAPH_SHA256 = Object.freeze({
   tiny: "a6261cedc3818bd09d2acee02cb92e9d6fe5d0aa9a12aaf0c9a40e167f7cdfdc",
@@ -254,9 +262,11 @@ export function scoreRetrieval(
   documents: readonly { readonly id: string; readonly text: string; readonly path: string }[],
   profile: RetrievalProfile,
 ): CalibrationMetrics {
+  // B005: same processTerm at index and query (MiniSearch constructor option).
   const mini = new MiniSearch({
     fields: ["text", "path"],
     storeFields: ["id", "path"],
+    processTerm: processLexicalTerm,
     searchOptions: { boost: { text: 2 }, fuzzy: 0.15, prefix: true },
   });
   mini.addAll(documents.map((d) => ({ ...d })));

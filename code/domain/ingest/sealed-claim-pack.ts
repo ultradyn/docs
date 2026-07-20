@@ -53,7 +53,16 @@ export const PackCitationSchema = z
 
 export type PackCitation = z.infer<typeof PackCitationSchema>;
 
-/** T004 — durable review application witness on the pack (audit material). */
+/**
+ * T004 / B009 — durable review application witness on the pack (audit material).
+ *
+ * Design B: one ref per (applicationId, claimId) pair. Multi-id applications
+ * expand to multiple refs so deriveClaimIdsFromApplicationRefs matches
+ * listAcceptedClaimIds array semantics. Single-id accept/reject apps still
+ * emit exactly one ref (seal hash stable for existing v2 fixtures).
+ *
+ * Dual-gate membership remains authority; refs are an independent witness.
+ */
 export const PackApplicationRefSchema = z
   .object({
     applicationId: z.string().min(1).max(128),

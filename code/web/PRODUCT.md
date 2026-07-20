@@ -36,8 +36,8 @@ open that origin directly so its HttpOnly local session is established.
 - Server settings are repository or personal values; the active browser server
   is represented by its origin and is not written into the repository.
 - Use the existing React, CSS-token, Lucide, and accessible-control system.
-- The current application stylesheet is light-only; adding a dark theme is
-  outside this recovery fix.
+- Theme preference (`appearance.theme`) maps to document `data-theme` and
+  semantic CSS variables for light and dark interfaces.
 
 ## Success conditions
 

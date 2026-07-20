@@ -36,8 +36,8 @@ Actual branch diffs, non-prefix-conflicting attempt branches, input-fingerprinte
 
 - [ ] Invoke the full Goal Clerk → Matcher → Registrar → Prioritizer agent loop for new asks. The current accessible control loads the vocabulary and accepts normalized freeform goals; deterministic services perform lexical matching, durable registration, and rule-based priority while only Librarian is called through the agent runtime. Agent suggestions must remain advisory to the deterministic authority described in `AGENTS.md`.
 - [ ] Run every touched agent fixture through the agent runtime in CI. Current fixture validation checks input projection and expected-output schema; it does not execute every input/expected pair.
-- [ ] Make Agent-Smith use its isolated agent contract to propose meaningful prompts, schemas, and fixtures. The current create path emits a generic schema and canned expected files; update appends prose without regenerating schema/fixtures.
-- [ ] Wire mandatory fresh Reviewer, Diff Summarizer, and Simulated Asker execution for Agent-Smith proposals. Those proposals now fail closed with pending evaluator checks, so they cannot be approved or merged until that evaluation path runs.
+- [x] Make Agent-Smith use its isolated agent contract to propose meaningful prompts, schemas, and fixtures. When an LLM runtime is available, create/update invoke `agent-smith` for name, markdown, schema, and fixtures; offline create still uses the canned fallback and offline update still appends prose. Proposal quality still depends on the selected model.
+- [x] Wire mandatory fresh Reviewer, Diff Summarizer, and Simulated Asker execution for Agent-Smith proposals. Shared actual-diff evaluator path runs after create when a runtime is present; post-diff reads include `agents/` as well as `docs/`. Offline proposals still open blocked CRs until evaluation can run.
 - [ ] Add a model-drift canary and persist its findings.
 - [ ] Generalize checkpoint commits beyond the approved-local-merge path. `review.checkpointCommits=true` currently checkpoints managed question/settings state around that merge; `false` leaves it uncommitted and exposes one pending task in Maintenance. Other portable mutation workflows do not yet trigger an autonomous checkpoint commit.
 - [ ] Turn remote maintenance entries into actionable local review workflows and wire `GitHostProvider.publish()` to approved change requests. GitHub polling and the `gh pr create` primitive exist independently.
@@ -101,14 +101,15 @@ Streaming WebSocket STT, automatic login/refresh, and Grok CLI model delegation 
 
 ### OAuth application registrations
 
-Status: third-party OAuth callback, state/PKCE, token storage, refresh, logout, and provider login UI are not implemented. Registration becomes an external gate only after those local flows exist and a provider offers a suitable public desktop-client contract.
+Status: **local** browser OAuth is implemented for xAI (`xai-oauth`) and ChatGPT (`openai-oauth`): authorization-code + PKCE, 127.0.0.1 loopback redirect, machine-local token store with early refresh (`<dataRoot>/oauth/oauth-tokens.json`, mode 0600), and Settings → Connections sign-in UI. Consent remains a separate personal receipt per advertised scope. Disconnect on an OAuth source revokes the requested Ultradyn consent scope and clears Ultradyn-owned tokens for that flow (sign-out semantics for the local store); it does **not** revoke the token at the identity provider. Honesty boundary: there is no Ultradyn-owned first-party OAuth registration yet — the flows reuse public first-party clients also used by other local tools (documented in `docs/providers.md`). Residuals: OS-matrix tests for cancel/deny/expiry/logout; IdP token revocation; formal org registration of Ultradyn-owned clients when a suitable public desktop-client contract is available.
 
 Activation checklist for each implemented provider flow:
 
-- [ ] Register Ultradyn Docs under the organization and approve exact loopback/deep-link redirects for CLI and Tauri.
-- [ ] Put public client configuration in release config and keep all confidential material outside Git.
-- [ ] Complete state/PKCE, cancellation, denial, expiry, refresh, revocation, and logout tests on every target OS.
-- [ ] Publish privacy, retention, support, and account-deletion disclosures before enabling the login button.
+- [ ] Register Ultradyn Docs under the organization (first-party clients) and approve exact loopback/deep-link redirects for CLI and Tauri when those registrations are available.
+- [ ] Keep any confidential OAuth material outside Git; public client IDs used for PKCE public clients may live in release/source config.
+- [ ] Complete cancellation, denial, expiry, refresh, IdP revocation, and logout tests on every target OS.
+- [x] Clear Ultradyn-owned tokens on disconnect/sign-out (local store only; IdP revoke remains open above).
+- [ ] Publish privacy, retention, support, and account-deletion disclosures for the enabled login surfaces.
 
 ### Claude and OpenCode account activation (after local adapters exist)
 

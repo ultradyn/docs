@@ -15,10 +15,11 @@ import type { Claim } from "../../domain/ingest/claim.js";
 import type { EvidencePacket } from "../../domain/ingest/evidence-packet.js";
 import type { ClaimId, Sha256, SourceUnitId } from "../../domain/ingest/types.js";
 import {
-  deliberatelyExposeUntrustedProseToModel,
+  deliberatelyUnwrapUntrustedProse,
   isUntrustedProse,
   type UntrustedProse,
 } from "../../domain/ingest/untrusted-prose.js";
+import { resolveShippedPath } from "../../shared/shipped-layout.js";
 import { normaliseRunIdentity } from "../knowledge/claim-review-service.js";
 
 import {
@@ -31,9 +32,11 @@ import {
 } from "./claim-reviewer-agent.js";
 import * as agentsBarrel from "./index.js";
 
-const scaffoldRoot = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../scaffold/agents/claim-reviewer",
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const scaffoldRoot = resolveShippedPath(
+  repositoryRoot,
+  "agents",
+  "claim-reviewer",
 );
 const fixturesRoot = join(scaffoldRoot, "fixtures");
 
@@ -321,7 +324,7 @@ describe("happy path accept", () => {
     };
     expect(row.decision).toBe("accept");
     expect(isUntrustedProse(row.reason)).toBe(true);
-    expect(deliberatelyExposeUntrustedProseToModel(row.reason)).toBe(
+    expect(deliberatelyUnwrapUntrustedProse(row.reason, "test")).toBe(
       "Entailed by unit text.",
     );
   });
@@ -613,6 +616,93 @@ describe("fresh context is structural", () => {
       expect(ctx).not.toHaveProperty("extractorMessages");
       expect(ctx).not.toHaveProperty("transcript");
     }
+  });
+
+  it.each(["transcript", "messages", "chat"] as const)(
+    "rejects packet top-level key %s before propose (B007)",
+    async (forbiddenKey) => {
+      let proposeCalls = 0;
+      const agent = createClaimReviewerAgent({
+        propose: async () => {
+          proposeCalls += 1;
+          return validOutput();
+        },
+      });
+      const smuggledPacket = {
+        ...packet(),
+        [forbiddenKey]: [{ role: "assistant", content: "extractor private" }],
+      };
+      const result = await agent.runClaimReviewer({
+        packet: smuggledPacket,
+        claims: [proposedClaim(CLAIM_A)],
+        reviewerRunId: REVIEWER,
+        extractorRunId: EXTRACTOR,
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe("INVALID_INPUT");
+      expect(proposeCalls).toBe(0);
+    },
+  );
+
+  it.each(["transcript", "messages", "chat"] as const)(
+    "rejects claim object key %s before propose (B007)",
+    async (forbiddenKey) => {
+      let proposeCalls = 0;
+      const agent = createClaimReviewerAgent({
+        propose: async () => {
+          proposeCalls += 1;
+          return validOutput();
+        },
+      });
+      const smuggledClaim = {
+        ...proposedClaim(CLAIM_A),
+        [forbiddenKey]: [{ role: "assistant", content: "extractor private" }],
+      };
+      const result = await agent.runClaimReviewer({
+        packet: packet(),
+        claims: [smuggledClaim],
+        reviewerRunId: REVIEWER,
+        extractorRunId: EXTRACTOR,
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe("INVALID_INPUT");
+      expect(proposeCalls).toBe(0);
+    },
+  );
+
+  it("clean packet and claims still reach propose (B007 positive control)", async () => {
+    let proposeCalls = 0;
+    const agent = createClaimReviewerAgent({
+      propose: async () => {
+        proposeCalls += 1;
+        return validOutput();
+      },
+    });
+    const result = await agent.runClaimReviewer({
+      packet: packet(),
+      claims: [proposedClaim(CLAIM_A)],
+      reviewerRunId: REVIEWER,
+      extractorRunId: EXTRACTOR,
+    });
+    expect(result.ok).toBe(true);
+    expect(proposeCalls).toBe(1);
+  });
+
+  it("header honesty: documents bounded shallow denylist, not absolute nested safety (B007)", async () => {
+    const source = await readFile(
+      join(dirname(fileURLToPath(import.meta.url)), "claim-reviewer-agent.ts"),
+      "utf8",
+    );
+    // Must claim the shallow/bounded scan we actually implement.
+    expect(source).toMatch(/shallow denylist|bounded shallow|top-level \+ one-level/i);
+    // Must NOT claim absolute nested impossibility (would overclaim residual).
+    expect(source).not.toMatch(
+      /reviewer cannot see extractor context|absolutely cannot see extractor/i,
+    );
+    // Residual deeper nesting remains caller-trusted and must stay documented.
+    expect(source).toMatch(/caller-trusted residual|deeper still caller-trusted|nested deeper/i);
   });
 });
 

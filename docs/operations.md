@@ -26,7 +26,7 @@ Before doing human-attributed work, set **Settings → Identity & attribution �
 
 ## Machine-local data and backups
 
-Git contains portable knowledge and repo-scoped settings. Raw/converted audio, personal settings (including the actor handle), consent receipts, worktrees, local change-request records, maintenance cursors, and other machine state live outside the repository.
+Git contains portable knowledge and repo-scoped settings. Raw/converted audio, personal settings (including the actor handle), consent receipts, worktrees, local change-request records, maintenance cursors, Ultradyn-owned OAuth tokens, and other machine state live outside the repository.
 
 The local data directory is keyed by the first 16 hexadecimal characters of the SHA-256 of the resolved repository path:
 
@@ -36,7 +36,9 @@ The local data directory is keyed by the first 16 hexadecimal characters of the 
 | macOS    | `~/Library/Application Support/ultradyn-docs/repositories/<id>`                                      |
 | Windows  | `%APPDATA%\ultradyn-docs\repositories\<id>`                                                          |
 
-Back up that directory if local audio or review state must be retained. The current Settings page does not display its path or a transcode inventory; that UI work is tracked in `BLOCKED_TASKS.md`. Credential values remain under their owning environment/client and must not be copied into this backup.
+Notable paths under that directory include `oauth/oauth-tokens.json` (Ultradyn-owned OAuth access/refresh tokens for `xai-oauth` / `openai-oauth`, file mode 0600). A backup of the data directory includes these tokens — treat them as secret material and never copy them into Git, logs, fixtures, or package output.
+
+Back up that directory if local audio, OAuth session state, or review state must be retained. Treat `oauth/oauth-tokens.json` as secret material and never copy it into Git. The current Settings page does not display its path or a transcode inventory; that UI work is tracked in `BLOCKED_TASKS.md`. Environment variables and installed-client credentials remain under their owning environment/client; Ultradyn OAuth tokens live in this data directory. Disconnect on an OAuth source revokes the requested Ultradyn consent and clears Ultradyn-owned tokens for that flow; it does not revoke tokens at the identity provider.
 
 ## Recovery
 

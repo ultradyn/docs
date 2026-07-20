@@ -421,6 +421,8 @@ describe("offline semantic retrieval benchmark", () => {
       [
         'export * from "./exact-map.js";',
         'export * from "./lexical-index.js";',
+        '// B005 Porter stemmer is lexical morphology, not a vector surface.',
+        'export * from "./stem-term.js";',
         'export { createSourceTools } from "./source-tools.js";',
         "export type {",
         "  SourceTools,",

@@ -21,4 +21,4 @@ Security invariants treated as release blockers:
 
 ## Dependency and release handling
 
-Lock dependencies, review lifecycle scripts, run `pnpm audit` and `pnpm check`, inspect TUI/browser snapshots for accidental secret paths, and build Tauri artifacts on isolated release runners. Platform signing keys and OAuth client secrets remain in the release secret store.
+Lock dependencies, review lifecycle scripts, run `pnpm audit` and `pnpm check`, inspect TUI/browser snapshots for accidental secret paths, and build Tauri artifacts on isolated release runners. Platform signing keys and any confidential OAuth client secrets remain in the release secret store; public PKCE client IDs for browser OAuth flows are in-repo configuration and are not secrets.

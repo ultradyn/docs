@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
-  deliberatelyExposeUntrustedProseToModel,
+  deliberatelyUnwrapUntrustedProse,
   isUntrustedProse,
   type UntrustedProse,
 } from "../../domain/ingest/untrusted-prose.js";
@@ -105,10 +105,10 @@ describe("B003 UntrustedProse on critic free text", () => {
     if (!result.ok) return;
     const reason0 = result.value.referenceClassifications[0]!.reason;
     expect(isUntrustedProse(reason0)).toBe(true);
-    // Deliberate expose recovers characters
-    expect(deliberatelyExposeUntrustedProseToModel(reason0 as UntrustedProse)).toBe(
-      "Defines the primary behavior under review.",
-    );
+    // Deliberate unwrap recovers characters
+    expect(
+      deliberatelyUnwrapUntrustedProse(reason0 as UntrustedProse, "test"),
+    ).toBe("Defines the primary behavior under review.");
   });
 
   it("question-shaped reason prose still validates (text is kept, not stripped)", () => {
@@ -137,8 +137,9 @@ describe("B003 UntrustedProse on critic free text", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(
-      deliberatelyExposeUntrustedProseToModel(
+      deliberatelyUnwrapUntrustedProse(
         result.value.referenceClassifications[0]!.reason as UntrustedProse,
+        "test",
       ),
     ).toBe(smuggle);
   });
@@ -146,7 +147,7 @@ describe("B003 UntrustedProse on critic free text", () => {
   it("type: validated reason cannot feed sendToModel(string) without hatch", () => {
     // Tripwire for future model round-trips of critic prose (IMPORTANT 2 fold).
     // A real provider boundary typed as (text: string) must not accept
-    // UntrustedProse without deliberatelyExposeUntrustedProseToModel.
+    // UntrustedProse without deliberatelyUnwrapUntrustedProse(..., "model-input").
     function sendToModel(text: string): void {
       void text;
     }
@@ -160,6 +161,6 @@ describe("B003 UntrustedProse on critic free text", () => {
     expect(isUntrustedProse(reason)).toBe(true);
     // @ts-expect-error reason is UntrustedProse — not a plain string
     sendToModel(reason);
-    sendToModel(deliberatelyExposeUntrustedProseToModel(reason));
+    sendToModel(deliberatelyUnwrapUntrustedProse(reason, "model-input"));
   });
 });

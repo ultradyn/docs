@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
+import { resolveShippedPath } from "../shared/shipped-layout.js";
 import { type IngestAgentManifest, validateIngestManifests } from "./index.js";
 
 const repositoryRoot = resolve(
@@ -227,7 +228,7 @@ describe("ingestion manifest validation public seam", () => {
   it("enforces the Draft 2020-12 structural workflow boundary", async () => {
     const schema = JSON.parse(
       await readFile(
-        resolve(repositoryRoot, "scaffold/agents/ingest-workflow.schema.json"),
+        resolveShippedPath(repositoryRoot, "agents", "ingest-workflow.schema.json"),
         "utf8",
       ),
     ) as object;

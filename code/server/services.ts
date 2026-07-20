@@ -86,6 +86,13 @@ export interface UltradynServices {
       scope: ProviderConsentScope,
     ): Promise<ProviderStatus>;
     test(id: string): Promise<{ ok: boolean; detail: string }>;
+    oauthStart(id: string): Promise<{ authorizeUrl: string; state: string }>;
+    oauthStatus(id: string): Promise<{
+      state: "idle" | "pending" | "complete" | "error";
+      detail?: string;
+      authorizeUrl?: string;
+    }>;
+    oauthCancel(id: string): Promise<{ ok: true }>;
   };
   agents: {
     list(): Promise<AgentDefinitionStatus[]>;
