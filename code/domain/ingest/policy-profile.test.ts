@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020Module from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
+import { resolveShippedPath } from "../../shared/shipped-layout.js";
 import { validateIngestRecord } from "./schema-registry.js";
+
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 const allowedProfile = {
   schemaVersion: 1,
@@ -33,11 +37,11 @@ const deniedProfiles: readonly (readonly [string, unknown])[] = [
   ["unknown key", { ...allowedProfile, publicationAllowed: true }],
 ] as const;
 
-const portableSchemaPath = fileURLToPath(
-  new URL(
-    "../../../scaffold/schemas/ingest/policy-profile.schema.json",
-    import.meta.url,
-  ),
+const portableSchemaPath = resolveShippedPath(
+  repositoryRoot,
+  "schemas",
+  "ingest",
+  "policy-profile.schema.json",
 );
 
 describe("minimal ingestion policy profile", () => {

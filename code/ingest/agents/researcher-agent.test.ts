@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { resolveShippedPath } from "../../shared/shipped-layout.js";
 import {
   RESEARCHER_LIMITS,
   ResearcherProposalSchema,
@@ -25,7 +26,7 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../../..");
-const scaffoldRoot = join(repoRoot, "scaffold/agents/researcher");
+const scaffoldRoot = resolveShippedPath(repoRoot, "agents", "researcher");
 const fixturesRoot = join(scaffoldRoot, "fixtures");
 
 function sha(text: string): string {

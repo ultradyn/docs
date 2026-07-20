@@ -1,14 +1,15 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import Ajv2020Module from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
+import { resolveShippedPath } from "../../shared/shipped-layout.js";
 import { DataRightsPolicyProfileSchema } from "./data-rights-policy-profile.js";
 
-const directory = fileURLToPath(
-  new URL("../../../scaffold/policy-profiles", import.meta.url),
-);
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const directory = resolveShippedPath(repositoryRoot, "policy-profiles");
 
 const files = readdirSync(directory)
   .filter((name) => name.endsWith(".json"))
@@ -23,11 +24,11 @@ function portableValidator() {
   return new Ajv2020({ allErrors: true, strict: true }).compile(
     JSON.parse(
       readFileSync(
-        fileURLToPath(
-          new URL(
-            "../../../scaffold/schemas/ingest/data-rights-policy-profile.schema.json",
-            import.meta.url,
-          ),
+        resolveShippedPath(
+          repositoryRoot,
+          "schemas",
+          "ingest",
+          "data-rights-policy-profile.schema.json",
         ),
         "utf8",
       ),

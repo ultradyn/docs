@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { resolveShippedPath } from "../shared/shipped-layout.js";
 import {
   EVIDENCE_CRITIC_NAMED_CASES,
   EvidenceCriticThresholds,
@@ -25,9 +26,11 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../..");
-const fixturesRoot = join(
+const fixturesRoot = resolveShippedPath(
   repoRoot,
-  "scaffold/agents/evidence-critic/fixtures",
+  "agents",
+  "evidence-critic",
+  "fixtures",
 );
 
 describe("named criticism fixtures exist and are complete", () => {

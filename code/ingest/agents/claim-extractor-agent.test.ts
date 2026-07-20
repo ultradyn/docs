@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EvidencePacket } from "../../domain/ingest/evidence-packet.js";
 import type { SourceUnitId } from "../../domain/ingest/types.js";
+import { resolveShippedPath } from "../../shared/shipped-layout.js";
 
 import {
   CLAIM_EXTRACTOR_LIMITS,
@@ -22,9 +23,11 @@ import {
   validateClaimExtractorProposal,
 } from "./claim-extractor-agent.js";
 
-const scaffoldRoot = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../scaffold/agents/claim-extractor",
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const scaffoldRoot = resolveShippedPath(
+  repositoryRoot,
+  "agents",
+  "claim-extractor",
 );
 const fixturesRoot = join(scaffoldRoot, "fixtures");
 

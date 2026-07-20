@@ -220,40 +220,44 @@ describe("scaffold filesystem", () => {
       ".ultradyn/staging/probe",
     ]);
     expect(stdout.trim()).toBe(".ultradyn/staging/probe");
-    const shippedTemplate = path.join(
+    // Destination (generated instance) must track questions/, ignore staging only.
+    const destinationIgnore = await readFile(
+      path.join(destination, ".gitignore"),
+      "utf8",
+    );
+    expect(destinationIgnore.split("\n")).not.toContain("questions/");
+    expect(destinationIgnore).toContain(".ultradyn/staging/");
+
+    // Dogfood root questions/ ignore is monorepo-source-only (not generated repos).
+    const monorepoTemplate = path.join(
       process.cwd(),
       "scaffold",
       ".gitignore.template",
     );
-    if (existsSync(shippedTemplate)) {
-      const template = await readFile(shippedTemplate, "utf8");
+    if (existsSync(monorepoTemplate)) {
+      const template = await readFile(monorepoTemplate, "utf8");
       const rootIgnore = await readFile(
         path.join(process.cwd(), ".gitignore"),
         "utf8",
       );
-      // Instance repos must still track questions/ — template never ignores it.
       expect(template.split("\n")).not.toContain("questions/");
-      // Root dogfoods a knowledge repo at cwd; ignore that instance state.
       expect(rootIgnore).toContain("questions/");
       expect(rootIgnore).toContain("# Dogfooding:");
-      // Shared required rules: every non-empty template line is in root.
       for (const line of template.split("\n")) {
         if (line.length === 0) continue;
         expect(rootIgnore.split("\n")).toContain(line);
       }
-      // Only allowed divergence is the documented dogfood block appended.
       expect(rootIgnore).toBe(
         `${template.trimEnd()}\n${DOGFOOD_GITIGNORE_BLOCK}\n`,
       );
+      const { stdout: questionsIgnored } = await execFileAsync("git", [
+        "-C",
+        process.cwd(),
+        "check-ignore",
+        "questions/",
+      ]);
+      expect(questionsIgnored.trim()).toBe("questions/");
     }
-
-    const { stdout: questionsIgnored } = await execFileAsync("git", [
-      "-C",
-      process.cwd(),
-      "check-ignore",
-      "questions/",
-    ]);
-    expect(questionsIgnored.trim()).toBe("questions/");
   });
 
   it("retains required source roots even while one is empty", async () => {

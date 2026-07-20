@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { Sha256, SourceUnitId } from "../../domain/ingest/types.js";
+import { resolveShippedPath } from "../../shared/shipped-layout.js";
 
 import {
   EVIDENCE_CRITIC_LIMITS,
@@ -29,7 +30,11 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../../..");
-const scaffoldRoot = join(repoRoot, "scaffold/agents/evidence-critic");
+const scaffoldRoot = resolveShippedPath(
+  repoRoot,
+  "agents",
+  "evidence-critic",
+);
 const fixturesRoot = join(scaffoldRoot, "fixtures");
 
 const QUESTION = "q-01ARZ3NDEKTSV4RRFFQ69G5FAV";

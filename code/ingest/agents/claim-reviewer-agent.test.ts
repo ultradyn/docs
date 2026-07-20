@@ -19,6 +19,7 @@ import {
   isUntrustedProse,
   type UntrustedProse,
 } from "../../domain/ingest/untrusted-prose.js";
+import { resolveShippedPath } from "../../shared/shipped-layout.js";
 import { normaliseRunIdentity } from "../knowledge/claim-review-service.js";
 
 import {
@@ -31,9 +32,11 @@ import {
 } from "./claim-reviewer-agent.js";
 import * as agentsBarrel from "./index.js";
 
-const scaffoldRoot = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../scaffold/agents/claim-reviewer",
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const scaffoldRoot = resolveShippedPath(
+  repositoryRoot,
+  "agents",
+  "claim-reviewer",
 );
 const fixturesRoot = join(scaffoldRoot, "fixtures");
 
