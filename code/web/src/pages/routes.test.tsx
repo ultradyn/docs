@@ -583,7 +583,9 @@ describe("primary web routes", () => {
     expect(
       screen.getByText(/Consent scopes still need to be granted/i),
     ).toBeTruthy();
-    expect(providers.mock.calls.length).toBeGreaterThan(1);
+    // reload() bumps revision in the same batch as setMessage; wait for the
+    // effect that re-fetches providers rather than racing the next paint.
+    await waitFor(() => expect(providers.mock.calls.length).toBeGreaterThan(1));
     expect(cancel).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalled();
   });
