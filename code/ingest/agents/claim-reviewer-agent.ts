@@ -28,14 +28,14 @@
  *    (.strict() rejects the class). Purpose tags the call as persistence so
  *    grepping purpose "model-input" does not false-hit review storage.
  *
- * - Fresh context is STRUCTURAL for NAMED TOP-LEVEL SLOTS only:
- *   ProposeContext has no extractorMessages / chat / transcript field, and
- *   runClaimReviewer refuses those keys (and symbols) at the top level before
- *   propose. packet is unknown and claims is readonly unknown[] — both are
- *   passed to propose RAW. Nested extractor transcript inside packet or a claim
- *   record is NOT scanned; that depends on the caller (mistake-catching class,
- *   not adversary-proof). Do not read this as "reviewer cannot see extractor
- *   context" in absolute terms.
+ * - Fresh context is STRUCTURAL for NAMED TOP-LEVEL SLOTS, plus a BOUNDED
+ *   shallow denylist on packet top-level keys and each claim object's own
+ *   keys (messages / transcript / chat) before propose. ProposeContext has no
+ *   extractorMessages / chat / transcript field, and runClaimReviewer refuses
+ *   those keys (and symbols) at the top level. Scan depth is top-level input
+ *   keys + one-level claim object keys only — nested deeper still
+ *   caller-trusted residual (mistake-catching class, not adversary-proof).
+ *   Do not read this as absolute nested safety.
  * - Whole-batch fail closed: UNEVALUATED_CLAIM / UNSUPPORTED_EVIDENCE refuse
  *   the entire proposal set (silence is never approval).
  */
@@ -266,6 +266,43 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     !Array.isArray(value) &&
     Object.getPrototypeOf(value) === Object.prototype
   );
+}
+
+/** Keys that smuggle extractor conversation into propose payloads. */
+const FRESH_CONTEXT_DENYLIST = ["messages", "transcript", "chat"] as const;
+
+function objectHasFreshContextDenylistKey(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") continue;
+    if ((FRESH_CONTEXT_DENYLIST as readonly string[]).includes(key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Bounded shallow denylist for nested fresh-context smuggling (B007).
+ * Scans packet top-level keys and each claim object's own keys only.
+ * Nested deeper remains caller-trusted residual — not a full recursive walk.
+ */
+function assertFreshContextPayload(
+  packet: unknown,
+  claims: unknown,
+): IngestResult<true, ClaimReviewerError> {
+  if (objectHasFreshContextDenylistKey(packet)) {
+    return failure("INVALID_INPUT");
+  }
+  if (!Array.isArray(claims)) {
+    return failure("INVALID_INPUT");
+  }
+  for (const claim of claims) {
+    if (objectHasFreshContextDenylistKey(claim)) {
+      return failure("INVALID_INPUT");
+    }
+  }
+  return Object.freeze({ ok: true as const, value: true as const });
 }
 
 const CHILD_SMUGGLING_KEYS = [
@@ -521,8 +558,11 @@ export function compileClaimReviewerOutputSchema(
 // ---------------------------------------------------------------------------
 
 /**
- * Fresh-context propose input. STRUCTURAL: no extractorMessages / chat /
- * transcript fields — the untrusted party cannot supply extractor private context.
+ * Fresh-context propose input. STRUCTURAL for named top-level slots (no
+ * extractorMessages / chat / transcript / messages fields). runClaimReviewer
+ * also applies a bounded shallow denylist on packet top-level keys and each
+ * claim object's own keys for messages/transcript/chat before propose.
+ * Nested deeper still caller-trusted residual.
  */
 export type ClaimReviewerProposeContext = {
   readonly packet: unknown;
@@ -563,12 +603,17 @@ export function createClaimReviewerAgent(
           if (
             key === "extractorMessages" ||
             key === "chat" ||
-            key === "transcript"
+            key === "transcript" ||
+            key === "messages"
           ) {
             return failure("INVALID_INPUT");
           }
         }
       }
+      // B007: shallow denylist on packet top keys + each claim object's keys
+      // before propose. Nested deeper remains caller-trusted residual.
+      const fresh = assertFreshContextPayload(input.packet, input.claims);
+      if (!fresh.ok) return failure(fresh.code);
       try {
         const draft = await options.propose({
           packet: input.packet,
