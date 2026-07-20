@@ -21,12 +21,6 @@ playwright-report/
 # agent worktrees
 .worktrees/
 
-# Dogfooding: running the dev server from the source tree initializes a
-# knowledge repository at the root (questions/{active,answered,deferred}).
-# That is instance state, not tool source. Instance repos commit questions/
-# via their own scaffold .gitignore, which does not ignore it.
-questions/
-
 # agent tooling state
 .c2c/
 .pi/
