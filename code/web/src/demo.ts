@@ -320,7 +320,7 @@ export const demoProviders: ProviderStatus[] = [
     kind: "stt",
     label: "Grok / xAI",
     description:
-      "Model and speech provider through documented OAuth or installed-client delegation.",
+      "Model and speech provider through browser OAuth sign-in or installed-client delegation.",
     availability: "activation_required",
     connection: "disconnected",
     consent: "required",
@@ -337,14 +337,15 @@ export const demoProviders: ProviderStatus[] = [
       },
     ],
     reason:
-      "OAuth client registration and stable speech scopes are external activation tasks.",
-    credentialSources: ["xAI OAuth", "Installed Grok client"],
+      "Browser sign-in and scoped consent are still required before this source can be selected.",
+    credentialSources: ["Browser OAuth sign-in", "Installed Grok client"],
     activationChecklist: [
-      "Register a loopback-capable xAI OAuth client.",
-      "Confirm model and speech scopes.",
-      "Validate refresh, revocation, chunk ordering, confidence, and retention.",
+      "Complete the browser sign-in from this page",
+      "Grant scoped discovery consent here",
+      "Run the provider capability test before selection",
     ],
     fake: true,
+    oauth: true,
   },
   {
     id: "claude",

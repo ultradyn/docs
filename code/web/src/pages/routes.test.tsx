@@ -488,12 +488,178 @@ describe("primary web routes", () => {
 
     expect(screen.getByText("Exact activation checklist")).toBeTruthy();
     expect(
-      screen.getByText(/Register a loopback-capable xAI OAuth client/),
+      screen.getByText(/Complete the browser sign-in from this page/),
     ).toBeTruthy();
     expect(
       screen.getAllByText("Fake contract available").length,
     ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Test contract" })).toBeTruthy();
+  });
+
+  it("starts OAuth sign-in, polls to completion, and keeps consent separate", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ clientDemo: true });
+    const open = vi.fn();
+    vi.stubGlobal("open", open);
+
+    const oauthProviders = [
+      {
+        id: "xai-oauth",
+        kind: "model" as const,
+        label: "xAI",
+        description: "OAuth source",
+        availability: "activation_required" as const,
+        connection: "disconnected" as const,
+        consent: "required" as const,
+        oauth: true,
+        fake: true,
+      },
+      {
+        id: "plain",
+        kind: "model" as const,
+        label: "Plain local",
+        description: "No OAuth",
+        availability: "available" as const,
+        connection: "disconnected" as const,
+        consent: "required" as const,
+        fake: true,
+      },
+    ];
+
+    type OauthStatus = {
+      state: "idle" | "pending" | "complete" | "error";
+      detail?: string;
+      authorizeUrl?: string;
+    };
+    const statusWaiters: Array<(value: OauthStatus) => void> = [];
+    const providers = vi
+      .spyOn(api, "providers")
+      .mockResolvedValue(oauthProviders);
+    const start = vi.spyOn(api, "providerOauthStart").mockResolvedValue({
+      authorizeUrl: "https://auth.example/oauth?state=abc",
+      state: "abc",
+    });
+    const status = vi.spyOn(api, "providerOauthStatus").mockImplementation(
+      () =>
+        new Promise<OauthStatus>((resolve) => {
+          statusWaiters.push(resolve);
+        }),
+    );
+    const cancel = vi
+      .spyOn(api, "providerOauthCancel")
+      .mockResolvedValue({ ok: true });
+
+    renderRoute(<SettingsPage />, "/", "*", api);
+
+    await user.click(await screen.findByRole("tab", { name: "Connections" }));
+    await user.click(await screen.findByRole("button", { name: /xAI/ }));
+
+    expect(
+      screen.getByRole("button", { name: "Sign in with xAI" }),
+    ).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: /Plain local/ }));
+    expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /xAI/ }));
+
+    await user.click(screen.getByRole("button", { name: "Sign in with xAI" }));
+
+    expect(start).toHaveBeenCalledWith("xai-oauth");
+    expect(open).toHaveBeenCalledWith(
+      "https://auth.example/oauth?state=abc",
+      "_blank",
+      "noopener",
+    );
+    expect(await screen.findByText("Waiting for sign-in…")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Re-open sign-in page" }),
+    ).toBeTruthy();
+    // Pending UI is shown before the first status poll resolves.
+    await waitFor(() => expect(statusWaiters.length).toBeGreaterThan(0));
+    statusWaiters.shift()?.({ state: "complete" });
+
+    await waitFor(() =>
+      expect(screen.getByText("Sign-in complete")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText(/Consent scopes still need to be granted/i),
+    ).toBeTruthy();
+    expect(providers.mock.calls.length).toBeGreaterThan(1);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalled();
+  });
+
+  it("surfaces OAuth errors and cancels a pending sign-in", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ clientDemo: true });
+    vi.stubGlobal("open", vi.fn());
+
+    vi.spyOn(api, "providers").mockResolvedValue([
+      {
+        id: "openai-oauth",
+        kind: "model",
+        label: "ChatGPT",
+        description: "OAuth source",
+        availability: "activation_required",
+        connection: "disconnected",
+        consent: "required",
+        oauth: true,
+        fake: true,
+      },
+    ]);
+    vi.spyOn(api, "providerOauthStart").mockResolvedValue({
+      authorizeUrl: "#/settings",
+      state: "demo",
+    });
+    type OauthStatus = {
+      state: "idle" | "pending" | "complete" | "error";
+      detail?: string;
+      authorizeUrl?: string;
+    };
+    const statusWaiters: Array<(value: OauthStatus) => void> = [];
+    const status = vi.spyOn(api, "providerOauthStatus").mockImplementation(
+      () =>
+        new Promise<OauthStatus>((resolve) => {
+          statusWaiters.push(resolve);
+        }),
+    );
+    const cancel = vi
+      .spyOn(api, "providerOauthCancel")
+      .mockResolvedValue({ ok: true });
+
+    renderRoute(<SettingsPage />, "/", "*", api);
+
+    await user.click(await screen.findByRole("tab", { name: "Connections" }));
+    await user.click(await screen.findByRole("button", { name: /ChatGPT/ }));
+    await user.click(
+      screen.getByRole("button", { name: "Sign in with ChatGPT" }),
+    );
+
+    expect(await screen.findByText("Waiting for sign-in…")).toBeTruthy();
+    await waitFor(() => expect(statusWaiters.length).toBeGreaterThan(0));
+    statusWaiters.shift()?.({
+      state: "error",
+      detail: "Authorization was denied by the provider.",
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByText("Authorization was denied by the provider.").length,
+      ).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText("Waiting for sign-in…")).toBeNull();
+
+    // Retry into a hanging pending poll, then cancel.
+    await user.click(
+      screen.getByRole("button", { name: "Sign in with ChatGPT" }),
+    );
+    expect(await screen.findByText("Waiting for sign-in…")).toBeTruthy();
+    await waitFor(() => expect(statusWaiters.length).toBeGreaterThan(0));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(cancel).toHaveBeenCalledWith("openai-oauth");
+    await waitFor(() =>
+      expect(screen.queryByText("Waiting for sign-in…")).toBeNull(),
+    );
+    expect(status).toHaveBeenCalled();
   });
 
   it("refreshes the document theme after saving appearance.theme", async () => {

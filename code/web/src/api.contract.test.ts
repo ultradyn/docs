@@ -417,6 +417,7 @@ describe("live HTTP contract adapter", () => {
                 state: "consent_required",
                 detail: "Delegate to Codex",
                 fakeAvailable: true,
+                oauth: true,
                 capabilities: ["model"],
                 consentScopes: [
                   {
@@ -505,6 +506,7 @@ describe("live HTTP contract adapter", () => {
         kind: "model",
         consent: "required",
         fake: true,
+        oauth: true,
         consentScopes: [
           {
             scope: "model",
@@ -589,5 +591,50 @@ describe("live HTTP contract adapter", () => {
     expect(new Headers(audioCall?.init?.headers).get("content-type")).toBe(
       "application/octet-stream",
     );
+  });
+
+  it("calls provider OAuth start/status/cancel endpoints", async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, method: init?.method ?? "GET" });
+        if (url.endsWith("/oauth/start"))
+          return json({ authorizeUrl: "#/settings", state: "s1" });
+        if (url.endsWith("/oauth/status"))
+          return json({ state: "pending", authorizeUrl: "#/settings" });
+        if (url.endsWith("/oauth/cancel")) return json({ ok: true });
+        throw new Error(`Unexpected route ${url}`);
+      }),
+    );
+    const api = new ApiClient({ baseUrl: "http://server.test" });
+
+    await expect(api.providerOauthStart("xai-oauth")).resolves.toEqual({
+      authorizeUrl: "#/settings",
+      state: "s1",
+    });
+    await expect(api.providerOauthStatus("xai-oauth")).resolves.toEqual({
+      state: "pending",
+      authorizeUrl: "#/settings",
+    });
+    await expect(api.providerOauthCancel("xai-oauth")).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(calls).toEqual([
+      {
+        url: "http://server.test/api/providers/xai-oauth/oauth/start",
+        method: "POST",
+      },
+      {
+        url: "http://server.test/api/providers/xai-oauth/oauth/status",
+        method: "GET",
+      },
+      {
+        url: "http://server.test/api/providers/xai-oauth/oauth/cancel",
+        method: "POST",
+      },
+    ]);
   });
 });

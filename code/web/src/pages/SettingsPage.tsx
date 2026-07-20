@@ -20,7 +20,7 @@ import {
   TestTube2,
   Unplug,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useApi } from "../api-context.js";
 import { filterSettings } from "../model.js";
@@ -55,6 +55,18 @@ function consentScopeLabel(scope: ProviderConsentScope): string {
 function consentScopeActionLabel(scope: ProviderConsentScope): string {
   return scope === "git-host" ? "Git hosting" : scope;
 }
+
+function oauthSignInLabel(provider: ProviderStatus): string {
+  const key = `${provider.id} ${provider.label}`.toLocaleLowerCase();
+  if (key.includes("xai") || key.includes("x.ai") || key.includes("grok"))
+    return "Sign in with xAI";
+  if (key.includes("openai") || key.includes("chatgpt") || key.includes("codex"))
+    return "Sign in with ChatGPT";
+  return `Sign in with ${provider.label}`;
+}
+
+const OAUTH_POLL_MS = 2_000;
+const OAUTH_TIMEOUT_MS = 180_000;
 
 export function SettingsPage() {
   useDocumentTitle("Settings");
@@ -578,6 +590,167 @@ function ProviderSettings({
     title: string;
     text: string;
   }>();
+  const [oauthPending, setOauthPending] = useState<
+    Record<string, { authorizeUrl: string; startedAt: number }>
+  >({});
+  const [oauthError, setOauthError] = useState<Record<string, string>>({});
+  const oauthTimers = useRef<
+    Map<string, { interval?: number; timeout?: number }>
+  >(new Map());
+
+  function clearOauthTimers(providerId: string) {
+    const timers = oauthTimers.current.get(providerId);
+    if (!timers) return;
+    if (timers.interval !== undefined) window.clearInterval(timers.interval);
+    if (timers.timeout !== undefined) window.clearTimeout(timers.timeout);
+    oauthTimers.current.delete(providerId);
+  }
+
+  function stopOauthPending(providerId: string) {
+    clearOauthTimers(providerId);
+    setOauthPending((current) => {
+      if (!(providerId in current)) return current;
+      const next = { ...current };
+      delete next[providerId];
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    const timers = oauthTimers.current;
+    return () => {
+      for (const providerId of [...timers.keys()]) {
+        const entry = timers.get(providerId);
+        if (!entry) continue;
+        if (entry.interval !== undefined) window.clearInterval(entry.interval);
+        if (entry.timeout !== undefined) window.clearTimeout(entry.timeout);
+        timers.delete(providerId);
+      }
+    };
+  }, []);
+
+  function beginOauthPolling(providerId: string, authorizeUrl: string) {
+    clearOauthTimers(providerId);
+    const startedAt = Date.now();
+    setOauthError((current) => {
+      if (!(providerId in current)) return current;
+      const next = { ...current };
+      delete next[providerId];
+      return next;
+    });
+    setOauthPending((current) => ({
+      ...current,
+      [providerId]: { authorizeUrl, startedAt },
+    }));
+
+    const poll = async () => {
+      try {
+        const status = await api.providerOauthStatus(providerId);
+        if (status.authorizeUrl) {
+          setOauthPending((current) => {
+            const entry = current[providerId];
+            if (!entry) return current;
+            return {
+              ...current,
+              [providerId]: {
+                ...entry,
+                authorizeUrl: status.authorizeUrl!,
+              },
+            };
+          });
+        }
+        if (status.state === "complete") {
+          stopOauthPending(providerId);
+          setMessage({
+            tone: "positive",
+            title: "Sign-in complete",
+            text: "Provider sign-in finished. Consent scopes still need to be granted separately — sign-in is not consent.",
+          });
+          reload();
+          return;
+        }
+        if (status.state === "error") {
+          stopOauthPending(providerId);
+          setOauthError((current) => ({
+            ...current,
+            [providerId]:
+              status.detail ?? "OAuth sign-in failed. Try again.",
+          }));
+          setMessage({
+            tone: "danger",
+            title: "Sign-in failed",
+            text: status.detail ?? "OAuth sign-in failed. Try again.",
+          });
+          return;
+        }
+        if (status.state === "idle") {
+          stopOauthPending(providerId);
+        }
+      } catch (caught) {
+        stopOauthPending(providerId);
+        const text =
+          caught instanceof Error
+            ? caught.message
+            : "Could not check OAuth status.";
+        setOauthError((current) => ({ ...current, [providerId]: text }));
+        setMessage({
+          tone: "danger",
+          title: "Sign-in status unavailable",
+          text,
+        });
+      }
+    };
+
+    const interval = window.setInterval(() => void poll(), OAUTH_POLL_MS);
+    const timeout = window.setTimeout(() => {
+      stopOauthPending(providerId);
+      setOauthError((current) => ({
+        ...current,
+        [providerId]:
+          "Sign-in timed out after 3 minutes. You can try again.",
+      }));
+      setMessage({
+        tone: "danger",
+        title: "Sign-in timed out",
+        text: "No OAuth completion was reported within 3 minutes. Re-open the sign-in flow to try again.",
+      });
+    }, OAUTH_TIMEOUT_MS);
+    oauthTimers.current.set(providerId, { interval, timeout });
+    void poll();
+  }
+
+  async function startOauth(provider: ProviderStatus) {
+    setWorking(`${provider.id}:oauth`);
+    setMessage(undefined);
+    try {
+      const started = await api.providerOauthStart(provider.id);
+      window.open(started.authorizeUrl, "_blank", "noopener");
+      beginOauthPolling(provider.id, started.authorizeUrl);
+    } catch (caught) {
+      const text =
+        caught instanceof Error ? caught.message : "Could not start sign-in.";
+      setOauthError((current) => ({ ...current, [provider.id]: text }));
+      setMessage({
+        tone: "danger",
+        title: `${provider.label} sign-in could not start`,
+        text,
+      });
+    } finally {
+      setWorking(undefined);
+    }
+  }
+
+  async function cancelOauth(provider: ProviderStatus) {
+    setWorking(`${provider.id}:oauth-cancel`);
+    try {
+      await api.providerOauthCancel(provider.id);
+    } catch {
+      // Still exit the waiting UI so the operator is not stuck.
+    } finally {
+      stopOauthPending(provider.id);
+      setWorking(undefined);
+    }
+  }
 
   async function action(
     provider: ProviderStatus,
@@ -647,6 +820,12 @@ function ProviderSettings({
           const activationRequired =
             provider.availability === "activation_required" ||
             provider.availability === "blocked";
+          const pending = oauthPending[provider.id];
+          // Sign-in when oauth-capable and not already connected/available.
+          const oauthEligible =
+            provider.oauth === true &&
+            provider.connection !== "connected" &&
+            provider.availability !== "available";
           return (
             <Card
               className={`provider-card${isExpanded ? " expanded" : ""}`}
@@ -705,6 +884,44 @@ function ProviderSettings({
                     <div className="provider-reason">
                       <AlertTriangle aria-hidden="true" size={16} />
                       <span>{provider.reason}</span>
+                    </div>
+                  ) : null}
+                  {oauthError[provider.id] && !pending ? (
+                    <InlineNotice
+                      tone="danger"
+                      title="OAuth sign-in error"
+                    >
+                      <p>{oauthError[provider.id]}</p>
+                    </InlineNotice>
+                  ) : null}
+                  {pending ? (
+                    <div className="provider-signin provider-signin-pending">
+                      <p className="provider-signin-status">
+                        <CircleDashed className="spin" size={16} />
+                        Waiting for sign-in…
+                      </p>
+                      <div className="provider-signin-actions">
+                        <button
+                          type="button"
+                          className="provider-signin-link"
+                          onClick={() =>
+                            window.open(
+                              pending.authorizeUrl,
+                              "_blank",
+                              "noopener",
+                            )
+                          }
+                        >
+                          Re-open sign-in page
+                        </button>
+                        <Button
+                          variant="secondary"
+                          disabled={Boolean(working)}
+                          onClick={() => void cancelOauth(provider)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
                   ) : null}
                   {provider.capabilities?.length ? (
@@ -830,6 +1047,15 @@ function ProviderSettings({
                     </div>
                   ) : null}
                   <div className="provider-actions">
+                    {oauthEligible && !pending ? (
+                      <Button
+                        className="provider-signin"
+                        disabled={Boolean(working)}
+                        onClick={() => void startOauth(provider)}
+                      >
+                        <PlugZap size={16} /> {oauthSignInLabel(provider)}
+                      </Button>
+                    ) : null}
                     {provider.connection === "connected" ? (
                       provider.consentScopes?.length ? null : (
                         <Button
@@ -845,7 +1071,8 @@ function ProviderSettings({
                         disabled={
                           provider.consent !== "granted" ||
                           activationRequired ||
-                          Boolean(working)
+                          Boolean(working) ||
+                          Boolean(pending)
                         }
                         onClick={() => void action(provider, "connect")}
                       >
@@ -857,7 +1084,7 @@ function ProviderSettings({
                     )}
                     <Button
                       variant="quiet"
-                      disabled={Boolean(working)}
+                      disabled={Boolean(working) || Boolean(pending)}
                       onClick={() => void action(provider, "test")}
                     >
                       <TestTube2 size={16} /> Test{" "}
