@@ -2674,6 +2674,59 @@ describe("local change request public seam", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("includes changed agents/ paths in post-diff documentation reads", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-post-diff-agents-"));
+    const dataRoot = await mkdtemp(
+      join(tmpdir(), "ultradyn-post-diff-agents-state-"),
+    );
+    await mkdir(join(root, "docs"), { recursive: true });
+    await writeFile(
+      join(root, "docs", "_map.md"),
+      "# Documentation map\n",
+      "utf8",
+    );
+    const git = simpleGit(root);
+    await git.init(["--initial-branch=main"]);
+    await git.addConfig("user.name", "Ultradyn Test");
+    await git.addConfig("user.email", "test@ultradyn.invalid");
+    await git.add("docs/_map.md");
+    await git.commit("Initial documentation");
+    const manager = new LocalChangeRequestManager({ repoRoot: root, dataRoot });
+    const created = await manager.create({
+      questionId: "agent-recovery-explainer-test",
+      title: "Agent-Smith: recovery-explainer",
+      question: "Propose a recovery explainer agent.",
+      verbatimChat: "",
+      goals: ["agent-maintenance"],
+      structuredAnswer: "Agent-Smith proposes agent files.",
+      files: [
+        {
+          path: "agents/recovery-explainer/agent.md",
+          content:
+            "---\nname: recovery-explainer\ndescription: Explains recovery\ninputPolicy: agent-smith\nmaxAttempts: 2\n---\n\nExplain recovery.\n",
+        },
+        {
+          path: "agents/recovery-explainer/schema.json",
+          content: `${JSON.stringify({ type: "object" }, null, 2)}\n`,
+        },
+      ],
+    });
+
+    const docs = await manager.readPostDiffDocumentation(created.id);
+    expect(docs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "agents/recovery-explainer/agent.md",
+          content: expect.stringContaining("Explain recovery."),
+        }),
+        expect.objectContaining({
+          path: "agents/recovery-explainer/schema.json",
+        }),
+      ]),
+    );
+    expect(docs.every((entry) => !entry.path.startsWith("docs/"))).toBe(true);
+  });
+
   it("rejects a local symlink instead of reading post-diff documentation outside the worktree", async () => {
     const root = await mkdtemp(join(tmpdir(), "ultradyn-symlink-post-diff-"));
     const dataRoot = await mkdtemp(

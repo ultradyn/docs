@@ -1,6 +1,6 @@
 # Provider authentication and speech research
 
-Reviewed: 2026-07-16
+Reviewed: 2026-07-20
 
 This note separates published provider contracts, observed behavior, and code that is actually wired into Ultradyn Docs.
 
@@ -30,7 +30,7 @@ Claude CLI, OpenCode CLI, and `ANTHROPIC_API_KEY` currently have credential-sour
 
 ## OAuth status
 
-There is no browser/desktop “Login with OpenAI/Claude/xAI/Google” implementation in this version: no callback listener, state/PKCE transaction, token store, refresh lifecycle, deep-link handling, or logout flow. Static installed-client login command definitions are not equivalent to an implemented login action. Provider application registration is an external gate only after the local flow exists.
+Browser OAuth sign-in (authorization-code + PKCE, 127.0.0.1 loopback redirect) is implemented for xAI (`xai-oauth`) and ChatGPT (`openai-oauth`). The server starts a loopback listener, presents the provider authorize URL, exchanges the code, and writes tokens to a machine-local store under the server data root (`oauth/oauth-tokens.json`, mode 0600) with automatic early refresh. Settings → Connections exposes **Sign in with xAI** / **Sign in with ChatGPT**. Completing sign-in is not consent: Ultradyn still requires a separate personal consent receipt per advertised scope. Honesty boundary: these flows reuse public first-party clients (no Ultradyn-owned OAuth registration yet); xAI has no public third-party OAuth program. The ChatGPT subscription token is model-scope only and is not an OpenAI audio API credential. Residuals: OS-matrix tests for cancel/deny/expiry/logout; IdP token revocation (disconnect clears Ultradyn-owned tokens and consent only). Claude/Google/other OAuth surfaces are not implemented. Static installed-client login command definitions remain discovery-only and are not equivalent to an implemented login action.
 
 ## Credential-registry behavior implemented now
 

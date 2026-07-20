@@ -1546,7 +1546,9 @@ export class LocalChangeRequestManager {
     );
     return Promise.all(
       changed
-        .filter((path) => path.startsWith("docs/"))
+        .filter(
+          (path) => path.startsWith("docs/") || path.startsWith("agents/"),
+        )
         .map(async (path) => {
           const destination = await resolveContainedPathNoSymlinks(
             worktreeRoot,

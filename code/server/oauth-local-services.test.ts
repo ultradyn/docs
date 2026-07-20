@@ -238,4 +238,84 @@ describe("local OAuth session manager", () => {
       expect.objectContaining({ id: "openai-oauth", oauth: true }),
     );
   });
+
+  it("clears Ultradyn OAuth tokens on disconnect of any scope", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-oauth-disconnect-"));
+    const { services, store } = await createOAuthServices(root);
+
+    const started = await services.providers.oauthStart("xai-oauth");
+    const authorize = new URL(started.authorizeUrl);
+    const redirectUri = authorize.searchParams.get("redirect_uri");
+    expect(redirectUri).toBeTruthy();
+
+    await fetch(
+      `${redirectUri}?code=auth-code&state=${encodeURIComponent(started.state)}`,
+    );
+
+    let status = await services.providers.oauthStatus("xai-oauth");
+    for (
+      let attempt = 0;
+      attempt < 40 && status.state === "pending";
+      attempt++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      status = await services.providers.oauthStatus("xai-oauth");
+    }
+    expect(status).toMatchObject({ state: "complete" });
+    expect(await store.get("xai-oauth")).toMatchObject({
+      accessToken: "access-from-oauth",
+      refreshToken: "refresh-from-oauth",
+    });
+
+    await services.providers.consent("xai-oauth", "model", true);
+    await services.providers.consent("xai-oauth", "transcription", true);
+    const ready = await services.providers.list();
+    expect(ready).toContainEqual(
+      expect.objectContaining({
+        id: "xai-oauth",
+        state: "ready",
+      }),
+    );
+
+    // Disconnect any one scope → sign-out semantics for Ultradyn-owned tokens.
+    const after = await services.providers.disconnect("xai-oauth", "model");
+    expect(await store.get("xai-oauth")).toBeUndefined();
+    expect(after).toMatchObject({
+      id: "xai-oauth",
+      state: "consent_required",
+      consentScopes: expect.arrayContaining([
+        expect.objectContaining({
+          scope: "model",
+          consent: "revoked",
+        }),
+      ]),
+    });
+
+    const listed = await services.providers.list();
+    expect(listed).toContainEqual(
+      expect.objectContaining({
+        id: "xai-oauth",
+        state: "consent_required",
+      }),
+    );
+  });
+
+  it("disconnects non-oauth sources without requiring a token store", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ultradyn-oauth-disconnect-env-"));
+    const { services, store } = await createOAuthServices(root);
+
+    await services.providers.consent("openai-env", "model", true);
+    const after = await services.providers.disconnect("openai-env", "model");
+    expect(after).toMatchObject({
+      id: "openai-env",
+      consentScopes: expect.arrayContaining([
+        expect.objectContaining({
+          scope: "model",
+          consent: "revoked",
+        }),
+      ]),
+    });
+    // Non-OAuth path never wrote tokens; store stays empty.
+    expect(await store.list()).toEqual([]);
+  });
 });

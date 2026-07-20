@@ -27,4 +27,8 @@ The measured vertical slice (bundle milestones M0–M3) becomes implementable wi
 
 ## Implementation status
 
-Design and plan artifacts only; no production code yet. See `docs/specs/automatic-ingestion-v3/DESIGN.md` (decision register D1–D10, conflict register C1–C16, normalization appendix N1–N8), `.plan/07-automatic-ingestion-v3.md` (plan mapping), and the backlog phase for execution state.
+Substantial production library code exists under `code/domain/ingest/`, `code/ingest/`, and `code/integration/` for R0/R1: source plane, knowledge core, agent contracts, fixtures, and an R1 acceptance harness. Backlog state: R0 is done; R1 is nearly complete (blocked residuals include T-10-04 deletion and production policy attestation T004).
+
+Release-truth residual: the measured vertical slice M3 is **not** closed as a single product-orchestrated Markdown→answer path. The harness uses seeded/faked critic paths and pre-authored claims; there is no full server/UI ingest pipeline yet. Deletion ADR 0007 remains **proposed**; vector retrieval stays disabled; production policy authority is not wired.
+
+Execution state: `docs/specs/automatic-ingestion-v3/DESIGN.md` (decision register D1–D10, conflict register C1–C16, normalization appendix N1–N8), `BLOCKED_TASKS.md` (automatic-ingestion section), `.plan/07-automatic-ingestion-v3.md`, and `.backlog/`.
