@@ -16,11 +16,12 @@
  * justifications only; this validator never interprets them as instructions
  * or questions (downstream consumers may surface them to humans/agents).
  *
- * B003: free-text reason / whyCurrentPacketFails become UntrustedProse after
- * successful validation so consumers cannot silently pass them into model
- * paths. See domain/ingest/untrusted-prose.ts — brand is COMPILE-TIME only.
- * Consumers that need to feed prose to a model must call
- * deliberatelyExposeUntrustedProseToModel (grep-auditable).
+ * B003/B006: free-text reason / whyCurrentPacketFails become UntrustedProse
+ * after successful validation so consumers cannot silently pass them into
+ * plain string slots. See domain/ingest/untrusted-prose.ts — brand is
+ * COMPILE-TIME only. Consumers that need the characters must call
+ * deliberatelyUnwrapUntrustedProse(value, purpose) (grep-auditable; purpose
+ * states model-input vs persistence vs test vs logging).
  */
 import { z } from "zod";
 

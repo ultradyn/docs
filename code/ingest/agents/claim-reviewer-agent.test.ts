@@ -15,7 +15,7 @@ import type { Claim } from "../../domain/ingest/claim.js";
 import type { EvidencePacket } from "../../domain/ingest/evidence-packet.js";
 import type { ClaimId, Sha256, SourceUnitId } from "../../domain/ingest/types.js";
 import {
-  deliberatelyExposeUntrustedProseToModel,
+  deliberatelyUnwrapUntrustedProse,
   isUntrustedProse,
   type UntrustedProse,
 } from "../../domain/ingest/untrusted-prose.js";
@@ -321,7 +321,7 @@ describe("happy path accept", () => {
     };
     expect(row.decision).toBe("accept");
     expect(isUntrustedProse(row.reason)).toBe(true);
-    expect(deliberatelyExposeUntrustedProseToModel(row.reason)).toBe(
+    expect(deliberatelyUnwrapUntrustedProse(row.reason, "test")).toBe(
       "Entailed by unit text.",
     );
   });

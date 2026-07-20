@@ -23,12 +23,10 @@
  * 4. Map per-row: claimId, expectedVersion, decision, splits?, qualifierClaimIds?.
  * 5. DROP agent-only fields: entailment, atomicity, scope, qualifiers,
  *    authorityEligible, evidenceUnitIds (not on ClaimReview).
- * 6. reason: unwrap UntrustedProse via deliberatelyExposeUntrustedProseToModel
- *    into a plain string for ClaimReviewSchema (.strict() rejects the class).
- *    NAMING MISMATCH: that hatch says ToModel but this use is persistence —
- *    grepping the hatch for model-input audits will false-hit. Misleading, not
- *    forbidden. Do not add a second hatch here; rename once with a real
- *    orchestrator caller if the name obstructs.
+ * 6. reason: unwrap UntrustedProse via deliberatelyUnwrapUntrustedProse(
+ *    reason, "persistence") into a plain string for ClaimReviewSchema
+ *    (.strict() rejects the class). Purpose tags the call as persistence so
+ *    grepping purpose "model-input" does not false-hit review storage.
  *
  * - Fresh context is STRUCTURAL for NAMED TOP-LEVEL SLOTS only:
  *   ProposeContext has no extractorMessages / chat / transcript field, and
