@@ -23,6 +23,14 @@ import { MaintenancePage } from "./pages/MaintenancePage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { QueuePage } from "./pages/QueuePage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
+import {
+  applyResolvedTheme,
+  resolveTheme,
+  systemPrefersDark,
+  type ThemePreference,
+  parseThemePreference,
+  THEME_SETTING_KEY,
+} from "./theme.js";
 import type { RuntimeConfig, StreamEvent } from "./types.js";
 
 interface BootState {
@@ -44,6 +52,19 @@ async function loadActorIdentity(api: ApiClient): Promise<ActorIdentityState> {
   }
 }
 
+async function loadThemePreference(api: ApiClient): Promise<ThemePreference> {
+  try {
+    const settings = await api.settings();
+    return parseThemePreference(settings.values[THEME_SETTING_KEY]);
+  } catch {
+    return "system";
+  }
+}
+
+function applyThemePreference(preference: ThemePreference): void {
+  applyResolvedTheme(resolveTheme(preference, systemPrefersDark()));
+}
+
 export function App() {
   const [boot, setBoot] = useState<BootState>();
   const [bootError, setBootError] = useState<Error>();
@@ -53,6 +74,8 @@ export function App() {
   const [actorIdentity, setActorIdentity] = useState<ActorIdentityState>({
     status: "loading",
   });
+  const [themePreference, setThemePreference] =
+    useState<ThemePreference>("system");
 
   useEffect(() => {
     let current = true;
@@ -80,16 +103,39 @@ export function App() {
     setActorIdentity(await loadActorIdentity(activeApi));
   }, [activeApi]);
 
+  const refreshTheme = useCallback(async () => {
+    if (!activeApi) return;
+    const preference = await loadThemePreference(activeApi);
+    setThemePreference(preference);
+    applyThemePreference(preference);
+  }, [activeApi]);
+
   useEffect(() => {
     if (!activeApi) return;
     let current = true;
     void loadActorIdentity(activeApi).then((identity) => {
       if (current) setActorIdentity(identity);
     });
+    void loadThemePreference(activeApi).then((preference) => {
+      if (!current) return;
+      setThemePreference(preference);
+      applyThemePreference(preference);
+    });
     return () => {
       current = false;
     };
   }, [activeApi]);
+
+  useEffect(() => {
+    applyThemePreference(themePreference);
+    if (themePreference !== "system" || typeof window === "undefined") {
+      return;
+    }
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyThemePreference("system");
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [themePreference]);
 
   useEffect(() => {
     if (!boot) return;
@@ -105,9 +151,12 @@ export function App() {
             setBoot((current) => (current ? { ...current, runtime } : current)),
           );
       }
-      if (event.type === "settings.updated") void refreshActorIdentity();
+      if (event.type === "settings.updated") {
+        void refreshActorIdentity();
+        void refreshTheme();
+      }
     }, setEventConnected);
-  }, [boot, refreshActorIdentity]);
+  }, [boot, refreshActorIdentity, refreshTheme]);
 
   const refreshRuntime = useCallback(async () => {
     if (!activeApi) return;
@@ -143,6 +192,7 @@ export function App() {
     runtime: boot.runtime,
     refreshRuntime,
     refreshActorIdentity,
+    refreshTheme,
     actorIdentity,
     eventConnected,
     ...(latestEvent ? { latestEvent } : {}),

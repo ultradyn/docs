@@ -31,6 +31,7 @@ function renderRoute(
     status: "configured",
     handle: "alex.review-1",
   },
+  extras: Partial<Pick<ApiContextValue, "refreshTheme">> = {},
 ) {
   const context: ApiContextValue = {
     api,
@@ -42,8 +43,10 @@ function renderRoute(
     },
     refreshRuntime: async () => undefined,
     refreshActorIdentity: async () => undefined,
+    refreshTheme: async () => undefined,
     actorIdentity,
     eventConnected: true,
+    ...extras,
   };
   return render(
     <ApiContext.Provider value={context}>
@@ -489,6 +492,48 @@ describe("primary web routes", () => {
       screen.getAllByText("Fake contract available").length,
     ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Test contract" })).toBeTruthy();
+  });
+
+  it("refreshes the document theme after saving appearance.theme", async () => {
+    const user = userEvent.setup();
+    const api = new ApiClient({ clientDemo: true });
+    const refreshTheme = vi.fn(async () => undefined);
+    vi.spyOn(api, "settings").mockResolvedValue({
+      values: { "appearance.theme": "system" },
+    });
+    vi.spyOn(api, "settingSchema").mockResolvedValue([
+      {
+        key: "appearance.theme",
+        label: "Color theme",
+        description:
+          "Use the operating-system theme or force a light or dark interface.",
+        category: "Appearance",
+        scope: "personal",
+        type: "select",
+        defaultValue: "system",
+        options: [
+          { value: "system", label: "System" },
+          { value: "light", label: "Light" },
+          { value: "dark", label: "Dark" },
+        ],
+      },
+    ]);
+    vi.spyOn(api, "providers").mockResolvedValue([]);
+    const save = vi.spyOn(api, "settingsSave").mockResolvedValue({
+      values: { "appearance.theme": "dark" },
+    });
+    renderRoute(<SettingsPage />, "/", "*", api, undefined, { refreshTheme });
+
+    const theme = await screen.findByRole("combobox", { name: "Color theme" });
+    await user.click(theme);
+    await user.click(screen.getByRole("option", { name: "Dark" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(save).toHaveBeenCalledWith(
+      { "appearance.theme": "dark" },
+      { "appearance.theme": "personal" },
+    );
+    expect(refreshTheme).toHaveBeenCalledTimes(1);
   });
 
   it("identifies restart-required settings and announces a restart after saving", async () => {

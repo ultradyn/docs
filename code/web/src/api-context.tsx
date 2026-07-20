@@ -25,6 +25,7 @@ export interface ApiContextValue {
   runtime: RuntimeConfig;
   refreshRuntime: () => Promise<void>;
   refreshActorIdentity: () => Promise<void>;
+  refreshTheme: () => Promise<void>;
   actorIdentity: ActorIdentityState;
   eventConnected: boolean;
   latestEvent?: StreamEvent;

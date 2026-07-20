@@ -78,6 +78,7 @@ describe("Answer page audio recovery", () => {
       },
       refreshRuntime: async () => undefined,
       refreshActorIdentity: async () => undefined,
+      refreshTheme: async () => undefined,
       actorIdentity: { status: "configured", handle: "alex.review-1" },
       eventConnected: true,
     };

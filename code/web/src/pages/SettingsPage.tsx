@@ -58,7 +58,8 @@ function consentScopeActionLabel(scope: ProviderConsentScope): string {
 
 export function SettingsPage() {
   useDocumentTitle("Settings");
-  const { api, runtime, refreshRuntime, refreshActorIdentity } = useApi();
+  const { api, runtime, refreshRuntime, refreshActorIdentity, refreshTheme } =
+    useApi();
   const [tab, setTab] = useState<SettingsTab>("preferences");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SettingScope | "all">("all");
@@ -160,6 +161,7 @@ export function SettingsPage() {
       await refreshRuntime();
       if (dirtyKeys.includes("identity.actorHandle"))
         await refreshActorIdentity();
+      if (dirtyKeys.includes("appearance.theme")) await refreshTheme();
       if (requiresRestart) setRestartPending(true);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3_000);

@@ -77,7 +77,7 @@ states.
 
 - P0 remaining: none observed
 - P1 remaining: none observed
-- Accepted limitation: the existing app is light-only; no dark theme was added
+- Theme: light/dark/system via semantic tokens (`data-theme`); dark slate canvas with soft ink
 - Keyboard/state path: semantic route tests plus a focused shared-combobox test
   cover opening, arrow-key movement, selection, Escape, and focus restoration
 - Production route verified: yes, including a real cross-site handshake against
