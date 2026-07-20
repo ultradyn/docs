@@ -19,6 +19,7 @@ import { Navigation } from "./components/Navigation.js";
 import { ErrorState, LoadingState, StatusPill } from "./components/ui.js";
 import { AnswerPage } from "./pages/AnswerPage.js";
 import { AskPage } from "./pages/AskPage.js";
+import { IngestPage } from "./pages/IngestPage.js";
 import { MaintenancePage } from "./pages/MaintenancePage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { QueuePage } from "./pages/QueuePage.js";
@@ -257,6 +258,7 @@ export function App() {
                 <Route path="/queue/:questionId" element={<QueuePage />} />
                 <Route path="/answer" element={<AnswerPage />} />
                 <Route path="/answer/:questionId" element={<AnswerPage />} />
+                <Route path="/ingest" element={<IngestPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 {boot.runtime.maintenanceEnabled ? (
                   <Route path="/maintenance" element={<MaintenancePage />} />

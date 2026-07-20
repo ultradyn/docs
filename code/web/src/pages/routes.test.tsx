@@ -13,6 +13,7 @@ import {
 } from "../api-context.js";
 import { AskPage } from "./AskPage.js";
 import { AnswerPage } from "./AnswerPage.js";
+import { IngestPage } from "./IngestPage.js";
 import { MaintenancePage } from "./MaintenancePage.js";
 import { QueuePage } from "./QueuePage.js";
 import { SettingsPage } from "./SettingsPage.js";
@@ -32,11 +33,12 @@ function renderRoute(
     handle: "alex.review-1",
   },
   extras: Partial<Pick<ApiContextValue, "refreshTheme">> = {},
+  options: { maintenanceEnabled?: boolean } = {},
 ) {
   const context: ApiContextValue = {
     api,
     runtime: {
-      maintenanceEnabled: true,
+      maintenanceEnabled: options.maintenanceEnabled ?? true,
       demoMode: true,
       repoRoot: "~/network-docs",
       version: "test",
@@ -771,5 +773,56 @@ describe("primary web routes", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+  });
+
+  it("surfaces ingest discovery from the Ask landing page", async () => {
+    renderRoute(<AskPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "How to ingest sources" }),
+    ).toBeTruthy();
+    const sources = screen.getByRole("link", { name: /Open Sources/ });
+    expect(sources.getAttribute("href")).toBe("/ingest");
+  });
+
+  it("explains sources honestly and deep-links when maintenance is on", async () => {
+    renderRoute(<IngestPage />, "/ingest", "/ingest");
+
+    expect(
+      await screen.findByRole("heading", { name: "Sources & ingest" }),
+    ).toBeTruthy();
+    expect(screen.getByText("No separate upload pipeline yet")).toBeTruthy();
+    expect(screen.getAllByText("~/network-docs").length).toBeGreaterThan(0);
+    const maintenance = screen.getByRole("link", {
+      name: "Open Maintenance source tools",
+    });
+    expect(maintenance.getAttribute("href")).toBe("/maintenance");
+  });
+
+  it("routes maintenance-off users to Settings for source tools", async () => {
+    renderRoute(
+      <IngestPage />,
+      "/ingest",
+      "/ingest",
+      new ApiClient({ clientDemo: true }),
+      {
+        status: "configured",
+        handle: "alex.review-1",
+      },
+      {},
+      { maintenanceEnabled: false },
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Sources & ingest" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Maintenance off")).toBeTruthy();
+    const settings = screen.getByRole("link", {
+      name: "Open Settings to enable maintenance",
+    });
+    expect(settings.getAttribute("href")).toBe("/settings");
+    expect(screen.getAllByText(/server\.maintenance/).length).toBeGreaterThan(
+      0,
+    );
   });
 });

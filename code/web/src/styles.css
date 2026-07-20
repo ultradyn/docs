@@ -735,6 +735,31 @@ code {
   border-color: #a8c7bd;
   color: var(--brand-deep);
 }
+.ask-sources-card {
+  display: flex;
+  max-width: 36rem;
+  gap: 1rem;
+  margin: 1.35rem auto 0;
+  padding: 1rem 1.1rem;
+  text-align: left;
+}
+.ask-sources-card .guide-icon {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+}
+.ask-sources-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+.ask-sources-card p {
+  margin: 0 0 0.75rem;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+.ask-sources-card .button {
+  display: inline-flex;
+  width: fit-content;
+}
 .conversation {
   display: flex;
   flex-direction: column;
@@ -2878,6 +2903,96 @@ code {
 .narrow-page {
   max-width: 38rem;
   margin: 10vh auto 0;
+}
+
+/* Sources / ingest discovery */
+.ingest-page {
+  max-width: 64rem;
+  margin: 0 auto;
+}
+.ingest-page > .inline-notice {
+  margin-bottom: 1rem;
+}
+.ingest-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17.5rem, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+.ingest-card {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1.1rem;
+}
+.ingest-card .guide-icon {
+  margin-bottom: 0;
+}
+.ingest-card h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.ingest-card > p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+.ingest-card .button {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 0.15rem;
+}
+.ingest-repo {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--ink-soft);
+  background: var(--surface-soft, #f6f9f7);
+}
+.ingest-repo code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+.ingest-footnote {
+  margin-top: auto !important;
+  color: var(--ink-faint) !important;
+  font-size: 0.7rem !important;
+}
+.ingest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+}
+.ingest-actions .button {
+  display: inline-flex;
+  width: fit-content;
+}
+.ingest-howto {
+  padding: 1.15rem 1.2rem;
+}
+.ingest-howto h2 {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+}
+.ingest-howto ol {
+  margin: 0 0 0.9rem;
+  padding-left: 1.2rem;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+.ingest-howto li {
+  margin-top: 0.4rem;
+}
+.ingest-howto code {
+  font-size: 0.72rem;
 }
 
 @media (max-width: 75rem) {
