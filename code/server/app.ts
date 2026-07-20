@@ -575,6 +575,30 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     },
   );
 
+  app.post<{ Params: { id: string } }>(
+    "/api/providers/:id/oauth/start",
+    async (request) => {
+      const id = SafeSlugSchema.parse(request.params.id);
+      return options.services.providers.oauthStart(id);
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    "/api/providers/:id/oauth/status",
+    async (request) => {
+      const id = SafeSlugSchema.parse(request.params.id);
+      return options.services.providers.oauthStatus(id);
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/api/providers/:id/oauth/cancel",
+    async (request) => {
+      const id = SafeSlugSchema.parse(request.params.id);
+      return options.services.providers.oauthCancel(id);
+    },
+  );
+
   app.get("/api/agents", async () => ({
     agents: await options.services.agents.list(),
   }));

@@ -130,14 +130,27 @@ export class ProviderRuntimeFactory {
         }),
       };
     }
-    if (
+    const description = this.credentials
+      .descriptions()
+      .find((candidate) => candidate.id === selected);
+    const isLegacyHttpSelection =
       selected === "openai-env" ||
       selected === "xai-env" ||
-      selected === "grok-auth-file"
-    ) {
+      selected === "grok-auth-file";
+    const isHttpBearerCandidate =
+      description?.kind === "http-bearer" &&
+      (description.providerId === "openai" || description.providerId === "xai");
+    if (isHttpBearerCandidate || isLegacyHttpSelection) {
       const capability = await this.#credential(selected, "model");
       if ("state" in capability) return capability;
-      const expectedProvider = selected === "openai-env" ? "openai" : "xai";
+      // Legacy ids keep their historical provider mapping so a mislabeled
+      // source remains incompatible; new OAuth sources use description truth.
+      const expectedProvider =
+        selected === "openai-env"
+          ? "openai"
+          : selected === "xai-env" || selected === "grok-auth-file"
+            ? "xai"
+            : description!.providerId;
       if (
         capability.kind !== "http-bearer" ||
         capability.providerId !== expectedProvider
@@ -174,14 +187,25 @@ export class ProviderRuntimeFactory {
     if (selected === "fake-stt") {
       return { state: "ready", selected, provider: new FakeSttProvider() };
     }
-    if (
+    const description = this.credentials
+      .descriptions()
+      .find((candidate) => candidate.id === selected);
+    const isLegacyHttpSelection =
       selected === "openai-env" ||
       selected === "xai-env" ||
-      selected === "grok-auth-file"
-    ) {
+      selected === "grok-auth-file";
+    const isHttpBearerCandidate =
+      description?.kind === "http-bearer" &&
+      (description.providerId === "openai" || description.providerId === "xai");
+    if (isHttpBearerCandidate || isLegacyHttpSelection) {
       const capability = await this.#credential(selected, "transcription");
       if ("state" in capability) return capability;
-      const expectedProvider = selected === "openai-env" ? "openai" : "xai";
+      const expectedProvider =
+        selected === "openai-env"
+          ? "openai"
+          : selected === "xai-env" || selected === "grok-auth-file"
+            ? "xai"
+            : description!.providerId;
       if (
         capability.kind !== "http-bearer" ||
         capability.providerId !== expectedProvider

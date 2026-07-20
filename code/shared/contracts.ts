@@ -179,6 +179,8 @@ export interface ProviderStatus {
   capabilities: string[];
   consentScopes?: ProviderConsentScopeStatus[];
   activationChecklist?: string[];
+  /** True when this credential source is backed by a browser OAuth sign-in flow. */
+  oauth?: boolean;
 }
 
 export interface MaintenanceTask {

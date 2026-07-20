@@ -248,6 +248,65 @@ describe("HTTP API", () => {
     expect(invalid.statusCode).toBe(400);
   });
 
+  it("exposes OAuth start/status/cancel routes with the fixed contract", async () => {
+    const app = server();
+
+    const idle = await app.inject({
+      method: "GET",
+      url: "/api/providers/xai-oauth/oauth/status",
+    });
+    expect(idle.statusCode).toBe(200);
+    expect(idle.json()).toEqual({ state: "idle" });
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/providers/xai-oauth/oauth/start",
+    });
+    expect(started.statusCode).toBe(200);
+    expect(started.json()).toEqual({
+      authorizeUrl: "#/settings",
+      state: "demo",
+    });
+
+    const pending = await app.inject({
+      method: "GET",
+      url: "/api/providers/xai-oauth/oauth/status",
+    });
+    expect(pending.statusCode).toBe(200);
+    expect(pending.json()).toMatchObject({
+      state: "pending",
+      authorizeUrl: "#/settings",
+    });
+
+    const cancelled = await app.inject({
+      method: "POST",
+      url: "/api/providers/xai-oauth/oauth/cancel",
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json()).toEqual({ ok: true });
+
+    const afterCancel = await app.inject({
+      method: "GET",
+      url: "/api/providers/xai-oauth/oauth/status",
+    });
+    expect(afterCancel.json()).toEqual({ state: "idle" });
+
+    const unknown = await app.inject({
+      method: "POST",
+      url: "/api/providers/missing-oauth/oauth/start",
+    });
+    expect(unknown.statusCode).toBe(404);
+
+    const nonOauth = await app.inject({
+      method: "POST",
+      url: "/api/providers/codex/oauth/start",
+    });
+    expect(nonOauth.statusCode).toBe(400);
+    expect(nonOauth.json()).toMatchObject({
+      error: { code: "oauth_not_supported" },
+    });
+  });
+
   it("makes maintenance routes conditional", async () => {
     const off = server();
     const on = server({ maintenanceEnabled: true });

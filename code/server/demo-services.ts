@@ -194,6 +194,8 @@ const settingSchema: SettingDescriptor[] = [
       { value: "fake-llm", label: "Deterministic fake" },
       { value: "codex-cli", label: "Codex / ChatGPT sign-in" },
       { value: "grok-auth-file", label: "Grok client sign-in" },
+      { value: "xai-oauth", label: "xAI OAuth sign-in" },
+      { value: "openai-oauth", label: "ChatGPT OAuth sign-in" },
       { value: "xai-env", label: "XAI_API_KEY" },
       { value: "openai-env", label: "OPENAI_API_KEY" },
       { value: "claude-cli", label: "Claude CLI sign-in" },
@@ -212,6 +214,7 @@ const settingSchema: SettingDescriptor[] = [
     options: [
       { value: "fake-stt", label: "Deterministic fake" },
       { value: "grok-auth-file", label: "Grok client sign-in" },
+      { value: "xai-oauth", label: "xAI OAuth sign-in" },
       { value: "xai-env", label: "XAI_API_KEY" },
       { value: "openai-env", label: "OPENAI_API_KEY" },
     ],
@@ -250,9 +253,34 @@ function copy<T>(value: T): T {
   return structuredClone(value);
 }
 
+function markDemoOAuthComplete(provider: ProviderStatus): void {
+  provider.state = "consent_required";
+  provider.detail =
+    "Simulated OAuth sign-in completed; grant scoped consent next.";
+  if (provider.consentScopes) {
+    provider.consentScopes = provider.consentScopes.map((scope) => ({
+      scope: scope.scope,
+      consent: scope.consent,
+      availability: "available" as const,
+    }));
+  }
+  delete provider.activationChecklist;
+}
+
 export function createDemoServices(): UltradynServices {
   const questions = new Map<string, QuestionDetail>();
   const settings = new Map<string, SettingValue>();
+  const oauthSessions = new Map<
+    string,
+    {
+      state: "pending" | "complete" | "error";
+      authorizeUrl?: string;
+      detail?: string;
+      completeAt?: number;
+    }
+  >();
+  const demoOAuthIds = new Set(["xai-oauth", "openai-oauth"]);
+
   const providers = new Map<string, ProviderStatus>([
     [
       "fake",
@@ -264,6 +292,66 @@ export function createDemoServices(): UltradynServices {
         detail: "Local deterministic provider. No data leaves this machine.",
         fakeAvailable: true,
         capabilities: ["chat", "agents", "streaming-stt"],
+      },
+    ],
+    [
+      "xai-oauth",
+      {
+        id: "xai-oauth",
+        name: "xAI OAuth (simulated)",
+        kind: "llm",
+        state: "activation_required",
+        detail:
+          "Simulated browser OAuth sign-in for demo mode; no network calls are made.",
+        fakeAvailable: true,
+        oauth: true,
+        capabilities: ["model", "transcription"],
+        consentScopes: [
+          {
+            scope: "model",
+            consent: "required",
+            availability: "unavailable",
+            reason: "Simulated OAuth sign-in has not completed.",
+          },
+          {
+            scope: "transcription",
+            consent: "required",
+            availability: "unavailable",
+            reason: "Simulated OAuth sign-in has not completed.",
+          },
+        ],
+        activationChecklist: [
+          "Complete the browser sign-in from this page",
+          "Grant scoped discovery consent here",
+          "Run the provider capability test before selection",
+        ],
+      },
+    ],
+    [
+      "openai-oauth",
+      {
+        id: "openai-oauth",
+        name: "ChatGPT OAuth (simulated)",
+        kind: "llm",
+        state: "activation_required",
+        detail:
+          "Simulated ChatGPT OAuth sign-in for demo mode; model scope only.",
+        fakeAvailable: true,
+        oauth: true,
+        capabilities: ["model"],
+        consentScopes: [
+          {
+            scope: "model",
+            consent: "required",
+            availability: "unavailable",
+            reason: "Simulated OAuth sign-in has not completed.",
+          },
+        ],
+        activationChecklist: [
+          "Complete the browser sign-in from this page",
+          "Grant scoped discovery consent here",
+          "Run the provider capability test before selection",
+        ],
       },
     ],
     [
@@ -755,6 +843,97 @@ export function createDemoServices(): UltradynServices {
               detail: `${provider.name} passed its capability check.`,
             }
           : { ok: false, detail: `${provider.name} is ${provider.state}.` };
+      },
+      oauthStart: async (id) => {
+        if (!demoOAuthIds.has(id)) {
+          if (!providers.has(id)) {
+            throw new ServiceError(
+              `Unknown provider ${id}`,
+              404,
+              "provider_not_found",
+            );
+          }
+          throw new ServiceError(
+            `${id} does not support browser OAuth sign-in.`,
+            400,
+            "oauth_not_supported",
+          );
+        }
+        const existing = oauthSessions.get(id);
+        if (existing?.state === "pending" && existing.authorizeUrl) {
+          return { authorizeUrl: existing.authorizeUrl, state: "demo" };
+        }
+        const authorizeUrl = "#/settings";
+        oauthSessions.set(id, {
+          state: "pending",
+          authorizeUrl,
+          completeAt: Date.now() + 1_000,
+        });
+        // Simulate a completed browser flow after 1s without network.
+        setTimeout(() => {
+          const session = oauthSessions.get(id);
+          if (!session || session.state !== "pending") return;
+          session.state = "complete";
+          const provider = providers.get(id);
+          if (provider) {
+            markDemoOAuthComplete(provider);
+          }
+        }, 1_000).unref?.();
+        return { authorizeUrl, state: "demo" };
+      },
+      oauthStatus: async (id) => {
+        if (!demoOAuthIds.has(id)) {
+          if (!providers.has(id)) {
+            throw new ServiceError(
+              `Unknown provider ${id}`,
+              404,
+              "provider_not_found",
+            );
+          }
+          throw new ServiceError(
+            `${id} does not support browser OAuth sign-in.`,
+            400,
+            "oauth_not_supported",
+          );
+        }
+        const session = oauthSessions.get(id);
+        if (!session) return { state: "idle" as const };
+        if (
+          session.state === "pending" &&
+          session.completeAt !== undefined &&
+          Date.now() >= session.completeAt
+        ) {
+          session.state = "complete";
+          const provider = providers.get(id);
+          if (provider) {
+            markDemoOAuthComplete(provider);
+          }
+        }
+        return {
+          state: session.state,
+          ...(session.detail ? { detail: session.detail } : {}),
+          ...(session.authorizeUrl
+            ? { authorizeUrl: session.authorizeUrl }
+            : {}),
+        };
+      },
+      oauthCancel: async (id) => {
+        if (!demoOAuthIds.has(id)) {
+          if (!providers.has(id)) {
+            throw new ServiceError(
+              `Unknown provider ${id}`,
+              404,
+              "provider_not_found",
+            );
+          }
+          throw new ServiceError(
+            `${id} does not support browser OAuth sign-in.`,
+            400,
+            "oauth_not_supported",
+          );
+        }
+        oauthSessions.delete(id);
+        return { ok: true as const };
       },
     },
     agents: {
