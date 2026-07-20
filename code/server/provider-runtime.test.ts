@@ -8,7 +8,11 @@ import {
   CredentialSourceRegistry,
   EnvironmentBearerCredentialSource,
   FileConsentStore,
+  FileOAuthTokenStore,
   InMemoryConsentStore,
+  OAuthTokenCredentialSource,
+  OPENAI_OAUTH_FLOW,
+  XAI_OAUTH_FLOW,
   createInstalledClientCredentialSources,
   type CredentialSource,
   type ProcessRunner,
@@ -624,5 +628,103 @@ describe("provider runtime public seam", () => {
       ]),
     );
     expect(processCalls).toEqual([]);
+  });
+
+  it("resolves xai-oauth to the xAI LLM adapter when the store has a token and consent is granted", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ultradyn-oauth-runtime-"));
+    const store = new FileOAuthTokenStore(join(directory, "oauth"));
+    await store.set("xai-oauth", {
+      accessToken: "xai-access",
+      refreshToken: "xai-refresh",
+      expiresAt: Date.now() + 60_000,
+    });
+    const credentials = new CredentialSourceRegistry(
+      new InMemoryConsentStore(),
+    );
+    credentials.register(
+      new OAuthTokenCredentialSource({
+        store,
+        config: XAI_OAUTH_FLOW,
+      }),
+    );
+    await credentials.setConsent(
+      "xai-oauth",
+      "model",
+      "granted",
+      "2026-07-16T00:00:00.000Z",
+    );
+    const runtime = new ProviderRuntimeFactory({
+      credentials,
+      cwd: directory,
+    });
+
+    expect(await runtime.resolveLlm("xai-oauth")).toMatchObject({
+      state: "ready",
+      selected: "xai-oauth",
+      provider: { id: "xai-responses" },
+    });
+  });
+
+  it("blocks xai-oauth without model consent even when a token is stored", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ultradyn-oauth-runtime-"));
+    const store = new FileOAuthTokenStore(join(directory, "oauth"));
+    await store.set("xai-oauth", { accessToken: "xai-access" });
+    const credentials = new CredentialSourceRegistry(
+      new InMemoryConsentStore(),
+    );
+    credentials.register(
+      new OAuthTokenCredentialSource({
+        store,
+        config: XAI_OAUTH_FLOW,
+      }),
+    );
+    const runtime = new ProviderRuntimeFactory({
+      credentials,
+      cwd: directory,
+    });
+
+    expect(await runtime.resolveLlm("xai-oauth")).toMatchObject({
+      state: "blocked",
+      selected: "xai-oauth",
+      reason: "consent-required",
+      scope: "model",
+    });
+  });
+
+  it("blocks openai-oauth for STT because ChatGPT tokens are model-only", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ultradyn-oauth-runtime-"));
+    const store = new FileOAuthTokenStore(join(directory, "oauth"));
+    await store.set("openai-oauth", { accessToken: "openai-access" });
+    const credentials = new CredentialSourceRegistry(
+      new InMemoryConsentStore(),
+    );
+    credentials.register(
+      new OAuthTokenCredentialSource({
+        store,
+        config: OPENAI_OAUTH_FLOW,
+      }),
+    );
+    await credentials.setConsent(
+      "openai-oauth",
+      "model",
+      "granted",
+      "2026-07-16T00:00:00.000Z",
+    );
+    const runtime = new ProviderRuntimeFactory({
+      credentials,
+      cwd: directory,
+    });
+
+    expect(await runtime.resolveLlm("openai-oauth")).toMatchObject({
+      state: "ready",
+      selected: "openai-oauth",
+      provider: { id: "openai-api" },
+    });
+    expect(await runtime.resolveStt("openai-oauth")).toMatchObject({
+      state: "blocked",
+      selected: "openai-oauth",
+      reason: "incompatible-source",
+      scope: "transcription",
+    });
   });
 });

@@ -27,13 +27,24 @@ import {
   CredentialUnavailableError,
   FakeGitHostProvider,
   FfmpegCodecProvider,
+  FileOAuthTokenStore,
   GhCliGitHostProvider,
+  OAUTH_FLOWS,
+  OAuthError,
+  OAuthTokenCredentialSource,
+  OPENAI_OAUTH_FLOW,
+  XAI_OAUTH_FLOW,
   createEnvironmentCredentialSources,
   createInstalledClientCredentialSources,
+  getOAuthFlow,
+  runOAuthFlow,
+  startLoopbackListener,
   type CredentialSource,
   type CredentialSourceDescription,
   type GitHostProvider,
   type LlmProvider,
+  type LoopbackListener,
+  type OAuthTokenSet,
 } from "../providers/index.js";
 import {
   FileAudioSessionStore,
@@ -86,6 +97,14 @@ export interface CreateLocalServicesOptions {
   gitHostProvider?: GitHostProvider;
   llmProvider?: LlmProvider;
   allowFakeMedia?: boolean;
+  /** Injectable fetch for OAuth token exchange (tests). */
+  fetch?: typeof globalThis.fetch;
+  /** Injectable loopback factory for OAuth (tests). */
+  startOAuthListener?: (options: {
+    path: string;
+    port?: number;
+    timeoutMs?: number;
+  }) => Promise<LoopbackListener>;
 }
 
 interface TranscriptMetadata {
@@ -367,6 +386,13 @@ function providerKind(
 function activationChecklist(
   description: CredentialSourceDescription,
 ): string[] {
+  if (description.id in OAUTH_FLOWS) {
+    return [
+      "Complete the browser sign-in from this page",
+      "Grant scoped discovery consent here",
+      "Run the provider capability test before selection",
+    ];
+  }
   if (description.id === "grok-auth-file") {
     return [
       "Run `grok login --device-auth` in a trusted terminal",
@@ -386,6 +412,19 @@ function activationChecklist(
     "Grant scoped discovery consent here",
     "Run the provider capability test before selection",
   ];
+}
+
+type OAuthSessionPhase = "pending" | "complete" | "error";
+
+interface OAuthSession {
+  phase: OAuthSessionPhase;
+  authorizeUrl?: string;
+  state?: string;
+  detail?: string;
+  listener?: LoopbackListener | undefined;
+  flowPromise: Promise<void>;
+  /** Rejects oauthStart if cancel wins the race before presentUrl. */
+  rejectStart?: ((error: unknown) => void) | undefined;
 }
 
 function githubRepositoryFromRemote(remote: string): string | undefined {
@@ -423,17 +462,36 @@ export async function createLocalServices(
   const agentsRoot = join(options.repoRoot, "agents");
   const ffmpeg = new FfmpegCodecProvider();
   const documentation = new DocumentationIndex(options.repoRoot);
+  const oauthTokenStore = new FileOAuthTokenStore(
+    join(options.dataRoot, "oauth"),
+  );
+  const oauthFetch = options.fetch;
+  const defaultOAuthSources = [
+    new OAuthTokenCredentialSource({
+      store: oauthTokenStore,
+      config: XAI_OAUTH_FLOW,
+      ...(oauthFetch ? { fetch: oauthFetch } : {}),
+    }),
+    new OAuthTokenCredentialSource({
+      store: oauthTokenStore,
+      config: OPENAI_OAUTH_FLOW,
+      ...(oauthFetch ? { fetch: oauthFetch } : {}),
+    }),
+  ];
   const credentialSources = options.credentialSources ?? [
     ...createEnvironmentCredentialSources(),
     ...createInstalledClientCredentialSources(),
+    ...defaultOAuthSources,
   ];
   const providerRuntime = createDefaultProviderRuntimeFactory({
     repoRoot: options.repoRoot,
     dataRoot: options.dataRoot,
     credentialSources,
+    ...(oauthFetch ? { fetch: oauthFetch } : {}),
   });
   const credentials: CredentialSourceRegistry = providerRuntime.credentials;
   const fakeGitHost = new FakeGitHostProvider();
+  const oauthSessions = new Map<string, OAuthSession>();
 
   async function selectedGitHost(): Promise<GitHostProvider> {
     if (options.gitHostProvider) return options.gitHostProvider;
@@ -936,10 +994,203 @@ export async function createLocalServices(
       fakeAvailable: true,
       capabilities: [...description.scopes],
       consentScopes,
+      ...(description.id in OAUTH_FLOWS ? { oauth: true as const } : {}),
       ...(ready
         ? {}
         : { activationChecklist: activationChecklist(description) }),
     };
+  }
+
+  async function oauthStart(
+    id: string,
+  ): Promise<{ authorizeUrl: string; state: string }> {
+    const description = credentials
+      .descriptions()
+      .find((candidate) => candidate.id === id);
+    if (!description) {
+      throw new ServiceError(
+        `Unknown provider ${id}`,
+        404,
+        "provider_not_found",
+      );
+    }
+    let config;
+    try {
+      config = getOAuthFlow(id);
+    } catch {
+      throw new ServiceError(
+        `${description.label} does not support browser OAuth sign-in.`,
+        400,
+        "oauth_not_supported",
+      );
+    }
+
+    const existing = oauthSessions.get(id);
+    if (
+      existing?.phase === "pending" &&
+      existing.authorizeUrl &&
+      existing.state
+    ) {
+      return { authorizeUrl: existing.authorizeUrl, state: existing.state };
+    }
+
+    let resolvePresented!: (value: {
+      authorizeUrl: string;
+      state: string;
+    }) => void;
+    let rejectPresented!: (error: unknown) => void;
+    const presented = new Promise<{ authorizeUrl: string; state: string }>(
+      (resolve, reject) => {
+        resolvePresented = resolve;
+        rejectPresented = reject;
+      },
+    );
+
+    const session: OAuthSession = {
+      phase: "pending",
+      flowPromise: Promise.resolve(),
+      rejectStart: rejectPresented,
+    };
+    oauthSessions.set(id, session);
+
+    const flowPromise = (async () => {
+      let ownedListener: LoopbackListener | undefined;
+      try {
+        // Always own the listener so cancel/complete can close the HTTP server.
+        const startListener =
+          options.startOAuthListener ?? startLoopbackListener;
+        ownedListener = await startListener({
+          path: config.redirectPath,
+          ...(config.fixedPort !== undefined
+            ? { port: config.fixedPort }
+            : {}),
+          timeoutMs: 3 * 60 * 1000,
+        });
+        session.listener = ownedListener;
+        const tokens: OAuthTokenSet = await runOAuthFlow({
+          config,
+          listener: ownedListener,
+          ...(oauthFetch ? { fetch: oauthFetch } : {}),
+          presentUrl: (url) => {
+            const authorizeUrl = url;
+            const state =
+              new URL(authorizeUrl).searchParams.get("state") ?? "";
+            session.authorizeUrl = authorizeUrl;
+            session.state = state;
+            delete session.rejectStart;
+            resolvePresented({ authorizeUrl, state });
+          },
+        });
+        await oauthTokenStore.set(id, tokens);
+        session.phase = "complete";
+        delete session.detail;
+      } catch (error) {
+        // Cancel deletes the session before closing; don't overwrite that.
+        if (!oauthSessions.has(id)) return;
+        if (session.phase === "pending") {
+          session.phase = "error";
+          if (error instanceof OAuthError) {
+            session.detail = error.errorDescription ?? error.message;
+          } else if (error instanceof Error) {
+            // Loopback close during cancel surfaces a closed-listener error;
+            // only keep it if the session is still tracked as pending.
+            session.detail = error.message;
+          } else {
+            session.detail = "OAuth sign-in failed.";
+          }
+        }
+        rejectPresented(error);
+      } finally {
+        if (ownedListener) {
+          await ownedListener.close().catch(() => undefined);
+          delete session.listener;
+        }
+      }
+    })();
+    session.flowPromise = flowPromise;
+    void flowPromise.catch(() => undefined);
+
+    try {
+      return await presented;
+    } catch (error) {
+      if (error instanceof ServiceError) throw error;
+      throw new ServiceError(
+        error instanceof Error
+          ? error.message
+          : "OAuth sign-in failed to start.",
+        500,
+        "oauth_start_failed",
+      );
+    }
+  }
+
+  async function oauthStatus(id: string): Promise<{
+    state: "idle" | "pending" | "complete" | "error";
+    detail?: string;
+    authorizeUrl?: string;
+  }> {
+    const description = credentials
+      .descriptions()
+      .find((candidate) => candidate.id === id);
+    if (!description) {
+      throw new ServiceError(
+        `Unknown provider ${id}`,
+        404,
+        "provider_not_found",
+      );
+    }
+    if (!(id in OAUTH_FLOWS)) {
+      throw new ServiceError(
+        `${description.label} does not support browser OAuth sign-in.`,
+        400,
+        "oauth_not_supported",
+      );
+    }
+    const session = oauthSessions.get(id);
+    if (!session) return { state: "idle" };
+    return {
+      state: session.phase,
+      ...(session.detail ? { detail: session.detail } : {}),
+      ...(session.authorizeUrl ? { authorizeUrl: session.authorizeUrl } : {}),
+    };
+  }
+
+  async function oauthCancel(id: string): Promise<{ ok: true }> {
+    const description = credentials
+      .descriptions()
+      .find((candidate) => candidate.id === id);
+    if (!description) {
+      throw new ServiceError(
+        `Unknown provider ${id}`,
+        404,
+        "provider_not_found",
+      );
+    }
+    if (!(id in OAUTH_FLOWS)) {
+      throw new ServiceError(
+        `${description.label} does not support browser OAuth sign-in.`,
+        400,
+        "oauth_not_supported",
+      );
+    }
+    const session = oauthSessions.get(id);
+    if (session?.phase === "pending") {
+      oauthSessions.delete(id);
+      session.rejectStart?.(
+        new ServiceError(
+          "OAuth sign-in was cancelled.",
+          409,
+          "oauth_cancelled",
+        ),
+      );
+      delete session.rejectStart;
+      if (session.listener) {
+        await session.listener.close().catch(() => undefined);
+        delete session.listener;
+      }
+      await session.flowPromise.catch(() => undefined);
+    }
+    return { ok: true };
   }
 
   async function allProviderStatuses(): Promise<ProviderStatus[]> {
@@ -2055,6 +2306,9 @@ export async function createLocalServices(
             }
           : { ok: false, detail: `${provider.name} is ${provider.state}.` };
       },
+      oauthStart,
+      oauthStatus,
+      oauthCancel,
     },
     agents: {
       list: agentStatuses,

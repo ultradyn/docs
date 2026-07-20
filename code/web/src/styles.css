@@ -2621,6 +2621,44 @@ code {
   gap: 0.45rem;
   margin-top: 0.75rem;
 }
+.provider-signin-pending {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.7rem 0 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--surface-raised);
+}
+.provider-signin-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.72rem;
+}
+.provider-signin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+.provider-signin-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font: inherit;
+  font-size: 0.72rem;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  cursor: pointer;
+  padding: 0;
+}
+.provider-signin-link:hover {
+  color: var(--brand-strong, var(--brand));
+}
 
 /* Maintenance and Agents */
 .maintenance-page {
