@@ -16,6 +16,7 @@ import {
   type ActorIdentityState,
 } from "./api-context.js";
 import { Navigation } from "./components/Navigation.js";
+import { ThemeToggle } from "./components/ThemeToggle.js";
 import { ErrorState, LoadingState, StatusPill } from "./components/ui.js";
 import { AnswerPage } from "./pages/AnswerPage.js";
 import { AskPage } from "./pages/AskPage.js";
@@ -110,6 +111,23 @@ export function App() {
     setThemePreference(preference);
     applyThemePreference(preference);
   }, [activeApi]);
+
+  const changeTheme = useCallback(
+    async (next: ThemePreference) => {
+      setThemePreference(next);
+      applyThemePreference(next);
+      if (!activeApi) return;
+      try {
+        await activeApi.settingsSave(
+          { [THEME_SETTING_KEY]: next },
+          { [THEME_SETTING_KEY]: "personal" },
+        );
+      } catch {
+        // Persist failure must not undo the in-session preview.
+      }
+    },
+    [activeApi],
+  );
 
   useEffect(() => {
     if (!activeApi) return;
@@ -207,6 +225,10 @@ export function App() {
             <Brand />
             <Navigation maintenanceEnabled={boot.runtime.maintenanceEnabled} />
             <div className="sidebar-foot">
+              <ThemeToggle
+                preference={themePreference}
+                onChange={(next) => void changeTheme(next)}
+              />
               <StatusPill
                 tone={eventConnected ? "positive" : "warning"}
                 icon={Radio}

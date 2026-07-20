@@ -34,6 +34,7 @@
   --neutral-line: #dadbd5;
   --positive-ink: #236149;
   --positive-line: #c8e1d5;
+  --positive-mid: #9ecbbb;
   --amber-ink: #795516;
   --amber-line: #ead4a7;
   --danger-ink: #903b30;
@@ -99,6 +100,7 @@
   --neutral-line: #33443b;
   --positive-ink: #5fbfa0;
   --positive-line: #2e5a4b;
+  --positive-mid: #3d7a64;
   --amber-ink: #d4a04a;
   --amber-line: #54401e;
   --danger-ink: #e07a6e;
@@ -330,6 +332,28 @@ code {
   margin-top: auto;
   padding: 0.9rem 0.7rem 0;
   border-top: 1px solid rgb(255 255 255 / 8%);
+}
+.theme-toggle {
+  display: inline-flex;
+  min-height: 1.9rem;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 999px;
+  color: #9eb6b1;
+  background: transparent;
+  font-size: 0.68rem;
+  font-weight: 650;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+.theme-toggle:hover {
+  border-color: rgb(255 255 255 / 24%);
+  color: #eff7f4;
+  background: rgb(255 255 255 / 5%);
 }
 .repo-label {
   display: flex;
@@ -1613,7 +1637,7 @@ code {
   background: var(--positive);
 }
 .progress-rail li.done::after {
-  background: var(--positive-line);
+  background: var(--positive-mid);
 }
 .progress-rail li.active {
   color: var(--brand);
@@ -3425,10 +3449,10 @@ code {
     --ink-faint: #4d5a57;
   }
   [data-theme="dark"] {
-    --line: #5a6a85;
-    --line-strong: #7a8aa8;
-    --ink-soft: #d5dde8;
-    --ink-faint: #aeb9c9;
+    --line: #4a5c50;
+    --line-strong: #62766a;
+    --ink-soft: #d3ddd6;
+    --ink-faint: #a9bab0;
   }
   .button-primary,
   .nav-link-active {
