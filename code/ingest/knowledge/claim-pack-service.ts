@@ -12,12 +12,13 @@
  * - Evidence refs COPIED from durable claims (inherited). Seal proves snapshot
  *   fidelity of selected claim versions — NOT that refs were packet-mapped at
  *   write time.
- * - T004: applicationRefs are populated INDEPENDENTLY from
+ * - T004 / B009: applicationRefs are populated INDEPENDENTLY from
  *   ClaimReviewApplicationStore.listApplications() (accept AND reject
  *   decisions for the question). They are NOT synthesized from claimIds —
- *   that would make the selection audit circular/hollow.
+ *   that would make the selection audit circular/hollow. Multi-id apps expand
+ *   to one ref per claimId in acceptedClaimIds/rejectedClaimIds (design B).
  * - Application refs prove selection matches RECORDED decisions; they do NOT
- *   prove those decisions were correct.
+ *   prove those decisions were correct. Dual-gate membership remains authority.
  * - Required unaccepted qualifier → MISSING_QUALIFIER (not pull-in).
  * - Reject-then-qualify cannot launder into pack (qualify never writes
  *   acceptedClaimIds; store accepted−rejected excludes).
@@ -39,7 +40,10 @@ import type {
 } from "../../domain/ingest/types.js";
 import type { ClaimRepository } from "./claim-repository.js";
 import type { ClaimReviewApplicationStore } from "./claim-review-service.js";
-import { recomputeSealedPackHash } from "./pack-application-audit.js";
+import {
+  expandApplicationToPackRefs,
+  recomputeSealedPackHash,
+} from "./pack-application-audit.js";
 
 export type ClaimPackError =
   | "INVALID_INPUT"
@@ -190,26 +194,30 @@ export function createClaimPackService(
 
       const gaps: string[] = [];
 
-      // T004 Condition B: applicationRefs from store applications INDEPENDENTLY
-      // of claimIds (accept + reject for this question). Never synthesize from
-      // selected claim ids — that would make the audit circular.
+      // T004 Condition B / B009: applicationRefs from store applications
+      // INDEPENDENTLY of claimIds (accept + reject for this question). Never
+      // synthesize from selected claim ids — that would make the audit circular.
+      // Design B: expand each app into one ref per claimId in accepted/rejected
+      // arrays so multi-id applications stay aligned with listAcceptedClaimIds.
       const allApps = await applicationStore.listApplications();
-      const appRefById = new Map<string, PackApplicationRef>();
+      const applicationRefs: PackApplicationRef[] = [];
+      const seenAppIds = new Set<string>();
       for (const app of allApps) {
+        if (seenAppIds.has(app.applicationId)) continue;
+        if (app.decision !== "accept" && app.decision !== "reject") continue;
+        // Scope by subject claim's question (same as pre-B009 filter).
         const got = await claimRepo.get(app.claimId);
         if (!got.ok) continue;
         if (got.value.createdFrom.questionId !== questionId) continue;
-        if (app.decision !== "accept" && app.decision !== "reject") continue;
-        appRefById.set(app.applicationId, {
-          applicationId: app.applicationId,
-          reviewId: app.reviewId,
-          claimId: app.claimId,
-          decision: app.decision,
-        });
+        seenAppIds.add(app.applicationId);
+        applicationRefs.push(...expandApplicationToPackRefs(app));
       }
-      const applicationRefs = [...appRefById.values()].sort((a, b) =>
-        cmpId(a.applicationId, b.applicationId),
-      );
+      applicationRefs.sort((a, b) => {
+        const byApp = cmpId(a.applicationId, b.applicationId);
+        return byApp !== 0
+          ? byApp
+          : cmpId(a.claimId as string, b.claimId as string);
+      });
 
       const packDraft: SealedClaimPack = {
         schemaVersion: 2 as const,

@@ -1,5 +1,5 @@
 /**
- * T004 — Auditable selection: re-derive accept−reject from pack.applicationRefs.
+ * T004 / B009 — Auditable selection: re-derive accept−reject from pack.applicationRefs.
  *
  * HONESTY (NAIL 4):
  * This verifier proves the pack SELECTION matches the RECORDED claim-review
@@ -8,9 +8,17 @@
  *
  * Dual-gate membership at build time remains the production selection authority;
  * applicationRefs are an independent witness from the decision store.
+ *
+ * B009 design B: each PackApplicationRef is one (applicationId, claimId) pair.
+ * Multi-id applications expand to multiple refs so this witness matches
+ * listAcceptedClaimIds array semantics (acceptedClaimIds − rejectedClaimIds).
  */
 import { createHash } from "node:crypto";
 
+import type {
+  ClaimReviewDecision,
+  ClaimReviewId,
+} from "../../domain/ingest/claim-review.js";
 import type {
   PackApplicationRef,
   SealedClaimPack,
@@ -39,7 +47,53 @@ function sha256Hex(material: string): Sha256 {
   return createHash("sha256").update(material).digest("hex") as Sha256;
 }
 
-/** Accepts minus rejects; sorted claim ids. */
+/**
+ * Expand a store application into one PackApplicationRef per claimId in the
+ * decision-scoped arrays (B009 design B). Single-id accept/reject apps yield
+ * exactly one ref — same shape as pre-B009, preserving seal hashes.
+ */
+export function expandApplicationToPackRefs(app: {
+  readonly applicationId: string;
+  readonly reviewId: ClaimReviewId | string;
+  readonly decision: ClaimReviewDecision | string;
+  readonly acceptedClaimIds: readonly ClaimId[];
+  readonly rejectedClaimIds: readonly ClaimId[];
+}): PackApplicationRef[] {
+  const base = {
+    applicationId: app.applicationId,
+    reviewId: app.reviewId as ClaimReviewId,
+  };
+  if (app.decision === "accept") {
+    return [...app.acceptedClaimIds]
+      .map((id) => id as string)
+      .sort(cmpId)
+      .map(
+        (claimId) =>
+          ({
+            ...base,
+            claimId: claimId as ClaimId,
+            decision: "accept" as const,
+          }) satisfies PackApplicationRef,
+      );
+  }
+  if (app.decision === "reject") {
+    return [...app.rejectedClaimIds]
+      .map((id) => id as string)
+      .sort(cmpId)
+      .map(
+        (claimId) =>
+          ({
+            ...base,
+            claimId: claimId as ClaimId,
+            decision: "reject" as const,
+          }) satisfies PackApplicationRef,
+      );
+  }
+  // split / qualify intentionally omitted from pack refs (builder filters too).
+  return [];
+}
+
+/** Accepts minus rejects across expanded refs; sorted claim ids. */
 export function deriveClaimIdsFromApplicationRefs(
   refs: readonly PackApplicationRef[],
 ): ClaimId[] {
@@ -98,6 +152,7 @@ export function recomputeSealedPackHash(pack: SealedClaimPack): Sha256 {
     return c !== 0 ? c : cmpId(a.unitId, b.unitId);
   });
   const gaps = [...pack.gaps].sort(cmpId);
+  // B009: multi-ref per applicationId → sort by applicationId then claimId.
   const applicationRefs = [...pack.applicationRefs]
     .map((r) => ({
       applicationId: r.applicationId,
@@ -105,7 +160,10 @@ export function recomputeSealedPackHash(pack: SealedClaimPack): Sha256 {
       claimId: r.claimId,
       decision: r.decision,
     }))
-    .sort((a, b) => cmpId(a.applicationId, b.applicationId));
+    .sort((a, b) => {
+      const byApp = cmpId(a.applicationId, b.applicationId);
+      return byApp !== 0 ? byApp : cmpId(a.claimId as string, b.claimId as string);
+    });
 
   const body = JSON.stringify({
     schemaVersion: pack.schemaVersion,
