@@ -13,10 +13,7 @@ import { stemmer } from "stemmer";
  * MiniSearch processTerm: lowercase + Porter stem.
  * Returns the stemmed term string for indexing and querying.
  */
-export function processLexicalTerm(
-  term: string,
-  _fieldName?: string,
-): string | null {
+export function processLexicalTerm(term: string): string | null {
   if (typeof term !== "string" || term.length === 0) return null;
   const lower = term.toLowerCase();
   // MiniSearch may pass punctuation-only tokens; skip empty stems.
