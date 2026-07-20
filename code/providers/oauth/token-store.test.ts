@@ -34,6 +34,7 @@ function testConfig(tokenEndpoint: string): OAuthFlowConfig {
     clientId: "client",
     scopes: ["openid"],
     redirectPath: "/callback",
+    consentScopes: ["model", "transcription"],
   };
 }
 

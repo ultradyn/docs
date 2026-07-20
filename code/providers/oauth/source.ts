@@ -41,7 +41,7 @@ export class OAuthTokenCredentialSource implements CredentialSource {
       label: this.#config.label,
       providerId: this.#config.providerId,
       kind: "http-bearer",
-      scopes: ["model", "transcription"],
+      scopes: [...this.#config.consentScopes],
     };
   }
 

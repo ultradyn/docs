@@ -25,6 +25,7 @@ function config(tokenEndpoint: string): OAuthFlowConfig {
     clientId: "client",
     scopes: ["openid", "profile", "email", "offline_access", "api:access"],
     redirectPath: "/callback",
+    consentScopes: ["model", "transcription"],
   };
 }
 

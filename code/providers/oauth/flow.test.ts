@@ -117,6 +117,7 @@ function testConfig(idp: FakeIdp, overrides: Partial<OAuthFlowConfig> = {}): OAu
     clientId: "client-test",
     scopes: ["openid", "profile", "email"],
     redirectPath: "/callback",
+    consentScopes: ["model", "transcription"],
     ...overrides,
   };
 }

@@ -10,6 +10,8 @@ export interface OAuthFlowConfig {
   redirectPath: string;
   fixedPort?: number;
   extraAuthorizeParams?: Record<string, string>;
+  /** Consent scopes this token can honestly serve in Ultradyn Docs. */
+  consentScopes: ("model" | "transcription")[];
 }
 
 export const XAI_OAUTH_FLOW: OAuthFlowConfig = {
@@ -22,6 +24,9 @@ export const XAI_OAUTH_FLOW: OAuthFlowConfig = {
   clientId: "b1a00492-073a-47ea-816f-4c329264a828",
   scopes: ["openid", "profile", "email", "offline_access", "api:access"],
   redirectPath: "/callback",
+  // One xAI token serves both model and STT; the user still grants each
+  // Ultradyn consent scope explicitly.
+  consentScopes: ["model", "transcription"],
 };
 
 export const OPENAI_OAUTH_FLOW: OAuthFlowConfig = {
@@ -35,6 +40,9 @@ export const OPENAI_OAUTH_FLOW: OAuthFlowConfig = {
   scopes: ["openid", "profile", "email", "offline_access"],
   redirectPath: "/auth/callback",
   fixedPort: 1455,
+  // A ChatGPT subscription token is not an OpenAI audio API credential, so
+  // this source honestly serves the model scope only.
+  consentScopes: ["model"],
 };
 
 export const OAUTH_FLOWS: Record<string, OAuthFlowConfig> = {
